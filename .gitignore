@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# database, encrypted files and the master key live here
+instance/
+
+# CA and user private keys
+pki/private/
+*.key
+
+.env
+.idea/
+.vscode/
