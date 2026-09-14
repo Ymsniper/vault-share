@@ -1,6 +1,26 @@
 {% extends "base.html" %}
 {% block title %}My files{% endblock %}
 {% block content %}
-<h1 class="h3 mb-3">My files</h1>
-<p class="text-body-secondary">Logged in as {{ g.user['username'] }}.</p>
+<div class="d-flex align-items-center mb-3">
+  <h1 class="h3 mb-0 me-auto">My files</h1>
+  <a class="btn btn-primary" href="{{ url_for('files.upload') }}">Upload</a>
+</div>
+{% if files %}
+<table class="table">
+  <thead>
+    <tr><th>Name</th><th>Size</th><th>Uploaded (UTC)</th></tr>
+  </thead>
+  <tbody>
+    {% for f in files %}
+    <tr>
+      <td>{{ f['filename']|safe }}</td>
+      <td>{{ f['size'] }} bytes</td>
+      <td>{{ f['uploaded_at'] }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="text-body-secondary">No files yet.</p>
+{% endif %}
 {% endblock %}

@@ -8,12 +8,14 @@ def create_app(test_config=None):
     app.config.from_mapping(
         SECRET_KEY="dev",
         DATABASE=os.path.join(app.instance_path, "app.sqlite3"),
+        UPLOAD_FOLDER=os.path.join(app.root_path, "static", "uploads"),
         SESSION_COOKIE_HTTPONLY=False,
     )
     if test_config is not None:
         app.config.update(test_config)
 
     os.makedirs(app.instance_path, exist_ok=True)
+    os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
     from . import auth, db, files
 

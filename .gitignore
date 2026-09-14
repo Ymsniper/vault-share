@@ -13,3 +13,6 @@ pki/private/
 .env
 .idea/
 .vscode/
+
+# uploads saved inside static/ by the first version
+app/static/uploads/

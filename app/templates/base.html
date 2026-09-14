@@ -12,7 +12,8 @@
       <a class="navbar-brand" href="{{ url_for('files.index') }}">File sharing</a>
       <ul class="navbar-nav ms-auto">
         {% if g.user %}
-          <li class="nav-item"><span class="navbar-text me-3">{{ g.user['username'] }}</span></li>
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('files.upload') }}">Upload</a></li>
+          <li class="nav-item"><span class="navbar-text mx-3">{{ g.user['username'] }}</span></li>
           <li class="nav-item"><a class="nav-link" href="{{ url_for('auth.logout') }}">Log out</a></li>
         {% else %}
           <li class="nav-item"><a class="nav-link" href="{{ url_for('auth.register') }}">Register</a></li>
@@ -22,8 +23,8 @@
     </div>
   </nav>
   <main class="container">
-    {% for message in get_flashed_messages() %}
-      <div class="alert alert-warning">{{ message }}</div>
+    {% for category, message in get_flashed_messages(with_categories=true) %}
+      <div class="alert alert-{{ 'success' if category == 'success' else 'warning' }}">{{ message }}</div>
     {% endfor %}
     {% block content %}{% endblock %}
   </main>
