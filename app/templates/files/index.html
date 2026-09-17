@@ -13,7 +13,7 @@
   <tbody>
     {% for f in files %}
     <tr>
-      <td>{{ f['filename']|safe }}</td>
+      <td><a href="{{ url_for('files.detail', id=f['id']) }}">{{ f['filename']|safe }}</a></td>
       <td>{{ f['size'] }} bytes</td>
       <td>{{ f['uploaded_at'] }}</td>
     </tr>

@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}{{ f['filename'] }}{% endblock %}
+{% block content %}
+<h1 class="h3 mb-3">{{ f['filename']|safe }}</h1>
+
+{% if error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% else %}
+<div class="alert alert-success">Integrity verified</div>
+{% endif %}
+
+<dl class="row">
+  <dt class="col-sm-2">Owner</dt>
+  <dd class="col-sm-10">{{ f['owner'] }}</dd>
+  <dt class="col-sm-2">Description</dt>
+  <dd class="col-sm-10">{{ f['description']|safe }}</dd>
+  <dt class="col-sm-2">Size</dt>
+  <dd class="col-sm-10">{{ f['size'] }} bytes</dd>
+  <dt class="col-sm-2">SHA-256</dt>
+  <dd class="col-sm-10"><code>{{ f['sha256'] }}</code></dd>
+  <dt class="col-sm-2">Uploaded</dt>
+  <dd class="col-sm-10">{{ f['uploaded_at'] }} UTC</dd>
+</dl>
+
+{% if not error %}
+<a class="btn btn-primary mb-4" href="{{ url_for('files.download', id=f['id']) }}">Download</a>
+{% endif %}
+
+{% if f['owner_id'] == g.user['id'] %}
+<form method="post" action="{{ url_for('files.delete', id=f['id']) }}">
+  <button type="submit" class="btn btn-outline-danger">Delete</button>
+</form>
+{% endif %}
+{% endblock %}
