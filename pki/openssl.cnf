@@ -1,0 +1,21 @@
+# Used by the scripts in this folder, so they give the same certificates
+# whatever the system's default openssl.cnf contains.
+
+[req]
+distinguished_name = ca_dn
+prompt = no
+
+[ca_dn]
+CN = File Sharing Local CA
+
+[v3_ca]
+basicConstraints = critical, CA:TRUE
+keyUsage = critical, keyCertSign, cRLSign
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid:always
+
+[v3_user]
+basicConstraints = critical, CA:FALSE
+keyUsage = critical, digitalSignature, nonRepudiation
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid
