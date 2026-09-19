@@ -1,6 +1,8 @@
 DROP TABLE IF EXISTS audit_log;
 DROP TABLE IF EXISTS shares;
 DROP TABLE IF EXISTS files;
+DROP TABLE IF EXISTS certificates;
+DROP TABLE IF EXISTS user_keys;
 DROP TABLE IF EXISTS users;
 
 CREATE TABLE users (
@@ -9,6 +11,21 @@ CREATE TABLE users (
     password_hash TEXT NOT NULL,
     is_admin INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE user_keys (
+    user_id INTEGER PRIMARY KEY REFERENCES users (id),
+    private_key TEXT NOT NULL
+);
+
+CREATE TABLE certificates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users (id),
+    serial TEXT NOT NULL UNIQUE,
+    pem TEXT NOT NULL,
+    not_before TEXT NOT NULL,
+    not_after TEXT NOT NULL,
+    revoked_at TEXT
 );
 
 CREATE TABLE files (

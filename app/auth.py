@@ -1,8 +1,20 @@
 import functools
 
-from flask import Blueprint, flash, g, redirect, render_template, request, session, url_for
+from flask import (
+    Blueprint,
+    current_app,
+    flash,
+    g,
+    redirect,
+    render_template,
+    request,
+    session,
+    url_for,
+)
 
 from security.passwords import hash_password
+from security.pki import issue_certificate, load_ca, make_csr, to_pem
+from security.signing import generate_key, private_key_pem
 
 from .audit import audit
 from .db import get_db
@@ -22,17 +34,43 @@ def register():
             error = "Password is required."
 
         if error is None:
+            cfg = current_app.config
+            try:
+                ca_cert, ca_key = load_ca(cfg["CA_CERT"], cfg["CA_KEY"], cfg["CA_PASSPHRASE"])
+            except (OSError, ValueError) as e:
+                current_app.logger.error("cannot load the CA: %s", e)
+                error = "Registration is unavailable: the certificate authority is not set up."
+
+        if error is None:
             db = get_db()
             try:
                 cur = db.execute(
                     "INSERT INTO users (username, password_hash) VALUES (?, ?)",
                     (username, hash_password(password)),
                 )
-                db.commit()
             except db.IntegrityError:
                 error = f"User {username} is already registered."
             else:
-                audit("register", "ok", user_id=cur.lastrowid)
+                user_id = cur.lastrowid
+                key = generate_key()
+                cert = issue_certificate(make_csr(key, username), ca_cert, ca_key)
+                db.execute(
+                    "INSERT INTO user_keys (user_id, private_key) VALUES (?, ?)",
+                    (user_id, private_key_pem(key)),
+                )
+                db.execute(
+                    "INSERT INTO certificates (user_id, serial, pem, not_before, not_after)"
+                    " VALUES (?, ?, ?, ?, ?)",
+                    (
+                        user_id,
+                        format(cert.serial_number, "x"),
+                        to_pem(cert),
+                        cert.not_valid_before_utc.strftime("%Y-%m-%d %H:%M:%S"),
+                        cert.not_valid_after_utc.strftime("%Y-%m-%d %H:%M:%S"),
+                    ),
+                )
+                db.commit()
+                audit("register", "ok", user_id=user_id)
                 return redirect(url_for("auth.login"))
 
         flash(error)

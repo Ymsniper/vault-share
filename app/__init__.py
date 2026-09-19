@@ -9,6 +9,10 @@ def create_app(test_config=None):
         SECRET_KEY="dev",
         DATABASE=os.path.join(app.instance_path, "app.sqlite3"),
         UPLOAD_FOLDER=os.path.join(app.root_path, "static", "uploads"),
+        # made by pki/create_ca.sh; the key is encrypted under CA_PASSPHRASE
+        CA_CERT=os.path.join(app.instance_path, "ca", "ca.crt"),
+        CA_KEY=os.path.join(app.instance_path, "ca", "ca.key"),
+        CA_PASSPHRASE=os.environ.get("CA_PASSPHRASE"),
         SESSION_COOKIE_HTTPONLY=False,
     )
     if test_config is not None:
