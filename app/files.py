@@ -18,6 +18,7 @@ from flask import (
 from security.crypto import decrypt, encrypt
 from security.integrity import sha256_hex
 
+from .audit import audit
 from .auth import login_required
 from .db import get_db
 
@@ -103,6 +104,7 @@ def upload():
             ),
         )
         db.commit()
+        audit("upload", "ok", file_id=cur.lastrowid)
         flash(f"Uploaded {file.filename}.", "success")
         return redirect(url_for("files.detail", id=cur.lastrowid))
 
@@ -114,6 +116,7 @@ def upload():
 def detail(id):
     f = get_file(id)
     _, error = check_file(f)
+    audit("verify", "failed" if error else "ok", file_id=id, detail=error)
     shares = get_db().execute(
         "SELECT u.id, u.username FROM shares s JOIN users u ON u.id = s.recipient_id"
         " WHERE s.file_id = ? AND s.revoked_at IS NULL ORDER BY u.username",
@@ -128,8 +131,10 @@ def download(id):
     f = get_file(id)
     data, error = check_file(f)
     if error is not None:
+        audit("download", "refused", file_id=id, detail=error)
         flash(error)
         return redirect(url_for("files.detail", id=id))
+    audit("download", "ok", file_id=id)
     return send_file(io.BytesIO(data), mimetype=f["mime"], download_name=f["filename"])
 
 
@@ -141,6 +146,7 @@ def share(id):
     db = get_db()
     user = db.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
     if user is None:
+        audit("share", "failed", file_id=id, detail="unknown user")
         flash("Unknown user.")
     elif user["id"] == f["owner_id"]:
         flash("The owner already has access.")
@@ -152,6 +158,7 @@ def share(id):
             (id, user["id"]),
         )
         db.commit()
+        audit("share", "ok", file_id=id, detail=f"with {username}")
         flash(f"Shared with {username}.", "success")
     return redirect(url_for("files.detail", id=id))
 
@@ -160,13 +167,15 @@ def share(id):
 @login_required
 def revoke(id):
     get_file(id)
+    recipient_id = request.form["recipient_id"]
     db = get_db()
     db.execute(
         "UPDATE shares SET revoked_at = datetime('now')"
         " WHERE file_id = ? AND recipient_id = ? AND revoked_at IS NULL",
-        (id, request.form["recipient_id"]),
+        (id, recipient_id),
     )
     db.commit()
+    audit("revoke", "ok", file_id=id, detail=f"user {recipient_id}")
     flash("Share revoked.", "success")
     return redirect(url_for("files.detail", id=id))
 
@@ -182,5 +191,6 @@ def delete(id):
     db = get_db()
     db.execute("DELETE FROM files WHERE id = ?", (id,))
     db.commit()
+    audit("delete", "ok", file_id=id)
     flash(f"Deleted {f['filename']}.", "success")
     return redirect(url_for("files.index"))

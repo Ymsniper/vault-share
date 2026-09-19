@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Audit log{% endblock %}
+{% block content %}
+<h1 class="h3 mb-3">Audit log</h1>
+<p class="text-body-secondary">Latest 200 events, newest first. Times are UTC.</p>
+<table class="table table-sm">
+  <thead>
+    <tr><th>Time</th><th>User</th><th>Action</th><th>File</th><th>Outcome</th><th>Detail</th><th>IP</th></tr>
+  </thead>
+  <tbody>
+    {% for e in entries %}
+    <tr>
+      <td>{{ e['at'] }}</td>
+      <td>{{ e['username'] or '-' }}</td>
+      <td>{{ e['action'] }}</td>
+      <td>{{ e['file_id'] or '' }}</td>
+      <td>{{ e['outcome'] }}</td>
+      <td>{{ e['detail'] or '' }}</td>
+      <td>{{ e['ip'] or '' }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

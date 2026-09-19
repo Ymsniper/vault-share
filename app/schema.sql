@@ -1,3 +1,4 @@
+DROP TABLE IF EXISTS audit_log;
 DROP TABLE IF EXISTS shares;
 DROP TABLE IF EXISTS files;
 DROP TABLE IF EXISTS users;
@@ -27,4 +28,15 @@ CREATE TABLE shares (
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     revoked_at TEXT,
     PRIMARY KEY (file_id, recipient_id)
+);
+
+CREATE TABLE audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    at TEXT NOT NULL DEFAULT (datetime('now')),
+    user_id INTEGER REFERENCES users (id),
+    action TEXT NOT NULL,
+    file_id INTEGER,
+    outcome TEXT NOT NULL,
+    detail TEXT,
+    ip TEXT
 );

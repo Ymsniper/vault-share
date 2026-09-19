@@ -4,6 +4,7 @@ from flask import Blueprint, flash, g, redirect, render_template, request, sessi
 
 from security.passwords import hash_password
 
+from .audit import audit
 from .db import get_db
 
 bp = Blueprint("auth", __name__, url_prefix="/auth")
@@ -23,7 +24,7 @@ def register():
         if error is None:
             db = get_db()
             try:
-                db.execute(
+                cur = db.execute(
                     "INSERT INTO users (username, password_hash) VALUES (?, ?)",
                     (username, hash_password(password)),
                 )
@@ -31,6 +32,7 @@ def register():
             except db.IntegrityError:
                 error = f"User {username} is already registered."
             else:
+                audit("register", "ok", user_id=cur.lastrowid)
                 return redirect(url_for("auth.login"))
 
         flash(error)
@@ -49,10 +51,12 @@ def login():
         ).fetchone()
 
         if user is None:
+            audit("login", "failed", user_id=None)
             flash("Incorrect username or password.")
         else:
             session.clear()
             session["user_id"] = user["id"]
+            audit("login", "ok", user_id=user["id"])
             return redirect(url_for("files.index"))
 
     return render_template("auth/login.html")
@@ -60,6 +64,8 @@ def login():
 
 @bp.route("/logout")
 def logout():
+    if g.user is not None:
+        audit("logout", "ok")
     session.clear()
     return redirect(url_for("auth.login"))
 
