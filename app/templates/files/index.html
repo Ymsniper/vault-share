@@ -5,6 +5,11 @@
   <h1 class="h3 mb-0 me-auto">My files</h1>
   <a class="btn btn-primary" href="{{ url_for('files.upload') }}">Upload</a>
 </div>
+
+<form method="get" class="col-md-4 mb-3">
+  <input name="q" value="{{ q }}" class="form-control" placeholder="Search my files">
+</form>
+
 {% if files %}
 <table class="table">
   <thead>
@@ -21,6 +26,26 @@
   </tbody>
 </table>
 {% else %}
-<p class="text-body-secondary">No files yet.</p>
+<p class="text-body-secondary">No files found.</p>
+{% endif %}
+
+<h2 class="h4 mt-5 mb-3">Shared with me</h2>
+{% if shared %}
+<table class="table">
+  <thead>
+    <tr><th>Name</th><th>Owner</th><th>Uploaded (UTC)</th></tr>
+  </thead>
+  <tbody>
+    {% for f in shared %}
+    <tr>
+      <td><a href="{{ url_for('files.detail', id=f['id']) }}">{{ f['filename']|safe }}</a></td>
+      <td>{{ f['owner'] }}</td>
+      <td>{{ f['uploaded_at'] }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="text-body-secondary">Nothing shared with you yet.</p>
 {% endif %}
 {% endblock %}

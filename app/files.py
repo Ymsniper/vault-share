@@ -59,11 +59,21 @@ def check_file(f):
 @bp.route("/")
 @login_required
 def index():
-    files = get_db().execute(
-        "SELECT * FROM files WHERE owner_id = ? ORDER BY uploaded_at DESC, id DESC",
+    db = get_db()
+    q = request.args.get("q", "")
+    files = db.execute(
+        f"SELECT * FROM files WHERE owner_id = {g.user['id']}"
+        f" AND filename LIKE '%{q}%' ORDER BY uploaded_at DESC, id DESC"
+    ).fetchall()
+    shared = db.execute(
+        "SELECT f.*, u.username AS owner FROM files f"
+        " JOIN shares s ON s.file_id = f.id"
+        " JOIN users u ON u.id = f.owner_id"
+        " WHERE s.recipient_id = ? AND s.revoked_at IS NULL"
+        " ORDER BY f.uploaded_at DESC, f.id DESC",
         (g.user["id"],),
     ).fetchall()
-    return render_template("files/index.html", files=files)
+    return render_template("files/index.html", files=files, shared=shared, q=q)
 
 
 @bp.route("/upload", methods=("GET", "POST"))
@@ -104,7 +114,12 @@ def upload():
 def detail(id):
     f = get_file(id)
     _, error = check_file(f)
-    return render_template("files/detail.html", f=f, error=error)
+    shares = get_db().execute(
+        "SELECT u.id, u.username FROM shares s JOIN users u ON u.id = s.recipient_id"
+        " WHERE s.file_id = ? AND s.revoked_at IS NULL ORDER BY u.username",
+        (id,),
+    ).fetchall()
+    return render_template("files/detail.html", f=f, error=error, shares=shares)
 
 
 @bp.route("/files/<int:id>/download")
@@ -116,6 +131,44 @@ def download(id):
         flash(error)
         return redirect(url_for("files.detail", id=id))
     return send_file(io.BytesIO(data), mimetype=f["mime"], download_name=f["filename"])
+
+
+@bp.route("/files/<int:id>/share", methods=("POST",))
+@login_required
+def share(id):
+    f = get_file(id)
+    username = request.form["username"]
+    db = get_db()
+    user = db.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
+    if user is None:
+        flash("Unknown user.")
+    elif user["id"] == f["owner_id"]:
+        flash("The owner already has access.")
+    else:
+        db.execute(
+            "INSERT INTO shares (file_id, recipient_id) VALUES (?, ?)"
+            " ON CONFLICT (file_id, recipient_id)"
+            " DO UPDATE SET revoked_at = NULL, created_at = datetime('now')",
+            (id, user["id"]),
+        )
+        db.commit()
+        flash(f"Shared with {username}.", "success")
+    return redirect(url_for("files.detail", id=id))
+
+
+@bp.route("/files/<int:id>/revoke", methods=("POST",))
+@login_required
+def revoke(id):
+    get_file(id)
+    db = get_db()
+    db.execute(
+        "UPDATE shares SET revoked_at = datetime('now')"
+        " WHERE file_id = ? AND recipient_id = ? AND revoked_at IS NULL",
+        (id, request.form["recipient_id"]),
+    )
+    db.commit()
+    flash("Share revoked.", "success")
+    return redirect(url_for("files.detail", id=id))
 
 
 @bp.route("/files/<int:id>/delete", methods=("POST",))

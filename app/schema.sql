@@ -1,3 +1,4 @@
+DROP TABLE IF EXISTS shares;
 DROP TABLE IF EXISTS files;
 DROP TABLE IF EXISTS users;
 
@@ -18,4 +19,12 @@ CREATE TABLE files (
     size INTEGER NOT NULL,
     sha256 TEXT NOT NULL,
     uploaded_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE shares (
+    file_id INTEGER NOT NULL REFERENCES files (id) ON DELETE CASCADE,
+    recipient_id INTEGER NOT NULL REFERENCES users (id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    revoked_at TEXT,
+    PRIMARY KEY (file_id, recipient_id)
 );

@@ -27,6 +27,32 @@
 {% endif %}
 
 {% if f['owner_id'] == g.user['id'] %}
+<h2 class="h5">Shared with</h2>
+{% if shares %}
+<ul class="list-group col-md-6 mb-3">
+  {% for s in shares %}
+  <li class="list-group-item d-flex align-items-center">
+    <span class="me-auto">{{ s['username'] }}</span>
+    <form method="post" action="{{ url_for('files.revoke', id=f['id']) }}">
+      <input type="hidden" name="recipient_id" value="{{ s['id'] }}">
+      <button type="submit" class="btn btn-sm btn-outline-secondary">Revoke</button>
+    </form>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<p class="text-body-secondary">Nobody yet.</p>
+{% endif %}
+
+<form method="post" action="{{ url_for('files.share', id=f['id']) }}" class="row g-2 mb-4">
+  <div class="col-auto">
+    <input name="username" class="form-control" placeholder="Username" required>
+  </div>
+  <div class="col-auto">
+    <button type="submit" class="btn btn-outline-primary">Share</button>
+  </div>
+</form>
+
 <form method="post" action="{{ url_for('files.delete', id=f['id']) }}">
   <button type="submit" class="btn btn-outline-danger">Delete</button>
 </form>
