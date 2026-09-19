@@ -36,6 +36,8 @@ CREATE TABLE files (
     mime TEXT NOT NULL,
     size INTEGER NOT NULL,
     sha256 TEXT NOT NULL,
+    signature BLOB NOT NULL,
+    cert_id INTEGER NOT NULL REFERENCES certificates (id),
     uploaded_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

@@ -1,5 +1,5 @@
 import hashlib
 
 
-def sha256_hex(data):
-    return hashlib.sha256(data).hexdigest()
+def sha256(data):
+    return hashlib.sha256(data).digest()

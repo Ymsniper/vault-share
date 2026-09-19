@@ -16,7 +16,9 @@ from flask import (
 )
 
 from security.crypto import decrypt, encrypt
-from security.integrity import sha256_hex
+from security.integrity import sha256
+from security.pki import common_name, load_certificate
+from security.signing import load_private_key, sign_digest, verify_digest
 
 from .audit import audit
 from .auth import login_required
@@ -31,8 +33,10 @@ def storage_path(filename):
 
 def get_file(id):
     f = get_db().execute(
-        "SELECT f.*, u.username AS owner FROM files f"
-        " JOIN users u ON u.id = f.owner_id WHERE f.id = ?",
+        "SELECT f.*, u.username AS owner, c.pem AS cert_pem, c.serial AS cert_serial,"
+        " c.not_after AS cert_not_after"
+        " FROM files f JOIN users u ON u.id = f.owner_id"
+        " JOIN certificates c ON c.id = f.cert_id WHERE f.id = ?",
         (id,),
     ).fetchone()
     if f is None:
@@ -41,20 +45,24 @@ def get_file(id):
 
 
 def check_file(f):
-    """Decrypt a stored file and compare it with the hash taken at upload.
+    """Decrypt a stored file, then check its hash and its signature.
 
-    Returns (data, error); data is None when a check fails.
+    Returns (data, error, signer); data is None when a check fails.
     """
     try:
         with open(storage_path(f["filename"]), "rb") as fp:
             data = decrypt(fp.read())
     except FileNotFoundError:
-        return None, "Verification failed: the stored file is missing."
+        return None, "Verification failed: the stored file is missing.", None
     except InvalidTag:
-        return None, "Verification failed: the stored file was modified."
-    if sha256_hex(data) != f["sha256"]:
-        return None, "Verification failed: the file does not match its SHA-256 hash."
-    return data, None
+        return None, "Verification failed: the stored file was modified.", None
+    digest = sha256(data)
+    if digest.hex() != f["sha256"]:
+        return None, "Verification failed: the file does not match its SHA-256 hash.", None
+    cert = load_certificate(f["cert_pem"])
+    if not verify_digest(cert.public_key(), f["signature"], digest):
+        return None, "Verification failed: the signature is not valid.", None
+    return data, None, common_name(cert)
 
 
 @bp.route("/")
@@ -63,7 +71,7 @@ def index():
     db = get_db()
     q = request.args.get("q", "")
     files = db.execute(
-        f"SELECT * FROM files WHERE owner_id = {g.user['id']}"
+        f"SELECT id, filename, size, uploaded_at FROM files WHERE owner_id = {g.user['id']}"
         f" AND filename LIKE '%{q}%' ORDER BY uploaded_at DESC, id DESC"
     ).fetchall()
     shared = db.execute(
@@ -87,20 +95,32 @@ def upload():
             return render_template("files/upload.html")
 
         data = file.read()
+        digest = sha256(data)
+        db = get_db()
+        signer = db.execute(
+            "SELECT k.private_key, c.id AS cert_id FROM user_keys k"
+            " JOIN certificates c ON c.user_id = k.user_id"
+            " WHERE k.user_id = ? ORDER BY c.id DESC LIMIT 1",
+            (g.user["id"],),
+        ).fetchone()
+        signature = sign_digest(load_private_key(signer["private_key"]), digest)
+
         with open(storage_path(file.filename), "wb") as out:
             out.write(encrypt(data))
 
-        db = get_db()
         cur = db.execute(
-            "INSERT INTO files (owner_id, filename, description, mime, size, sha256)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO files"
+            " (owner_id, filename, description, mime, size, sha256, signature, cert_id)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 g.user["id"],
                 file.filename,
                 request.form.get("description", ""),
                 file.mimetype or "application/octet-stream",
                 len(data),
-                sha256_hex(data),
+                digest.hex(),
+                signature,
+                signer["cert_id"],
             ),
         )
         db.commit()
@@ -115,21 +135,21 @@ def upload():
 @login_required
 def detail(id):
     f = get_file(id)
-    _, error = check_file(f)
+    _, error, signer = check_file(f)
     audit("verify", "failed" if error else "ok", file_id=id, detail=error)
     shares = get_db().execute(
         "SELECT u.id, u.username FROM shares s JOIN users u ON u.id = s.recipient_id"
         " WHERE s.file_id = ? AND s.revoked_at IS NULL ORDER BY u.username",
         (id,),
     ).fetchall()
-    return render_template("files/detail.html", f=f, error=error, shares=shares)
+    return render_template("files/detail.html", f=f, error=error, signer=signer, shares=shares)
 
 
 @bp.route("/files/<int:id>/download")
 @login_required
 def download(id):
     f = get_file(id)
-    data, error = check_file(f)
+    data, error, _ = check_file(f)
     if error is not None:
         audit("download", "refused", file_id=id, detail=error)
         flash(error)
