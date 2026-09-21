@@ -59,10 +59,18 @@ def check_file(f):
     digest = sha256(data)
     if digest.hex() != f["sha256"]:
         return None, "Verification failed: the file does not match its SHA-256 hash.", None
+    signer = signed_by(f, digest)
+    if signer is None:
+        return None, "Verification failed: the signature is not valid.", None
+    return data, None, signer
+
+
+def signed_by(f, digest):
+    """Name of the signer if the file's signature covers digest, else None."""
     cert = load_certificate(f["cert_pem"])
     if not verify_digest(cert.public_key(), f["signature"], digest):
-        return None, "Verification failed: the signature is not valid.", None
-    return data, None, common_name(cert)
+        return None
+    return common_name(cert)
 
 
 @bp.route("/")
@@ -156,6 +164,32 @@ def download(id):
         return redirect(url_for("files.detail", id=id))
     audit("download", "ok", file_id=id)
     return send_file(io.BytesIO(data), mimetype=f["mime"], download_name=f["filename"])
+
+
+@bp.route("/files/<int:id>/check", methods=("POST",))
+@login_required
+def check_copy(id):
+    f = get_file(id)
+    copy = request.files.get("copy")
+    if copy is None or copy.filename == "":
+        flash("Choose your local copy of the file.")
+        return redirect(url_for("files.detail", id=id))
+
+    # hashed in memory only, the copy is never stored
+    digest = sha256(copy.read())
+    if digest.hex() != f["sha256"]:
+        audit("check_copy", "mismatch", file_id=id)
+        flash("Your copy is different from the original.")
+        return redirect(url_for("files.detail", id=id))
+
+    signer = signed_by(f, digest)
+    if signer is None:
+        audit("check_copy", "failed", file_id=id, detail="signature not valid")
+        flash("Your copy matches the stored hash, but the signature is not valid.")
+    else:
+        audit("check_copy", "match", file_id=id)
+        flash(f"Your copy is identical to the original, signed by {signer}.", "success")
+    return redirect(url_for("files.detail", id=id))
 
 
 @bp.route("/files/<int:id>/share", methods=("POST",))

@@ -28,6 +28,16 @@
 <a class="btn btn-primary mb-4" href="{{ url_for('files.download', id=f['id']) }}">Download</a>
 {% endif %}
 
+<h2 class="h5">Check a local copy</h2>
+<form method="post" enctype="multipart/form-data" action="{{ url_for('files.check_copy', id=f['id']) }}" class="row g-2 mb-4">
+  <div class="col-auto">
+    <input type="file" name="copy" class="form-control" required>
+  </div>
+  <div class="col-auto">
+    <button type="submit" class="btn btn-outline-secondary">Compare</button>
+  </div>
+</form>
+
 {% if f['owner_id'] == g.user['id'] %}
 <h2 class="h5">Shared with</h2>
 {% if shares %}
