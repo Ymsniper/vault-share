@@ -12,7 +12,13 @@ from flask import (
     url_for,
 )
 
-from security.passwords import hash_password
+from security.passwords import (
+    USERNAME_RE,
+    check_password,
+    check_password_of_unknown_user,
+    hash_password,
+    password_problem,
+)
 from security.pki import issue_certificate, load_ca, make_csr, to_pem
 from security.signing import generate_key, private_key_pem
 
@@ -27,11 +33,10 @@ def register():
     if request.method == "POST":
         username = request.form["username"]
         password = request.form["password"]
-        error = None
-        if not username:
-            error = "Username is required."
-        elif not password:
-            error = "Password is required."
+        if not USERNAME_RE.fullmatch(username):
+            error = "Username must be 3 to 32 letters, digits or underscores."
+        else:
+            error = password_problem(username, password)
 
         if error is None:
             cfg = current_app.config
@@ -83,12 +88,13 @@ def login():
     if request.method == "POST":
         username = request.form["username"]
         password = request.form["password"]
-        user = get_db().execute(
-            "SELECT * FROM users WHERE username = ? AND password_hash = ?",
-            (username, hash_password(password)),
-        ).fetchone()
-
+        user = get_db().execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
         if user is None:
+            ok = check_password_of_unknown_user(password)
+        else:
+            ok = check_password(user["password_hash"], password)
+
+        if not ok:
             audit("login", "failed", user_id=None)
             flash("Incorrect username or password.")
         else:
