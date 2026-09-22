@@ -173,3 +173,16 @@ def test_check_local_copy(alice):
     assert b"identical to the original, signed by alice" in check_copy(alice, CONTRACT)
     edited = CONTRACT.replace(b"40 EUR", b"14 EUR")
     assert b"different from the original" in check_copy(alice, edited)
+
+
+def test_search_is_not_injectable(alice, bob):
+    upload(alice)
+    page = my_files(alice, "' OR 1=1 --")
+    assert b"contract.txt" not in page
+    page = my_files(alice, "' UNION SELECT id, username, 0, 'x' FROM users--")
+    assert b"bob" not in page
+
+
+def test_search_treats_wildcards_as_text(alice):
+    upload(alice)
+    assert b"contract.txt" not in my_files(alice, "%")

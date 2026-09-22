@@ -84,8 +84,8 @@ def login():
         username = request.form["username"]
         password = request.form["password"]
         user = get_db().execute(
-            "SELECT * FROM users WHERE username = '" + username + "'"
-            " AND password_hash = '" + hash_password(password) + "'"
+            "SELECT * FROM users WHERE username = ? AND password_hash = ?",
+            (username, hash_password(password)),
         ).fetchone()
 
         if user is None:

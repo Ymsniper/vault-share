@@ -49,3 +49,9 @@ def test_logout_clears_session(client):
 
 def test_index_requires_login(client):
     assert client.get("/").headers["Location"] == "/auth/login"
+
+
+def test_login_is_not_injectable(client):
+    register(client)
+    r = login(client, username="' OR 1=1 --", password="anything")
+    assert b"Incorrect username or password." in r.data

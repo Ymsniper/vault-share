@@ -78,9 +78,12 @@ def signed_by(f, digest):
 def index():
     db = get_db()
     q = request.args.get("q", "")
+    # instr() rather than LIKE, so % and _ in the search are plain characters
     files = db.execute(
-        f"SELECT id, filename, size, uploaded_at FROM files WHERE owner_id = {g.user['id']}"
-        f" AND filename LIKE '%{q}%' ORDER BY uploaded_at DESC, id DESC"
+        "SELECT id, filename, size, uploaded_at FROM files"
+        " WHERE owner_id = ? AND instr(lower(filename), lower(?)) > 0"
+        " ORDER BY uploaded_at DESC, id DESC",
+        (g.user["id"], q),
     ).fetchall()
     shared = db.execute(
         "SELECT f.*, u.username AS owner FROM files f"
