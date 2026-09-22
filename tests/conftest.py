@@ -12,6 +12,11 @@ CA_PASSPHRASE = "test passphrase for the CA"
 
 
 @pytest.fixture(scope="session")
+def ca_passphrase():
+    return CA_PASSPHRASE
+
+
+@pytest.fixture(scope="session")
 def ca_dir(tmp_path_factory):
     out = tmp_path_factory.mktemp("ca")
     subprocess.run(

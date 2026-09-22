@@ -1,7 +1,11 @@
 import io
 import os
+import subprocess
+
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from app.db import get_db
+from security.pki import load_certificate
 
 CONTRACT = b"Supply contract: 1,200 units at 40 EUR, delivery in March."
 
@@ -114,3 +118,58 @@ def test_delete_removes_file_and_shares(app, alice, bob):
 
 def test_unknown_file_is_404(alice):
     assert alice.get("/files/42").status_code == 404
+
+
+def test_file_page_names_the_signer(alice):
+    assert b"Signature valid, signed by alice." in upload(alice).data
+
+
+def test_changed_signature_fails_verification(app, alice):
+    upload(alice)
+    with app.app_context():
+        db = get_db()
+        signature = bytearray(db.execute("SELECT signature FROM files").fetchone()[0])
+        signature[-1] ^= 1
+        db.execute("UPDATE files SET signature = ?", (bytes(signature),))
+        db.commit()
+
+    assert b"the signature is not valid" in alice.get("/files/1").data
+    assert alice.get("/files/1/download").headers["Location"] == "/files/1"
+
+
+def test_signature_checks_out_with_openssl(app, alice, tmp_path):
+    upload(alice)
+    with app.app_context():
+        row = get_db().execute(
+            "SELECT f.signature, c.pem FROM files f JOIN certificates c ON c.id = f.cert_id"
+        ).fetchone()
+    public_key = load_certificate(row["pem"]).public_key()
+    (tmp_path / "alice.pub").write_bytes(
+        public_key.public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo)
+    )
+    (tmp_path / "sig.der").write_bytes(row["signature"])
+    (tmp_path / "contract.txt").write_bytes(CONTRACT)
+
+    r = subprocess.run(
+        ["openssl", "dgst", "-sha256", "-verify", "alice.pub", "-signature", "sig.der", "contract.txt"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+    assert r.stdout.strip() == "Verified OK"
+
+
+def check_copy(client, data):
+    return client.post(
+        "/files/1/check",
+        data={"copy": (io.BytesIO(data), "my-copy.txt")},
+        content_type="multipart/form-data",
+        follow_redirects=True,
+    ).data
+
+
+def test_check_local_copy(alice):
+    upload(alice)
+    assert b"identical to the original, signed by alice" in check_copy(alice, CONTRACT)
+    edited = CONTRACT.replace(b"40 EUR", b"14 EUR")
+    assert b"different from the original" in check_copy(alice, edited)
