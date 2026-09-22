@@ -18,7 +18,7 @@
   <tbody>
     {% for f in files %}
     <tr>
-      <td><a href="{{ url_for('files.detail', id=f['id']) }}">{{ f['filename']|safe }}</a></td>
+      <td><a href="{{ url_for('files.detail', id=f['id']) }}">{{ f['filename'] }}</a></td>
       <td>{{ f['size'] }} bytes</td>
       <td>{{ f['uploaded_at'] }}</td>
     </tr>
@@ -38,7 +38,7 @@
   <tbody>
     {% for f in shared %}
     <tr>
-      <td><a href="{{ url_for('files.detail', id=f['id']) }}">{{ f['filename']|safe }}</a></td>
+      <td><a href="{{ url_for('files.detail', id=f['id']) }}">{{ f['filename'] }}</a></td>
       <td>{{ f['owner'] }}</td>
       <td>{{ f['uploaded_at'] }}</td>
     </tr>

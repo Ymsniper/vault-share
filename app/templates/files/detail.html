@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ f['filename'] }}{% endblock %}
 {% block content %}
-<h1 class="h3 mb-3">{{ f['filename']|safe }}</h1>
+<h1 class="h3 mb-3">{{ f['filename'] }}</h1>
 
 {% if error %}
 <div class="alert alert-danger">{{ error }}</div>
@@ -13,7 +13,7 @@
   <dt class="col-sm-2">Owner</dt>
   <dd class="col-sm-10">{{ f['owner'] }}</dd>
   <dt class="col-sm-2">Description</dt>
-  <dd class="col-sm-10">{{ f['description']|safe }}</dd>
+  <dd class="col-sm-10">{{ f['description'] }}</dd>
   <dt class="col-sm-2">Size</dt>
   <dd class="col-sm-10">{{ f['size'] }} bytes</dd>
   <dt class="col-sm-2">SHA-256</dt>

@@ -186,3 +186,23 @@ def test_search_is_not_injectable(alice, bob):
 def test_search_treats_wildcards_as_text(alice):
     upload(alice)
     assert b"contract.txt" not in my_files(alice, "%")
+
+
+def test_names_and_descriptions_are_escaped(alice):
+    payload = "<script>alert(1)</script>"
+    r = alice.post(
+        "/upload",
+        data={"file": (io.BytesIO(CONTRACT), "contract.txt"), "description": payload},
+        content_type="multipart/form-data",
+        follow_redirects=True,
+    )
+    assert payload.encode() not in r.data
+    assert b"&lt;script&gt;alert(1)&lt;/script&gt;" in r.data
+
+
+def test_security_headers(alice):
+    headers = alice.get("/").headers
+    assert "default-src 'self'" in headers["Content-Security-Policy"]
+    assert "frame-ancestors 'none'" in headers["Content-Security-Policy"]
+    assert headers["X-Content-Type-Options"] == "nosniff"
+    assert headers["X-Frame-Options"] == "DENY"

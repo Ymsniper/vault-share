@@ -27,4 +27,18 @@ def create_app(test_config=None):
     app.register_blueprint(auth.bp)
     app.register_blueprint(files.bp)
     app.register_blueprint(admin.bp)
+
+    @app.after_request
+    def set_security_headers(response):
+        # scripts, styles and images only from this site, no plugins, and
+        # the pages can never be shown inside another site's frame
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; object-src 'none'; base-uri 'none';"
+            " form-action 'self'; frame-ancestors 'none'"
+        )
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        return response
+
     return app
