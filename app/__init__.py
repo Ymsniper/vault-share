@@ -2,12 +2,14 @@ import os
 
 from flask import Flask
 
+from security.keys import load_or_create_key
+
 
 def create_app(test_config=None):
     app = Flask(__name__, instance_relative_config=True)
     app.config.from_mapping(
-        SECRET_KEY="dev",
         DATABASE=os.path.join(app.instance_path, "app.sqlite3"),
+        SECRETS_DIR=os.path.join(app.instance_path, "secrets"),
         UPLOAD_FOLDER=os.path.join(app.root_path, "static", "uploads"),
         # made by pki/create_ca.sh; the key is encrypted under CA_PASSPHRASE
         CA_CERT=os.path.join(app.instance_path, "ca", "ca.crt"),
@@ -20,6 +22,12 @@ def create_app(test_config=None):
 
     os.makedirs(app.instance_path, exist_ok=True)
     os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
+
+    # signs Flask's session cookie
+    if not app.config["SECRET_KEY"]:
+        app.config["SECRET_KEY"] = load_or_create_key(
+            os.path.join(app.config["SECRETS_DIR"], "secret_key")
+        )
 
     from . import admin, auth, db, files
 

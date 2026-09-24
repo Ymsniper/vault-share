@@ -62,6 +62,7 @@ def test_registration_needs_the_ca(tmp_path, ca_dir):
             "TESTING": True,
             "DATABASE": str(tmp_path / "test.sqlite3"),
             "UPLOAD_FOLDER": str(tmp_path / "uploads"),
+            "SECRETS_DIR": str(tmp_path / "secrets"),
             "CA_CERT": str(ca_dir / "ca.crt"),
             "CA_KEY": str(ca_dir / "ca.key"),
             "CA_PASSPHRASE": "not the passphrase",
