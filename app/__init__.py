@@ -1,6 +1,7 @@
 import os
 
-from flask import Flask
+from flask import Flask, render_template
+from werkzeug.exceptions import HTTPException
 
 from security.keys import load_or_create_key
 
@@ -48,5 +49,10 @@ def create_app(test_config=None):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "no-referrer"
         return response
+
+    # a plain page for every error, crashes included: no stack trace leaks
+    @app.errorhandler(HTTPException)
+    def show_error(e):
+        return render_template("error.html", error=e), e.code
 
     return app

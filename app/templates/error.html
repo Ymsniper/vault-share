@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}{{ error.code }}{% endblock %}
+{% block content %}
+<h1 class="h3 mb-3">{{ error.code }} {{ error.name }}</h1>
+<p>{{ error.description }}</p>
+<a href="{{ url_for('files.index') }}">Back to my files</a>
+{% endblock %}
