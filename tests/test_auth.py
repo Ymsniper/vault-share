@@ -1,4 +1,4 @@
-from flask import g, session
+from flask import g
 
 from app.db import get_db
 
@@ -17,7 +17,6 @@ def test_register_then_login(client):
     with client:
         assert login(client).headers["Location"] == "/"
         client.get("/")
-        assert session["user_id"] == 1
         assert g.user["username"] == "alice"
 
 
@@ -58,13 +57,61 @@ def test_login_rejects_unknown_user(client):
     assert b"Incorrect username or password." in login(client, username="bob").data
 
 
-def test_logout_clears_session(client):
+def test_session_cookie_is_protected(client):
+    register(client)
+    cookie = login(client).headers["Set-Cookie"]
+    assert cookie.startswith("sid=")
+    assert "HttpOnly" in cookie
+    assert "SameSite=Lax" in cookie
+
+
+def test_only_the_token_hash_is_stored(app, client):
     register(client)
     login(client)
+    token = client.get_cookie("sid").value
+    with app.app_context():
+        stored = get_db().execute("SELECT token_hash FROM sessions").fetchone()[0]
+    assert stored != token
+    assert len(token) >= 43  # 32 random bytes, base64
 
-    with client:
-        client.get("/auth/logout")
-        assert "user_id" not in session
+
+def test_copied_cookie_dies_at_logout(client):
+    register(client)
+    login(client)
+    stolen = client.get_cookie("sid").value
+
+    client.get("/auth/logout")
+    client.set_cookie("sid", stolen)
+    assert client.get("/").headers["Location"] == "/auth/login"
+
+
+def test_login_never_keeps_a_planted_token(app, client):
+    register(client)
+    client.set_cookie("sid", "token-chosen-by-an-attacker")
+    login(client)
+    assert client.get_cookie("sid").value != "token-chosen-by-an-attacker"
+    with app.app_context():
+        assert get_db().execute("SELECT COUNT(*) FROM sessions").fetchone()[0] == 1
+
+
+def test_idle_session_expires(app, client):
+    register(client)
+    login(client)
+    with app.app_context():
+        db = get_db()
+        db.execute("UPDATE sessions SET last_seen = datetime('now', '-31 minutes')")
+        db.commit()
+    assert client.get("/").headers["Location"] == "/auth/login"
+
+
+def test_session_expires_after_8_hours(app, client):
+    register(client)
+    login(client)
+    with app.app_context():
+        db = get_db()
+        db.execute("UPDATE sessions SET expires_at = datetime('now', '-1 second')")
+        db.commit()
+    assert client.get("/").headers["Location"] == "/auth/login"
 
 
 def test_index_requires_login(client):

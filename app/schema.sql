@@ -3,6 +3,7 @@ DROP TABLE IF EXISTS shares;
 DROP TABLE IF EXISTS files;
 DROP TABLE IF EXISTS certificates;
 DROP TABLE IF EXISTS user_keys;
+DROP TABLE IF EXISTS sessions;
 DROP TABLE IF EXISTS users;
 
 CREATE TABLE users (
@@ -11,6 +12,16 @@ CREATE TABLE users (
     password_hash TEXT NOT NULL,
     is_admin INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- only the SHA-256 of each session token is stored, so a copy of the
+-- database does not give anyone a working session
+CREATE TABLE sessions (
+    token_hash TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users (id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_seen TEXT NOT NULL DEFAULT (datetime('now')),
+    expires_at TEXT NOT NULL
 );
 
 CREATE TABLE user_keys (

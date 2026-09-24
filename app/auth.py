@@ -1,4 +1,6 @@
 import functools
+import hashlib
+import secrets
 
 from flask import (
     Blueprint,
@@ -26,6 +28,35 @@ from .audit import audit
 from .db import get_db
 
 bp = Blueprint("auth", __name__, url_prefix="/auth")
+
+SESSION_COOKIE = "sid"
+
+
+def token_hash(token):
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def start_session(user_id):
+    """Create a server-side session and return its token for the cookie."""
+    token = secrets.token_urlsafe(32)
+    db = get_db()
+    db.execute(
+        "DELETE FROM sessions WHERE expires_at <= datetime('now')"
+        " OR last_seen <= datetime('now', '-30 minutes')"
+    )
+    db.execute(
+        "INSERT INTO sessions (token_hash, user_id, expires_at)"
+        " VALUES (?, ?, datetime('now', '+8 hours'))",
+        (token_hash(token), user_id),
+    )
+    db.commit()
+    return token
+
+
+def end_session(token):
+    db = get_db()
+    db.execute("DELETE FROM sessions WHERE token_hash = ?", (token_hash(token),))
+    db.commit()
 
 
 @bp.route("/register", methods=("GET", "POST"))
@@ -98,10 +129,23 @@ def login():
             audit("login", "failed", user_id=None)
             flash("Incorrect username or password.")
         else:
+            # a token the browser already had, maybe planted by someone
+            # else, is never reused: every login gets a fresh one
+            old_token = request.cookies.get(SESSION_COOKIE)
+            if old_token:
+                end_session(old_token)
             session.clear()
-            session["user_id"] = user["id"]
+            token = start_session(user["id"])
             audit("login", "ok", user_id=user["id"])
-            return redirect(url_for("files.index"))
+            response = redirect(url_for("files.index"))
+            response.set_cookie(
+                SESSION_COOKIE,
+                token,
+                httponly=True,
+                samesite="Lax",
+                secure=current_app.config["SESSION_COOKIE_SECURE"],
+            )
+            return response
 
     return render_template("auth/login.html")
 
@@ -110,17 +154,35 @@ def login():
 def logout():
     if g.user is not None:
         audit("logout", "ok")
+    token = request.cookies.get(SESSION_COOKIE)
+    if token:
+        end_session(token)
     session.clear()
-    return redirect(url_for("auth.login"))
+    response = redirect(url_for("auth.login"))
+    response.delete_cookie(SESSION_COOKIE)
+    return response
 
 
 @bp.before_app_request
 def load_logged_in_user():
-    user_id = session.get("user_id")
-    if user_id is None:
-        g.user = None
-    else:
-        g.user = get_db().execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    g.user = None
+    token = request.cookies.get(SESSION_COOKIE)
+    if not token:
+        return
+    db = get_db()
+    # a session ends 8 hours after login, or after 30 minutes without a request
+    g.user = db.execute(
+        "SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id"
+        " WHERE s.token_hash = ? AND s.expires_at > datetime('now')"
+        " AND s.last_seen > datetime('now', '-30 minutes')",
+        (token_hash(token),),
+    ).fetchone()
+    if g.user is not None:
+        db.execute(
+            "UPDATE sessions SET last_seen = datetime('now') WHERE token_hash = ?",
+            (token_hash(token),),
+        )
+        db.commit()
 
 
 def login_required(view):
