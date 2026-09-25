@@ -122,3 +122,50 @@ def test_login_is_not_injectable(client):
     register(client)
     r = login(client, username="' OR 1=1 --", password="anything")
     assert b"Incorrect username or password." in r.data
+
+
+LOCKED = b"Too many failed attempts. Try again in 15 minutes."
+
+
+def test_five_failures_lock_the_account(client):
+    register(client)
+    for _ in range(5):
+        assert b"Incorrect username or password." in login(client, password="wrong guess").data
+    r = login(client)
+    assert LOCKED in r.data
+    assert not any(c.startswith("sid=") for c in r.headers.getlist("Set-Cookie"))
+
+
+def test_lock_ends_after_15_minutes(app, client):
+    register(client)
+    for _ in range(5):
+        login(client, password="wrong guess")
+    with app.app_context():
+        db = get_db()
+        db.execute("UPDATE login_failures SET at = datetime('now', '-16 minutes')")
+        db.commit()
+    assert login(client).headers["Location"] == "/"
+
+
+def test_successful_login_resets_the_count(client):
+    register(client)
+    for _ in range(4):
+        login(client, password="wrong guess")
+    login(client)
+    for _ in range(4):
+        login(client, password="wrong guess")
+    assert login(client).headers["Location"] == "/"
+
+
+def test_unknown_usernames_lock_the_same_way(client):
+    for _ in range(5):
+        r = login(client, username="ghost", password="wrong guess")
+        assert b"Incorrect username or password." in r.data
+    assert LOCKED in login(client, username="ghost", password="wrong guess").data
+
+
+def test_one_address_cannot_spray_many_accounts(client):
+    for i in range(20):
+        login(client, username=f"user{i}", password="wrong guess")
+    register(client)
+    assert LOCKED in login(client).data

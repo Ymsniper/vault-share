@@ -59,6 +59,41 @@ def end_session(token):
     db.commit()
 
 
+# 5 failures for one username, or 20 from one address, within 15 minutes
+# lock further attempts until the oldest of them is 15 minutes old.
+# Usernames that do not exist are counted too, so the lock message does
+# not tell an attacker which accounts are real.
+MAX_FAILURES_PER_USER = 5
+MAX_FAILURES_PER_IP = 20
+
+
+def is_locked(username, ip):
+    db = get_db()
+    by_user = db.execute(
+        "SELECT COUNT(*) FROM login_failures"
+        " WHERE username = ? AND at > datetime('now', '-15 minutes')",
+        (username,),
+    ).fetchone()[0]
+    by_ip = db.execute(
+        "SELECT COUNT(*) FROM login_failures"
+        " WHERE ip = ? AND at > datetime('now', '-15 minutes')",
+        (ip,),
+    ).fetchone()[0]
+    return by_user >= MAX_FAILURES_PER_USER or by_ip >= MAX_FAILURES_PER_IP
+
+
+def record_failure(username, ip):
+    db = get_db()
+    db.execute("INSERT INTO login_failures (username, ip) VALUES (?, ?)", (username, ip))
+    db.commit()
+
+
+def clear_failures(username):
+    db = get_db()
+    db.execute("DELETE FROM login_failures WHERE username = ?", (username,))
+    db.commit()
+
+
 @bp.route("/register", methods=("GET", "POST"))
 def register():
     if request.method == "POST":
@@ -119,6 +154,11 @@ def login():
     if request.method == "POST":
         username = request.form["username"]
         password = request.form["password"]
+        if is_locked(username, request.remote_addr):
+            audit("login", "locked", user_id=None)
+            flash("Too many failed attempts. Try again in 15 minutes.")
+            return render_template("auth/login.html")
+
         user = get_db().execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
         if user is None:
             ok = check_password_of_unknown_user(password)
@@ -126,9 +166,11 @@ def login():
             ok = check_password(user["password_hash"], password)
 
         if not ok:
+            record_failure(username, request.remote_addr)
             audit("login", "failed", user_id=None)
             flash("Incorrect username or password.")
         else:
+            clear_failures(username)
             # a token the browser already had, maybe planted by someone
             # else, is never reused: every login gets a fresh one
             old_token = request.cookies.get(SESSION_COOKIE)
