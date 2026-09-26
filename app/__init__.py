@@ -38,6 +38,11 @@ def create_app(test_config=None):
         app.config["SECRET_KEY"] = load_or_create_key(
             os.path.join(app.config["SECRETS_DIR"], "secret_key")
         )
+    # protects every file key; losing it makes every stored file unreadable
+    if not app.config.get("MASTER_KEY"):
+        app.config["MASTER_KEY"] = load_or_create_key(
+            os.path.join(app.config["SECRETS_DIR"], "master.key")
+        )
 
     from . import admin, auth, db, files
 

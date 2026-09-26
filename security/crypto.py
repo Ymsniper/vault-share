@@ -1,13 +1,23 @@
+import os
+
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-KEY = b"0123456789abcdef0123456789abcdef"
-NONCE = bytes(12)
+NONCE_SIZE = 12
 
 
-def encrypt(data):
-    return AESGCM(KEY).encrypt(NONCE, data, None)
+def new_key():
+    return AESGCM.generate_key(bit_length=256)
 
 
-def decrypt(blob):
-    """Raises cryptography.exceptions.InvalidTag if the blob was modified."""
-    return AESGCM(KEY).decrypt(NONCE, blob, None)
+def encrypt(key, data, aad):
+    """AES-256-GCM under a fresh random 96-bit nonce, kept in front of the result.
+
+    aad is authenticated but not encrypted: decrypting with any other aad fails.
+    """
+    nonce = os.urandom(NONCE_SIZE)
+    return nonce + AESGCM(key).encrypt(nonce, data, aad)
+
+
+def decrypt(key, blob, aad):
+    """Raises cryptography.exceptions.InvalidTag if blob, key or aad do not match."""
+    return AESGCM(key).decrypt(blob[:NONCE_SIZE], blob[NONCE_SIZE:], aad)

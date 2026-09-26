@@ -16,8 +16,9 @@ from flask import (
     url_for,
 )
 
-from security.crypto import decrypt, encrypt
+from security.crypto import decrypt, encrypt, new_key
 from security.integrity import sha256
+from security.keys import subkey
 from security.pki import common_name, load_certificate
 from security.signing import load_private_key, sign_digest, verify_digest
 from security.uploads import check_upload, clean_name
@@ -27,6 +28,10 @@ from .auth import login_required
 from .db import get_db
 
 bp = Blueprint("files", __name__)
+
+
+def wrap_key():
+    return subkey(current_app.config["MASTER_KEY"], "file-key-wrap")
 
 
 def storage_path(file_id):
@@ -69,9 +74,16 @@ def check_file(f):
 
     Returns (data, error, signer); data is None when a check fails.
     """
+    # the file ID is the associated data of both layers, so a key or a
+    # file moved onto another file's record no longer decrypts
+    aad = f["id"].encode()
+    try:
+        file_key = decrypt(wrap_key(), f["wrapped_key"], aad)
+    except InvalidTag:
+        return None, "Verification failed: the file's key was modified.", None
     try:
         with open(storage_path(f["id"]), "rb") as fp:
-            data = decrypt(fp.read())
+            data = decrypt(file_key, fp.read(), aad)
     except FileNotFoundError:
         return None, "Verification failed: the stored file is missing.", None
     except InvalidTag:
@@ -146,13 +158,18 @@ def upload():
         ).fetchone()
         signature = sign_digest(load_private_key(signer["private_key"]), digest)
 
+        # a new random key for every file, kept only in wrapped form
+        file_key = new_key()
+        aad = file_id.encode()
         with open(storage_path(file_id), "wb") as out:
-            out.write(encrypt(data))
+            out.write(encrypt(file_key, data, aad))
+        wrapped_key = encrypt(wrap_key(), file_key, aad)
 
         db.execute(
             "INSERT INTO files"
-            " (id, owner_id, filename, description, mime, size, sha256, signature, cert_id)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " (id, owner_id, filename, description, mime, size, sha256, wrapped_key,"
+            " signature, cert_id)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 file_id,
                 g.user["id"],
@@ -161,6 +178,7 @@ def upload():
                 mime,
                 len(data),
                 digest.hex(),
+                wrapped_key,
                 signature,
                 signer["cert_id"],
             ),

@@ -1,11 +1,13 @@
 import io
 import os
 import re
+import stat
 import subprocess
 import uuid
 
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
+from app import create_app
 from app.db import get_db
 from security.pki import load_certificate
 
@@ -54,8 +56,40 @@ def test_upload_stores_only_ciphertext(app, alice):
     with open(stored_path(app, url), "rb") as f:
         stored = f.read()
     assert CONTRACT not in stored
-    # AES-GCM adds a 16-byte authentication tag
-    assert len(stored) == len(CONTRACT) + 16
+    # 12-byte nonce in front, 16-byte GCM authentication tag at the end
+    assert len(stored) == 12 + len(CONTRACT) + 16
+
+
+def test_same_content_never_gives_the_same_ciphertext(app, alice):
+    first, second = new_file(alice), new_file(alice)
+    with open(stored_path(app, first), "rb") as a, open(stored_path(app, second), "rb") as b:
+        assert a.read() != b.read()
+
+
+def test_files_cannot_be_swapped_on_disk(app, alice):
+    first = new_file(alice)
+    second = new_file(alice, b"Second contract: 300 units at 55 EUR.", name="second.txt")
+    os.replace(stored_path(app, second), stored_path(app, first))
+    assert b"the stored file was modified" in alice.get(first).data
+
+
+def test_files_need_the_master_key(app, alice, tmp_path):
+    url = new_file(alice)
+    path = os.path.join(app.config["SECRETS_DIR"], "master.key")
+    assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+    assert os.path.getsize(path) == 32
+
+    # same database and encrypted files, but not the same master key
+    thief = create_app(
+        {
+            **{k: app.config[k] for k in ("TESTING", "WTF_CSRF_ENABLED", "DATABASE", "STORAGE_FOLDER")},
+            "SECRETS_DIR": str(tmp_path / "another-machine"),
+            "SECRET_KEY": app.config["SECRET_KEY"],
+        }
+    )
+    client = thief.test_client()
+    client.set_cookie("sid", alice.get_cookie("sid").value)
+    assert b"key was modified" in client.get(url).data
 
 
 def test_upload_requires_a_file(alice):
