@@ -60,6 +60,7 @@ def test_registration_needs_the_ca(tmp_path, ca_dir):
     app = create_app(
         {
             "TESTING": True,
+            "WTF_CSRF_ENABLED": False,
             "DATABASE": str(tmp_path / "test.sqlite3"),
             "UPLOAD_FOLDER": str(tmp_path / "uploads"),
             "SECRETS_DIR": str(tmp_path / "secrets"),

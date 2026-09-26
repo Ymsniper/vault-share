@@ -30,6 +30,7 @@
 
 <h2 class="h5">Check a local copy</h2>
 <form method="post" enctype="multipart/form-data" action="{{ url_for('files.check_copy', id=f['id']) }}" class="row g-2 mb-4">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <div class="col-auto">
     <input type="file" name="copy" class="form-control" required>
   </div>
@@ -46,6 +47,7 @@
   <li class="list-group-item d-flex align-items-center">
     <span class="me-auto">{{ s['username'] }}</span>
     <form method="post" action="{{ url_for('files.revoke', id=f['id']) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="recipient_id" value="{{ s['id'] }}">
       <button type="submit" class="btn btn-sm btn-outline-secondary">Revoke</button>
     </form>
@@ -57,6 +59,7 @@
 {% endif %}
 
 <form method="post" action="{{ url_for('files.share', id=f['id']) }}" class="row g-2 mb-4">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <div class="col-auto">
     <input name="username" class="form-control" placeholder="Username" required>
   </div>
@@ -66,6 +69,7 @@
 </form>
 
 <form method="post" action="{{ url_for('files.delete', id=f['id']) }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <button type="submit" class="btn btn-outline-danger">Delete</button>
 </form>
 {% endif %}

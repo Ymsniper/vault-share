@@ -80,7 +80,7 @@ def test_copied_cookie_dies_at_logout(client):
     login(client)
     stolen = client.get_cookie("sid").value
 
-    client.get("/auth/logout")
+    client.post("/auth/logout")
     client.set_cookie("sid", stolen)
     assert client.get("/").headers["Location"] == "/auth/login"
 

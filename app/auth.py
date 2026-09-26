@@ -192,7 +192,7 @@ def login():
     return render_template("auth/login.html")
 
 
-@bp.route("/logout")
+@bp.route("/logout", methods=("POST",))
 def logout():
     if g.user is not None:
         audit("logout", "ok")

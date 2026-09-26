@@ -1,9 +1,12 @@
 import os
 
 from flask import Flask, render_template
+from flask_wtf.csrf import CSRFProtect
 from werkzeug.exceptions import HTTPException
 
 from security.keys import load_or_create_key
+
+csrf = CSRFProtect()
 
 
 def create_app(test_config=None):
@@ -26,7 +29,7 @@ def create_app(test_config=None):
     os.makedirs(app.instance_path, exist_ok=True)
     os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
-    # signs Flask's session cookie
+    # signs Flask's session cookie and the CSRF tokens
     if not app.config["SECRET_KEY"]:
         app.config["SECRET_KEY"] = load_or_create_key(
             os.path.join(app.config["SECRETS_DIR"], "secret_key")
@@ -35,6 +38,7 @@ def create_app(test_config=None):
     from . import admin, auth, db, files
 
     db.init_app(app)
+    csrf.init_app(app)
     app.register_blueprint(auth.bp)
     app.register_blueprint(files.bp)
     app.register_blueprint(admin.bp)
