@@ -15,23 +15,24 @@ def log_rows(app):
 
 
 def test_file_actions_are_logged(app, alice, bob):
-    alice.post(
+    url = alice.post(
         "/upload",
         data={"file": (io.BytesIO(b"quarterly figures"), "q3.txt")},
         content_type="multipart/form-data",
-    )
-    alice.get("/files/1")
-    alice.post("/files/1/share", data={"username": "bob"})
-    bob.get("/files/1/download")
-    alice.post("/files/1/delete")
+    ).headers["Location"]
+    file_id = url.rsplit("/", 1)[-1]
+    alice.get(url)
+    alice.post(f"{url}/share", data={"username": "bob"})
+    bob.get(f"{url}/download")
+    alice.post(f"{url}/delete")
 
     rows = log_rows(app)
     for expected in (
-        ("alice", "upload", "ok", 1),
-        ("alice", "verify", "ok", 1),
-        ("alice", "share", "ok", 1),
-        ("bob", "download", "ok", 1),
-        ("alice", "delete", "ok", 1),
+        ("alice", "upload", "ok", file_id),
+        ("alice", "verify", "ok", file_id),
+        ("alice", "share", "ok", file_id),
+        ("bob", "download", "ok", file_id),
+        ("alice", "delete", "ok", file_id),
     ):
         assert expected in rows
 

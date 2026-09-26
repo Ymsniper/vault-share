@@ -5,6 +5,7 @@ from flask_wtf.csrf import CSRFProtect
 from werkzeug.exceptions import HTTPException
 
 from security.keys import load_or_create_key
+from security.uploads import MAX_SIZE
 
 csrf = CSRFProtect()
 
@@ -14,7 +15,10 @@ def create_app(test_config=None):
     app.config.from_mapping(
         DATABASE=os.path.join(app.instance_path, "app.sqlite3"),
         SECRETS_DIR=os.path.join(app.instance_path, "secrets"),
-        UPLOAD_FOLDER=os.path.join(app.root_path, "static", "uploads"),
+        # outside the app's static folder, so files are only reachable
+        # through the routes that check access
+        STORAGE_FOLDER=os.path.join(app.instance_path, "storage"),
+        MAX_CONTENT_LENGTH=MAX_SIZE,
         # made by pki/create_ca.sh; the key is encrypted under CA_PASSPHRASE
         CA_CERT=os.path.join(app.instance_path, "ca", "ca.crt"),
         CA_KEY=os.path.join(app.instance_path, "ca", "ca.key"),
@@ -27,7 +31,7 @@ def create_app(test_config=None):
         app.config.update(test_config)
 
     os.makedirs(app.instance_path, exist_ok=True)
-    os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
+    os.makedirs(app.config["STORAGE_FOLDER"], exist_ok=True)
 
     # signs Flask's session cookie and the CSRF tokens
     if not app.config["SECRET_KEY"]:

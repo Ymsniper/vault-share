@@ -49,7 +49,8 @@ CREATE TABLE certificates (
 );
 
 CREATE TABLE files (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    -- random UUID, also the file's name on disk
+    id TEXT PRIMARY KEY,
     owner_id INTEGER NOT NULL REFERENCES users (id),
     filename TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
@@ -62,7 +63,7 @@ CREATE TABLE files (
 );
 
 CREATE TABLE shares (
-    file_id INTEGER NOT NULL REFERENCES files (id) ON DELETE CASCADE,
+    file_id TEXT NOT NULL REFERENCES files (id) ON DELETE CASCADE,
     recipient_id INTEGER NOT NULL REFERENCES users (id),
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     revoked_at TEXT,
@@ -74,7 +75,7 @@ CREATE TABLE audit_log (
     at TEXT NOT NULL DEFAULT (datetime('now')),
     user_id INTEGER REFERENCES users (id),
     action TEXT NOT NULL,
-    file_id INTEGER,
+    file_id TEXT,
     outcome TEXT NOT NULL,
     detail TEXT,
     ip TEXT

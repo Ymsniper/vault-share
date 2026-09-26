@@ -1,6 +1,8 @@
 import io
 import os
+import re
 import subprocess
+import uuid
 
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
@@ -8,19 +10,29 @@ from app.db import get_db
 from security.pki import load_certificate
 
 CONTRACT = b"Supply contract: 1,200 units at 40 EUR, delivery in March."
+PDF = b"%PDF-1.7\n1 0 obj << /Type /Catalog >> endobj\n%%EOF\n"
 
 
-def upload(client, data=CONTRACT, name="contract.txt"):
+def upload(client, data=CONTRACT, name="contract.txt", description="Supply contract"):
     return client.post(
         "/upload",
-        data={"file": (io.BytesIO(data), name), "description": "Supply contract"},
+        data={"file": (io.BytesIO(data), name), "description": description},
         content_type="multipart/form-data",
         follow_redirects=True,
     )
 
 
-def stored_path(app, name="contract.txt"):
-    return os.path.join(app.config["UPLOAD_FOLDER"], name)
+def new_file(client, data=CONTRACT, name="contract.txt"):
+    """Upload a file and return the URL of its page."""
+    return upload(client, data, name).request.path
+
+
+def file_id(url):
+    return url.rsplit("/", 1)[-1]
+
+
+def stored_path(app, url):
+    return os.path.join(app.config["STORAGE_FOLDER"], file_id(url))
 
 
 def my_files(client, q=""):
@@ -37,8 +49,9 @@ def user_id(app, username):
 
 
 def test_upload_stores_only_ciphertext(app, alice):
-    assert upload(alice).request.path == "/files/1"
-    with open(stored_path(app), "rb") as f:
+    url = new_file(alice)
+    assert re.fullmatch(r"/files/[0-9a-f-]{36}", url)
+    with open(stored_path(app, url), "rb") as f:
         stored = f.read()
     assert CONTRACT not in stored
     # AES-GCM adds a 16-byte authentication tag
@@ -52,72 +65,108 @@ def test_upload_requires_a_file(alice):
 
 def test_download_returns_the_original_bytes(alice):
     assert b"Integrity verified" in upload(alice).data
-    assert alice.get("/files/1/download").data == CONTRACT
+    url = new_file(alice)
+    assert alice.get(f"{url}/download").data == CONTRACT
+
+
+def test_download_is_always_an_attachment(alice):
+    url = new_file(alice)
+    r = alice.get(f"{url}/download")
+    assert r.headers["Content-Disposition"].startswith("attachment;")
+    assert r.mimetype == "text/plain"
+
+
+def test_upload_refuses_types_not_on_the_list(alice):
+    for name in ("page.html", "drawing.svg", "run.sh", "no-extension", "invoice.pdf.html"):
+        r = upload(alice, b"<html><script>alert(1)</script></html>", name=name)
+        assert b"This file type is not allowed." in r.data
+    assert b"No files found." in my_files(alice)
+
+
+def test_upload_refuses_content_that_does_not_match(alice):
+    r = upload(alice, b"<html>not a pdf</html>", name="report.pdf")
+    assert b"does not match the .pdf extension" in r.data
+    r = upload(alice, b"\xff\xfe\x00binary", name="notes.txt")
+    assert b"must contain UTF-8 text" in r.data
+    assert b"Uploaded report.pdf." in upload(alice, PDF, name="report.pdf").data
+
+
+def test_upload_over_10_mb_is_refused(alice):
+    r = upload(alice, b"a" * (10 * 1024 * 1024 + 1), name="big.txt")
+    assert r.status_code == 413
+
+
+def test_path_in_the_name_is_ignored(app, alice, tmp_path):
+    url = new_file(alice, name="../../evil.txt")
+    assert b"evil.txt" in my_files(alice)
+    assert os.listdir(app.config["STORAGE_FOLDER"]) == [file_id(url)]
+    assert not os.path.exists(tmp_path / "evil.txt")
 
 
 def test_modified_file_fails_verification(app, alice):
-    upload(alice)
-    with open(stored_path(app), "r+b") as f:
+    url = new_file(alice)
+    with open(stored_path(app, url), "r+b") as f:
         first = f.read(1)
         f.seek(0)
         f.write(bytes([first[0] ^ 1]))
 
-    assert b"the stored file was modified" in alice.get("/files/1").data
-    assert alice.get("/files/1/download").headers["Location"] == "/files/1"
+    assert b"the stored file was modified" in alice.get(url).data
+    assert alice.get(f"{url}/download").headers["Location"] == url
 
 
 def test_changed_hash_fails_verification(app, alice):
-    upload(alice)
+    url = new_file(alice)
     with app.app_context():
         db = get_db()
-        db.execute("UPDATE files SET sha256 = ? WHERE id = 1", ("0" * 64,))
+        db.execute("UPDATE files SET sha256 = ? WHERE id = ?", ("0" * 64, file_id(url)))
         db.commit()
 
-    assert b"does not match its SHA-256 hash" in alice.get("/files/1").data
+    assert b"does not match its SHA-256 hash" in alice.get(url).data
 
 
 def test_share_then_revoke(app, alice, bob):
-    upload(alice)
-    r = alice.post("/files/1/share", data={"username": "bob"}, follow_redirects=True)
+    url = new_file(alice)
+    r = alice.post(f"{url}/share", data={"username": "bob"}, follow_redirects=True)
     assert b"Shared with bob." in r.data
     assert b"contract.txt" in shared_with_me(bob)
-    assert bob.get("/files/1/download").data == CONTRACT
+    assert bob.get(f"{url}/download").data == CONTRACT
 
-    alice.post("/files/1/revoke", data={"recipient_id": user_id(app, "bob")})
+    alice.post(f"{url}/revoke", data={"recipient_id": user_id(app, "bob")})
     assert b"contract.txt" not in shared_with_me(bob)
 
-    alice.post("/files/1/share", data={"username": "bob"})
+    alice.post(f"{url}/share", data={"username": "bob"})
     assert b"contract.txt" in shared_with_me(bob)
 
 
 def test_share_rejects_unknown_user_and_owner(alice):
-    upload(alice)
-    r = alice.post("/files/1/share", data={"username": "nobody"}, follow_redirects=True)
+    url = new_file(alice)
+    r = alice.post(f"{url}/share", data={"username": "nobody"}, follow_redirects=True)
     assert b"Unknown user." in r.data
-    r = alice.post("/files/1/share", data={"username": "alice"}, follow_redirects=True)
+    r = alice.post(f"{url}/share", data={"username": "alice"}, follow_redirects=True)
     assert b"The owner already has access." in r.data
 
 
 def test_search_filters_my_files(alice):
-    upload(alice)
-    upload(alice, name="invoice-0412.txt")
+    new_file(alice)
+    new_file(alice, name="invoice-0412.txt")
     page = my_files(alice, "invoice")
     assert b"invoice-0412.txt" in page
     assert b"contract.txt" not in page
 
 
 def test_delete_removes_file_and_shares(app, alice, bob):
-    upload(alice)
-    alice.post("/files/1/share", data={"username": "bob"})
-    alice.post("/files/1/delete")
+    url = new_file(alice)
+    alice.post(f"{url}/share", data={"username": "bob"})
+    alice.post(f"{url}/delete")
 
-    assert not os.path.exists(stored_path(app))
-    assert alice.get("/files/1").status_code == 404
+    assert not os.path.exists(stored_path(app, url))
+    assert alice.get(url).status_code == 404
     assert b"contract.txt" not in shared_with_me(bob)
 
 
 def test_unknown_file_is_404(alice):
-    assert alice.get("/files/42").status_code == 404
+    assert alice.get(f"/files/{uuid.uuid4()}").status_code == 404
+    assert alice.get("/files/1").status_code == 404
 
 
 def test_file_page_names_the_signer(alice):
@@ -125,7 +174,7 @@ def test_file_page_names_the_signer(alice):
 
 
 def test_changed_signature_fails_verification(app, alice):
-    upload(alice)
+    url = new_file(alice)
     with app.app_context():
         db = get_db()
         signature = bytearray(db.execute("SELECT signature FROM files").fetchone()[0])
@@ -133,12 +182,12 @@ def test_changed_signature_fails_verification(app, alice):
         db.execute("UPDATE files SET signature = ?", (bytes(signature),))
         db.commit()
 
-    assert b"the signature is not valid" in alice.get("/files/1").data
-    assert alice.get("/files/1/download").headers["Location"] == "/files/1"
+    assert b"the signature is not valid" in alice.get(url).data
+    assert alice.get(f"{url}/download").headers["Location"] == url
 
 
 def test_signature_checks_out_with_openssl(app, alice, tmp_path):
-    upload(alice)
+    new_file(alice)
     with app.app_context():
         row = get_db().execute(
             "SELECT f.signature, c.pem FROM files f JOIN certificates c ON c.id = f.cert_id"
@@ -159,9 +208,9 @@ def test_signature_checks_out_with_openssl(app, alice, tmp_path):
     assert r.stdout.strip() == "Verified OK"
 
 
-def check_copy(client, data):
+def check_copy(client, url, data):
     return client.post(
-        "/files/1/check",
+        f"{url}/check",
         data={"copy": (io.BytesIO(data), "my-copy.txt")},
         content_type="multipart/form-data",
         follow_redirects=True,
@@ -169,14 +218,14 @@ def check_copy(client, data):
 
 
 def test_check_local_copy(alice):
-    upload(alice)
-    assert b"identical to the original, signed by alice" in check_copy(alice, CONTRACT)
+    url = new_file(alice)
+    assert b"identical to the original, signed by alice" in check_copy(alice, url, CONTRACT)
     edited = CONTRACT.replace(b"40 EUR", b"14 EUR")
-    assert b"different from the original" in check_copy(alice, edited)
+    assert b"different from the original" in check_copy(alice, url, edited)
 
 
 def test_search_is_not_injectable(alice, bob):
-    upload(alice)
+    new_file(alice)
     page = my_files(alice, "' OR 1=1 --")
     assert b"contract.txt" not in page
     page = my_files(alice, "' UNION SELECT id, username, 0, 'x' FROM users--")
@@ -184,18 +233,13 @@ def test_search_is_not_injectable(alice, bob):
 
 
 def test_search_treats_wildcards_as_text(alice):
-    upload(alice)
+    new_file(alice)
     assert b"contract.txt" not in my_files(alice, "%")
 
 
 def test_names_and_descriptions_are_escaped(alice):
     payload = "<script>alert(1)</script>"
-    r = alice.post(
-        "/upload",
-        data={"file": (io.BytesIO(CONTRACT), "contract.txt"), "description": payload},
-        content_type="multipart/form-data",
-        follow_redirects=True,
-    )
+    r = upload(alice, description=payload)
     assert payload.encode() not in r.data
     assert b"&lt;script&gt;alert(1)&lt;/script&gt;" in r.data
 
@@ -209,20 +253,20 @@ def test_security_headers(alice):
 
 
 def test_other_users_get_403(app, alice, bob):
-    upload(alice)
-    assert bob.get("/files/1").status_code == 403
-    assert bob.get("/files/1/download").status_code == 403
+    url = new_file(alice)
+    assert bob.get(url).status_code == 403
+    assert bob.get(f"{url}/download").status_code == 403
     r = bob.post(
-        "/files/1/check",
+        f"{url}/check",
         data={"copy": (io.BytesIO(CONTRACT), "copy.txt")},
         content_type="multipart/form-data",
     )
     assert r.status_code == 403
-    assert bob.post("/files/1/share", data={"username": "bob"}).status_code == 403
-    assert bob.post("/files/1/revoke", data={"recipient_id": "1"}).status_code == 403
-    assert bob.post("/files/1/delete").status_code == 403
+    assert bob.post(f"{url}/share", data={"username": "bob"}).status_code == 403
+    assert bob.post(f"{url}/revoke", data={"recipient_id": "1"}).status_code == 403
+    assert bob.post(f"{url}/delete").status_code == 403
 
-    assert alice.get("/files/1/download").data == CONTRACT
+    assert alice.get(f"{url}/download").data == CONTRACT
     with app.app_context():
         denied = get_db().execute(
             "SELECT COUNT(*) FROM audit_log WHERE action = 'access' AND outcome = 'denied'"
@@ -231,15 +275,15 @@ def test_other_users_get_403(app, alice, bob):
 
 
 def test_recipient_can_read_but_not_manage(alice, bob):
-    upload(alice)
-    alice.post("/files/1/share", data={"username": "bob"})
-    assert bob.get("/files/1/download").data == CONTRACT
-    assert bob.post("/files/1/share", data={"username": "bob"}).status_code == 403
-    assert bob.post("/files/1/delete").status_code == 403
+    url = new_file(alice)
+    alice.post(f"{url}/share", data={"username": "bob"})
+    assert bob.get(f"{url}/download").data == CONTRACT
+    assert bob.post(f"{url}/share", data={"username": "bob"}).status_code == 403
+    assert bob.post(f"{url}/delete").status_code == 403
 
 
 def test_revoked_recipient_loses_access(app, alice, bob):
-    upload(alice)
-    alice.post("/files/1/share", data={"username": "bob"})
-    alice.post("/files/1/revoke", data={"recipient_id": user_id(app, "bob")})
-    assert bob.get("/files/1/download").status_code == 403
+    url = new_file(alice)
+    alice.post(f"{url}/share", data={"username": "bob"})
+    alice.post(f"{url}/revoke", data={"recipient_id": user_id(app, "bob")})
+    assert bob.get(f"{url}/download").status_code == 403

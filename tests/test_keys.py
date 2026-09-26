@@ -17,7 +17,7 @@ def test_secret_key_survives_a_restart(app):
         {
             "TESTING": True,
             "DATABASE": app.config["DATABASE"],
-            "UPLOAD_FOLDER": app.config["UPLOAD_FOLDER"],
+            "STORAGE_FOLDER": app.config["STORAGE_FOLDER"],
             "SECRETS_DIR": app.config["SECRETS_DIR"],
         }
     )
@@ -29,7 +29,7 @@ def test_each_install_gets_its_own_key(app, tmp_path):
         {
             "TESTING": True,
             "DATABASE": str(tmp_path / "other.sqlite3"),
-            "UPLOAD_FOLDER": str(tmp_path / "other-uploads"),
+            "STORAGE_FOLDER": str(tmp_path / "other-storage"),
             "SECRETS_DIR": str(tmp_path / "other-secrets"),
         }
     )

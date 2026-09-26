@@ -17,13 +17,13 @@ def token_from(page):
 
 def test_form_without_token_is_refused(alice, csrf_app):
     page = alice.get("/upload").data
-    alice.post(
+    url = alice.post(
         "/upload",
         data={"file": (io.BytesIO(b"board minutes"), "minutes.txt"), "csrf_token": token_from(page)},
         content_type="multipart/form-data",
-    )
-    assert alice.post("/files/1/delete").status_code == 400
-    assert alice.get("/files/1").status_code == 200
+    ).headers["Location"]
+    assert alice.post(f"{url}/delete").status_code == 400
+    assert alice.get(url).status_code == 200
 
 
 def test_form_with_the_page_token_works(csrf_app, client):
