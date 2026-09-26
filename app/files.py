@@ -31,8 +31,13 @@ def storage_path(filename):
     return os.path.join(current_app.config["UPLOAD_FOLDER"], filename)
 
 
-def get_file(id):
-    f = get_db().execute(
+def get_file(id, owner_only=False):
+    """Load a file the current user may use, or stop with 404 or 403.
+
+    The owner may do anything; a user with an active share may only read.
+    """
+    db = get_db()
+    f = db.execute(
         "SELECT f.*, u.username AS owner, c.pem AS cert_pem, c.serial AS cert_serial,"
         " c.not_after AS cert_not_after"
         " FROM files f JOIN users u ON u.id = f.owner_id"
@@ -41,7 +46,18 @@ def get_file(id):
     ).fetchone()
     if f is None:
         abort(404)
-    return f
+    if f["owner_id"] == g.user["id"]:
+        return f
+    if not owner_only:
+        share = db.execute(
+            "SELECT 1 FROM shares"
+            " WHERE file_id = ? AND recipient_id = ? AND revoked_at IS NULL",
+            (id, g.user["id"]),
+        ).fetchone()
+        if share is not None:
+            return f
+    audit("access", "denied", file_id=id, detail=request.endpoint)
+    abort(403)
 
 
 def check_file(f):
@@ -198,7 +214,7 @@ def check_copy(id):
 @bp.route("/files/<int:id>/share", methods=("POST",))
 @login_required
 def share(id):
-    f = get_file(id)
+    f = get_file(id, owner_only=True)
     username = request.form["username"]
     db = get_db()
     user = db.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
@@ -223,7 +239,7 @@ def share(id):
 @bp.route("/files/<int:id>/revoke", methods=("POST",))
 @login_required
 def revoke(id):
-    get_file(id)
+    get_file(id, owner_only=True)
     recipient_id = request.form["recipient_id"]
     db = get_db()
     db.execute(
@@ -240,7 +256,7 @@ def revoke(id):
 @bp.route("/files/<int:id>/delete", methods=("POST",))
 @login_required
 def delete(id):
-    f = get_file(id)
+    f = get_file(id, owner_only=True)
     try:
         os.remove(storage_path(f["filename"]))
     except FileNotFoundError:

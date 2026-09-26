@@ -206,3 +206,40 @@ def test_security_headers(alice):
     assert "frame-ancestors 'none'" in headers["Content-Security-Policy"]
     assert headers["X-Content-Type-Options"] == "nosniff"
     assert headers["X-Frame-Options"] == "DENY"
+
+
+def test_other_users_get_403(app, alice, bob):
+    upload(alice)
+    assert bob.get("/files/1").status_code == 403
+    assert bob.get("/files/1/download").status_code == 403
+    r = bob.post(
+        "/files/1/check",
+        data={"copy": (io.BytesIO(CONTRACT), "copy.txt")},
+        content_type="multipart/form-data",
+    )
+    assert r.status_code == 403
+    assert bob.post("/files/1/share", data={"username": "bob"}).status_code == 403
+    assert bob.post("/files/1/revoke", data={"recipient_id": "1"}).status_code == 403
+    assert bob.post("/files/1/delete").status_code == 403
+
+    assert alice.get("/files/1/download").data == CONTRACT
+    with app.app_context():
+        denied = get_db().execute(
+            "SELECT COUNT(*) FROM audit_log WHERE action = 'access' AND outcome = 'denied'"
+        ).fetchone()[0]
+    assert denied == 6
+
+
+def test_recipient_can_read_but_not_manage(alice, bob):
+    upload(alice)
+    alice.post("/files/1/share", data={"username": "bob"})
+    assert bob.get("/files/1/download").data == CONTRACT
+    assert bob.post("/files/1/share", data={"username": "bob"}).status_code == 403
+    assert bob.post("/files/1/delete").status_code == 403
+
+
+def test_revoked_recipient_loses_access(app, alice, bob):
+    upload(alice)
+    alice.post("/files/1/share", data={"username": "bob"})
+    alice.post("/files/1/revoke", data={"recipient_id": user_id(app, "bob")})
+    assert bob.get("/files/1/download").status_code == 403
