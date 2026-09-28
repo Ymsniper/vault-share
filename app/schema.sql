@@ -33,9 +33,12 @@ CREATE TABLE login_failures (
     at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- the ECDSA private key, encrypted with AES-256-GCM under a key derived
+-- from the user's password (Argon2id with kdf_salt)
 CREATE TABLE user_keys (
     user_id INTEGER PRIMARY KEY REFERENCES users (id),
-    private_key TEXT NOT NULL
+    kdf_salt BLOB NOT NULL,
+    enc_private_key BLOB NOT NULL
 );
 
 CREATE TABLE certificates (

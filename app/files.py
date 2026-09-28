@@ -21,11 +21,11 @@ from security.crypto import decrypt, encrypt, new_key
 from security.integrity import record_mac, sha256
 from security.keys import subkey
 from security.pki import certificate_problem, load_ca_certificate, load_certificate
-from security.signing import load_private_key, sign_digest, verify_digest
+from security.signing import sign_digest, unlock_private_key, verify_digest
 from security.uploads import check_upload, clean_name
 
 from .audit import audit
-from .auth import login_required
+from .auth import is_locked, login_required, record_failure
 from .db import get_db
 
 bp = Blueprint("files", __name__)
@@ -171,16 +171,35 @@ def upload():
             flash(str(e))
             return render_template("files/upload.html")
 
-        file_id = str(uuid.uuid4())
-        digest = sha256(data)
+        # the password unlocks the signing key, so a wrong one counts
+        # toward the same lockout as a failed login
+        username = g.user["username"]
+        if is_locked(username, request.remote_addr):
+            flash("Too many failed attempts. Try again in 15 minutes.")
+            return render_template("files/upload.html")
         db = get_db()
         signer = db.execute(
-            "SELECT k.private_key, c.id AS cert_id FROM user_keys k"
+            "SELECT k.kdf_salt, k.enc_private_key, c.id AS cert_id FROM user_keys k"
             " JOIN certificates c ON c.user_id = k.user_id"
             " WHERE k.user_id = ? ORDER BY c.id DESC LIMIT 1",
             (g.user["id"],),
         ).fetchone()
-        signature = sign_digest(load_private_key(signer["private_key"]), digest)
+        try:
+            key = unlock_private_key(
+                signer["kdf_salt"],
+                signer["enc_private_key"],
+                request.form.get("password", ""),
+                username.encode(),
+            )
+        except InvalidTag:
+            record_failure(username, request.remote_addr)
+            audit("upload", "refused", detail="wrong password")
+            flash("Wrong password: your signing key stays locked and nothing was uploaded.")
+            return render_template("files/upload.html")
+
+        file_id = str(uuid.uuid4())
+        digest = sha256(data)
+        signature = sign_digest(key, digest)
 
         # a new random key for every file, kept only in wrapped form
         file_key = new_key()

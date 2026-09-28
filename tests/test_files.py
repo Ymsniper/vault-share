@@ -11,6 +11,7 @@ from app import create_app
 from app.db import get_db
 from security.pki import load_certificate
 
+PASSWORD = "contract-2026"
 CONTRACT = b"Supply contract: 1,200 units at 40 EUR, delivery in March."
 PDF = b"%PDF-1.7\n1 0 obj << /Type /Catalog >> endobj\n%%EOF\n"
 
@@ -18,7 +19,7 @@ PDF = b"%PDF-1.7\n1 0 obj << /Type /Catalog >> endobj\n%%EOF\n"
 def upload(client, data=CONTRACT, name="contract.txt", description="Supply contract"):
     return client.post(
         "/upload",
-        data={"file": (io.BytesIO(data), name), "description": description},
+        data={"file": (io.BytesIO(data), name), "description": description, "password": PASSWORD},
         content_type="multipart/form-data",
         follow_redirects=True,
     )

@@ -2,6 +2,7 @@ import re
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
+from argon2.low_level import Type, hash_secret_raw
 
 # argon2-cffi defaults to Argon2id with 64 MiB of memory, 3 passes, 4 lanes
 # and a random 16-byte salt per hash (the RFC 9106 low-memory profile). The
@@ -43,6 +44,19 @@ def check_password(stored_hash, password):
         return _hasher.verify(stored_hash, password)
     except (VerificationError, InvalidHashError):
         return False
+
+
+def derive_key(password, salt):
+    """A 256-bit key from the password, at the same Argon2id cost as the hashes."""
+    return hash_secret_raw(
+        password.encode(),
+        salt,
+        time_cost=_hasher.time_cost,
+        memory_cost=_hasher.memory_cost,
+        parallelism=_hasher.parallelism,
+        hash_len=32,
+        type=Type.ID,
+    )
 
 
 def check_password_of_unknown_user(password):

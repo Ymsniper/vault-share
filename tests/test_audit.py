@@ -17,7 +17,7 @@ def log_rows(app):
 def test_file_actions_are_logged(app, alice, bob):
     url = alice.post(
         "/upload",
-        data={"file": (io.BytesIO(b"quarterly figures"), "q3.txt")},
+        data={"file": (io.BytesIO(b"quarterly figures"), "q3.txt"), "password": "contract-2026"},
         content_type="multipart/form-data",
     ).headers["Location"]
     file_id = url.rsplit("/", 1)[-1]

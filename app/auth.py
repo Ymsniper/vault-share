@@ -22,7 +22,7 @@ from security.passwords import (
     password_problem,
 )
 from security.pki import issue_certificate, load_ca, make_csr, to_pem
-from security.signing import generate_key, private_key_pem
+from security.signing import generate_key, lock_private_key
 
 from .audit import audit
 from .db import get_db
@@ -125,9 +125,10 @@ def register():
                 user_id = cur.lastrowid
                 key = generate_key()
                 cert = issue_certificate(make_csr(key, username), ca_cert, ca_key)
+                salt, locked_key = lock_private_key(key, password, username.encode())
                 db.execute(
-                    "INSERT INTO user_keys (user_id, private_key) VALUES (?, ?)",
-                    (user_id, private_key_pem(key)),
+                    "INSERT INTO user_keys (user_id, kdf_salt, enc_private_key) VALUES (?, ?, ?)",
+                    (user_id, salt, locked_key),
                 )
                 db.execute(
                     "INSERT INTO certificates (user_id, serial, pem, not_before, not_after)"

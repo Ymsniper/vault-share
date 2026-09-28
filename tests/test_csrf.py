@@ -19,7 +19,7 @@ def test_form_without_token_is_refused(alice, csrf_app):
     page = alice.get("/upload").data
     url = alice.post(
         "/upload",
-        data={"file": (io.BytesIO(b"board minutes"), "minutes.txt"), "csrf_token": token_from(page)},
+        data={"file": (io.BytesIO(b"board minutes"), "minutes.txt"), "csrf_token": token_from(page), "password": "contract-2026"},
         content_type="multipart/form-data",
     ).headers["Location"]
     assert alice.post(f"{url}/delete").status_code == 400

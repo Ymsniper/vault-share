@@ -12,6 +12,11 @@
     <label for="description" class="form-label">Description</label>
     <textarea name="description" id="description" class="form-control" rows="2"></textarea>
   </div>
+  <div class="mb-3">
+    <label for="password" class="form-label">Your password</label>
+    <input type="password" name="password" id="password" class="form-control" required>
+    <div class="form-text">Unlocks your private key to sign the file. It is never stored.</div>
+  </div>
   <button type="submit" class="btn btn-primary">Upload</button>
 </form>
 {% endblock %}
