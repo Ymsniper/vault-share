@@ -19,3 +19,11 @@ basicConstraints = critical, CA:FALSE
 keyUsage = critical, digitalSignature, nonRepudiation
 subjectKeyIdentifier = hash
 authorityKeyIdentifier = keyid
+
+[v3_server]
+basicConstraints = critical, CA:FALSE
+keyUsage = critical, digitalSignature
+extendedKeyUsage = serverAuth
+subjectAltName = DNS:localhost, IP:127.0.0.1
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid
