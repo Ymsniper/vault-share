@@ -1,3 +1,4 @@
+import hmac
 import io
 import os
 import uuid
@@ -17,9 +18,9 @@ from flask import (
 )
 
 from security.crypto import decrypt, encrypt, new_key
-from security.integrity import sha256
+from security.integrity import record_mac, sha256
 from security.keys import subkey
-from security.pki import common_name, load_certificate
+from security.pki import certificate_problem, load_ca_certificate, load_certificate
 from security.signing import load_private_key, sign_digest, verify_digest
 from security.uploads import check_upload, clean_name
 
@@ -32,6 +33,14 @@ bp = Blueprint("files", __name__)
 
 def wrap_key():
     return subkey(current_app.config["MASTER_KEY"], "file-key-wrap")
+
+
+def mac_key():
+    return subkey(current_app.config["MASTER_KEY"], "file-record-hmac")
+
+
+def mac_of(f):
+    return record_mac(mac_key(), f["id"], f["owner_id"], f["sha256"], f["size"])
 
 
 def storage_path(file_id):
@@ -48,7 +57,7 @@ def get_file(id, owner_only=False):
     db = get_db()
     f = db.execute(
         "SELECT f.*, u.username AS owner, c.pem AS cert_pem, c.serial AS cert_serial,"
-        " c.not_after AS cert_not_after"
+        " c.not_after AS cert_not_after, c.revoked_at AS cert_revoked_at"
         " FROM files f JOIN users u ON u.id = f.owner_id"
         " JOIN certificates c ON c.id = f.cert_id WHERE f.id = ?",
         (id,),
@@ -74,6 +83,11 @@ def check_file(f):
 
     Returns (data, error, signer); data is None when a check fails.
     """
+    # the hash alone proves nothing if whoever edits the database can also
+    # rewrite it, but the HMAC needs the master key, which is not in there
+    if not hmac.compare_digest(mac_of(f), f["record_mac"]):
+        return None, "Verification failed: the record of this file was changed in the database.", None
+
     # the file ID is the associated data of both layers, so a key or a
     # file moved onto another file's record no longer decrypts
     aad = f["id"].encode()
@@ -89,20 +103,30 @@ def check_file(f):
     except InvalidTag:
         return None, "Verification failed: the stored file was modified.", None
     digest = sha256(data)
-    if digest.hex() != f["sha256"]:
+    if not hmac.compare_digest(digest.hex(), f["sha256"]):
         return None, "Verification failed: the file does not match its SHA-256 hash.", None
-    signer = signed_by(f, digest)
-    if signer is None:
-        return None, "Verification failed: the signature is not valid.", None
-    return data, None, signer
+    problem = signature_problem(f, digest)
+    if problem is not None:
+        return None, f"Verification failed: {problem}.", None
+    return data, None, f["owner"]
 
 
-def signed_by(f, digest):
-    """Name of the signer if the file's signature covers digest, else None."""
+def signature_problem(f, digest):
+    """Why the owner's signature does not cover digest, or None if it does.
+
+    The certificate is checked first: a valid signature means nothing
+    unless the local CA vouches that the key belongs to the file's owner.
+    """
     cert = load_certificate(f["cert_pem"])
+    ca_cert = load_ca_certificate(current_app.config["CA_CERT"])
+    problem = certificate_problem(cert, ca_cert, f["owner"])
+    if problem is not None:
+        return problem
+    if f["cert_revoked_at"] is not None:
+        return "the certificate was revoked"
     if not verify_digest(cert.public_key(), f["signature"], digest):
-        return None
-    return common_name(cert)
+        return "the signature is not valid"
+    return None
 
 
 @bp.route("/")
@@ -164,12 +188,13 @@ def upload():
         with open(storage_path(file_id), "wb") as out:
             out.write(encrypt(file_key, data, aad))
         wrapped_key = encrypt(wrap_key(), file_key, aad)
+        mac = record_mac(mac_key(), file_id, g.user["id"], digest.hex(), len(data))
 
         db.execute(
             "INSERT INTO files"
             " (id, owner_id, filename, description, mime, size, sha256, wrapped_key,"
-            " signature, cert_id)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " record_mac, signature, cert_id)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 file_id,
                 g.user["id"],
@@ -179,6 +204,7 @@ def upload():
                 len(data),
                 digest.hex(),
                 wrapped_key,
+                mac,
                 signature,
                 signer["cert_id"],
             ),
@@ -233,18 +259,21 @@ def check_copy(id):
 
     # hashed in memory only, the copy is never stored
     digest = sha256(copy.read())
-    if digest.hex() != f["sha256"]:
+    if not hmac.compare_digest(digest.hex(), f["sha256"]):
         audit("check_copy", "mismatch", file_id=f["id"])
         flash("Your copy is different from the original.")
         return redirect(url_for("files.detail", id=f["id"]))
 
-    signer = signed_by(f, digest)
-    if signer is None:
-        audit("check_copy", "failed", file_id=f["id"], detail="signature not valid")
-        flash("Your copy matches the stored hash, but the signature is not valid.")
+    if not hmac.compare_digest(mac_of(f), f["record_mac"]):
+        problem = "the record of this file was changed in the database"
+    else:
+        problem = signature_problem(f, digest)
+    if problem is not None:
+        audit("check_copy", "failed", file_id=f["id"], detail=problem)
+        flash(f"Your copy matches the stored hash, but {problem}.")
     else:
         audit("check_copy", "match", file_id=f["id"])
-        flash(f"Your copy is identical to the original, signed by {signer}.", "success")
+        flash(f"Your copy is identical to the original, signed by {f['owner']}.", "success")
     return redirect(url_for("files.detail", id=f["id"]))
 
 

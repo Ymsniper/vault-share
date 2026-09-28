@@ -89,7 +89,8 @@ def test_files_need_the_master_key(app, alice, tmp_path):
     )
     client = thief.test_client()
     client.set_cookie("sid", alice.get_cookie("sid").value)
-    assert b"key was modified" in client.get(url).data
+    assert b"Verification failed" in client.get(url).data
+    assert CONTRACT not in client.get(f"{url}/download", follow_redirects=True).data
 
 
 def test_upload_requires_a_file(alice):
@@ -155,7 +156,8 @@ def test_changed_hash_fails_verification(app, alice):
         db.execute("UPDATE files SET sha256 = ? WHERE id = ?", ("0" * 64, file_id(url)))
         db.commit()
 
-    assert b"does not match its SHA-256 hash" in alice.get(url).data
+    # caught by the HMAC: the hash alone could be rewritten to match
+    assert b"record of this file was changed in the database" in alice.get(url).data
 
 
 def test_share_then_revoke(app, alice, bob):

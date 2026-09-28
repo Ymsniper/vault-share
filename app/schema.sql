@@ -59,6 +59,8 @@ CREATE TABLE files (
     sha256 TEXT NOT NULL,
     -- the file's own AES key, encrypted under the wrap key
     wrapped_key BLOB NOT NULL,
+    -- HMAC of id, owner_id, sha256 and size, so editing them is detected
+    record_mac BLOB NOT NULL,
     signature BLOB NOT NULL,
     cert_id INTEGER NOT NULL REFERENCES certificates (id),
     uploaded_at TEXT NOT NULL DEFAULT (datetime('now'))

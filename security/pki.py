@@ -1,6 +1,7 @@
 import datetime
 
 from cryptography import x509
+from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.x509.oid import NameOID
 
@@ -69,3 +70,28 @@ def load_certificate(pem):
 
 def common_name(cert):
     return cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
+
+
+def load_ca_certificate(path):
+    with open(path, "rb") as f:
+        return x509.load_pem_x509_certificate(f.read())
+
+
+def certificate_problem(cert, ca_cert, username):
+    """Why cert cannot vouch for a signature by username, or None if it can."""
+    try:
+        cert.verify_directly_issued_by(ca_cert)
+    except (ValueError, TypeError, InvalidSignature):
+        return "the certificate was not issued by the local CA"
+    now = datetime.datetime.now(datetime.UTC)
+    if not cert.not_valid_before_utc <= now <= cert.not_valid_after_utc:
+        return "the certificate has expired or is not valid yet"
+    try:
+        usage = cert.extensions.get_extension_for_class(x509.KeyUsage).value
+    except x509.ExtensionNotFound:
+        usage = None
+    if usage is None or not usage.digital_signature:
+        return "the certificate does not allow signing"
+    if common_name(cert) != username:
+        return "the certificate belongs to someone else"
+    return None
