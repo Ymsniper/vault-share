@@ -24,8 +24,20 @@ the key of every stored file. Back up `master.key` separately from the
 database: without it no file can be decrypted, and anyone holding both
 the database and that key can read every file.
 
-When serving over HTTPS, set `SESSION_COOKIE_SECURE = True` in
-`app/__init__.py` so the cookies are never sent over plain HTTP.
+## HTTPS
+
+    pki/create_server_cert.sh    # with CA_PASSPHRASE exported; again to renew
+    .venv/bin/python run.py      # now https://localhost:5000
+
+`run.py` serves HTTPS as soon as `instance/tls/server.crt` exists, and then
+marks the cookies Secure so they never travel over plain HTTP. Browsers warn
+until they trust the local CA: import `instance/ca/ca.crt` as a certificate
+authority (in Firefox: Settings, Privacy & Security, View Certificates,
+Authorities, Import). To look at the certificate chain from a terminal:
+
+    openssl s_client -connect localhost:5000 -CAfile instance/ca/ca.crt
+
+## Admin
 
 To let a user read the audit log:
 

@@ -1,0 +1,80 @@
+import http.client
+import os
+import ssl
+import stat
+import subprocess
+import threading
+from pathlib import Path
+from urllib.parse import urlencode
+
+import pytest
+from cryptography import x509
+from werkzeug.serving import make_server
+
+PKI = Path(__file__).parent.parent / "pki"
+
+
+@pytest.fixture(scope="session")
+def tls_dir(ca_dir, ca_passphrase, tmp_path_factory):
+    out = tmp_path_factory.mktemp("tls")
+    subprocess.run(
+        ["sh", str(PKI / "create_server_cert.sh"), str(ca_dir), str(out)],
+        env={**os.environ, "CA_PASSPHRASE": ca_passphrase},
+        check=True,
+        capture_output=True,
+    )
+    return out
+
+
+@pytest.fixture
+def https_port(app, tls_dir):
+    app.config["SESSION_COOKIE_SECURE"] = True
+    server = make_server(
+        "127.0.0.1", 0, app, ssl_context=(str(tls_dir / "server.crt"), str(tls_dir / "server.key"))
+    )
+    thread = threading.Thread(target=server.serve_forever)
+    thread.start()
+    yield server.server_port
+    server.shutdown()
+    thread.join()
+
+
+def test_server_certificate_is_issued_by_the_ca(ca_dir, tls_dir):
+    r = subprocess.run(
+        ["openssl", "verify", "-CAfile", str(ca_dir / "ca.crt"), "-purpose", "sslserver",
+         str(tls_dir / "server.crt")],
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+
+    cert = x509.load_pem_x509_certificate((tls_dir / "server.crt").read_bytes())
+    names = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+    assert names.get_values_for_type(x509.DNSName) == ["localhost"]
+    assert [str(ip) for ip in names.get_values_for_type(x509.IPAddress)] == ["127.0.0.1"]
+    assert stat.S_IMODE(os.stat(tls_dir / "server.key").st_mode) == 0o600
+
+
+def test_browser_trusting_the_ca_gets_a_secure_cookie(ca_dir, https_port):
+    trusting = ssl.create_default_context(cafile=str(ca_dir / "ca.crt"))
+    form = {"username": "alice", "password": "contract-2026"}
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+    for host in ("localhost", "127.0.0.1"):
+        conn = http.client.HTTPSConnection(host, https_port, context=trusting)
+        conn.request("POST", "/auth/register", urlencode(form), headers)
+        conn.getresponse().read()
+        conn.request("POST", "/auth/login", urlencode(form), headers)
+        response = conn.getresponse()
+        response.read()
+        cookie = response.getheader("Set-Cookie")
+        assert cookie.startswith("sid=")
+        assert "Secure" in cookie and "HttpOnly" in cookie
+        conn.close()
+
+
+def test_client_without_the_ca_refuses_the_connection(https_port):
+    default = ssl.create_default_context()
+    conn = http.client.HTTPSConnection("localhost", https_port, context=default)
+    with pytest.raises(ssl.SSLCertVerificationError):
+        conn.request("GET", "/auth/login")
+    conn.close()

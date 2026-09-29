@@ -24,7 +24,7 @@ def create_app(test_config=None):
         CA_KEY=os.path.join(app.instance_path, "ca", "ca.key"),
         CA_PASSPHRASE=os.environ.get("CA_PASSPHRASE"),
         SESSION_COOKIE_SAMESITE="Lax",
-        # set to True once the app is served over HTTPS
+        # run.py turns this on when it serves HTTPS
         SESSION_COOKIE_SECURE=False,
     )
     if test_config is not None:
