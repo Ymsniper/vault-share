@@ -22,6 +22,8 @@ def create_app(test_config=None):
         # made by pki/create_ca.sh; the key is encrypted under CA_PASSPHRASE
         CA_CERT=os.path.join(app.instance_path, "ca", "ca.crt"),
         CA_KEY=os.path.join(app.instance_path, "ca", "ca.key"),
+        # written by "flask --app app admin revoke"
+        CA_CRL=os.path.join(app.instance_path, "ca", "crl.pem"),
         CA_PASSPHRASE=os.environ.get("CA_PASSPHRASE"),
         SESSION_COOKIE_SAMESITE="Lax",
         # run.py turns this on when it serves HTTPS

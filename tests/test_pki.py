@@ -66,6 +66,7 @@ def test_registration_needs_the_ca(tmp_path, ca_dir):
             "SECRETS_DIR": str(tmp_path / "secrets"),
             "CA_CERT": str(ca_dir / "ca.crt"),
             "CA_KEY": str(ca_dir / "ca.key"),
+            "CA_CRL": str(tmp_path / "crl.pem"),
             "CA_PASSPHRASE": "not the passphrase",
         }
     )

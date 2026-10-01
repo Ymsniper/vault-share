@@ -20,13 +20,19 @@ from flask import (
 from security.crypto import decrypt, encrypt, new_key
 from security.integrity import record_mac, sha256
 from security.keys import subkey
-from security.pki import certificate_problem, load_ca_certificate, load_certificate
+from security.pki import (
+    certificate_problem,
+    listed_in_crl,
+    load_ca_certificate,
+    load_certificate,
+)
 from security.signing import sign_digest, unlock_private_key, verify_digest
 from security.uploads import check_upload, clean_name
 
 from .audit import audit
 from .auth import is_locked, login_required, record_failure
 from .db import get_db
+from .identity import load_app_ca, new_identity
 
 bp = Blueprint("files", __name__)
 
@@ -124,6 +130,15 @@ def signature_problem(f, digest):
         return problem
     if f["cert_revoked_at"] is not None:
         return "the certificate was revoked"
+    # the CA-signed list also catches a revocation erased from the database
+    crl_path = current_app.config["CA_CRL"]
+    if os.path.exists(crl_path):
+        with open(crl_path, "rb") as fp:
+            try:
+                if listed_in_crl(cert, fp.read(), ca_cert):
+                    return "the certificate was revoked"
+            except ValueError as e:
+                return str(e)
     if not verify_digest(cert.public_key(), f["signature"], digest):
         return "the signature is not valid"
     return None
@@ -179,23 +194,36 @@ def upload():
             return render_template("files/upload.html")
         db = get_db()
         signer = db.execute(
-            "SELECT k.kdf_salt, k.enc_private_key, c.id AS cert_id FROM user_keys k"
+            "SELECT k.kdf_salt, k.enc_private_key, c.id AS cert_id, c.pem AS cert_pem,"
+            " c.revoked_at FROM user_keys k"
             " JOIN certificates c ON c.user_id = k.user_id"
             " WHERE k.user_id = ? ORDER BY c.id DESC LIMIT 1",
             (g.user["id"],),
         ).fetchone()
+        password = request.form.get("password", "")
         try:
             key = unlock_private_key(
-                signer["kdf_salt"],
-                signer["enc_private_key"],
-                request.form.get("password", ""),
-                username.encode(),
+                signer["kdf_salt"], signer["enc_private_key"], password, username.encode()
             )
         except InvalidTag:
             record_failure(username, request.remote_addr)
             audit("upload", "refused", detail="wrong password")
             flash("Wrong password: your signing key stays locked and nothing was uploaded.")
             return render_template("files/upload.html")
+
+        cert_id = signer["cert_id"]
+        ca_cert = load_ca_certificate(current_app.config["CA_CERT"])
+        cert_problem = certificate_problem(load_certificate(signer["cert_pem"]), ca_cert, username)
+        if signer["revoked_at"] is not None or cert_problem is not None:
+            # a revoked or expired certificate cannot vouch for new files, so
+            # the user gets a new key pair, locked with the password just typed
+            try:
+                key, cert_id = new_identity(g.user["id"], username, password, load_app_ca())
+            except (OSError, ValueError) as e:
+                current_app.logger.error("cannot load the CA: %s", e)
+                flash("Your certificate needs renewing, but the certificate authority is not set up.")
+                return render_template("files/upload.html")
+            audit("renew_certificate", "ok")
 
         file_id = str(uuid.uuid4())
         digest = sha256(data)
@@ -225,7 +253,7 @@ def upload():
                 wrapped_key,
                 mac,
                 signature,
-                signer["cert_id"],
+                cert_id,
             ),
         )
         db.commit()

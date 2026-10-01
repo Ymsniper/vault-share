@@ -4,6 +4,7 @@ from flask import Blueprint, abort, g, render_template
 from .audit import audit
 from .auth import login_required
 from .db import get_db
+from .identity import write_crl
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
 
@@ -31,3 +32,27 @@ def grant_command(username):
     if cur.rowcount == 0:
         raise click.ClickException(f"No user named {username}.")
     click.echo(f"{username} can now read the audit log.")
+
+
+@bp.cli.command("revoke")
+@click.argument("username")
+def revoke_command(username):
+    """Revoke USERNAME's certificate and publish a new revocation list.
+
+    Files signed with it stop passing verification; the user's next upload
+    gives them a new key and certificate.
+    """
+    db = get_db()
+    cur = db.execute(
+        "UPDATE certificates SET revoked_at = datetime('now')"
+        " WHERE revoked_at IS NULL AND user_id = (SELECT id FROM users WHERE username = ?)",
+        (username,),
+    )
+    if cur.rowcount == 0:
+        raise click.ClickException(f"{username} has no certificate to revoke.")
+    db.commit()
+    try:
+        path = write_crl()
+    except (OSError, ValueError) as e:
+        raise click.ClickException(f"revoked in the database, but the CRL was not written: {e}")
+    click.echo(f"Revoked {username}'s certificate. Revocation list: {path}")

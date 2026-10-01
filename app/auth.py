@@ -21,11 +21,10 @@ from security.passwords import (
     hash_password,
     password_problem,
 )
-from security.pki import issue_certificate, load_ca, make_csr, to_pem
-from security.signing import generate_key, lock_private_key
 
 from .audit import audit
 from .db import get_db
+from .identity import load_app_ca, new_identity
 
 bp = Blueprint("auth", __name__, url_prefix="/auth")
 
@@ -105,9 +104,8 @@ def register():
             error = password_problem(username, password)
 
         if error is None:
-            cfg = current_app.config
             try:
-                ca_cert, ca_key = load_ca(cfg["CA_CERT"], cfg["CA_KEY"], cfg["CA_PASSPHRASE"])
+                ca = load_app_ca()
             except (OSError, ValueError) as e:
                 current_app.logger.error("cannot load the CA: %s", e)
                 error = "Registration is unavailable: the certificate authority is not set up."
@@ -123,24 +121,7 @@ def register():
                 error = f"User {username} is already registered."
             else:
                 user_id = cur.lastrowid
-                key = generate_key()
-                cert = issue_certificate(make_csr(key, username), ca_cert, ca_key)
-                salt, locked_key = lock_private_key(key, password, username.encode())
-                db.execute(
-                    "INSERT INTO user_keys (user_id, kdf_salt, enc_private_key) VALUES (?, ?, ?)",
-                    (user_id, salt, locked_key),
-                )
-                db.execute(
-                    "INSERT INTO certificates (user_id, serial, pem, not_before, not_after)"
-                    " VALUES (?, ?, ?, ?, ?)",
-                    (
-                        user_id,
-                        format(cert.serial_number, "x"),
-                        to_pem(cert),
-                        cert.not_valid_before_utc.strftime("%Y-%m-%d %H:%M:%S"),
-                        cert.not_valid_after_utc.strftime("%Y-%m-%d %H:%M:%S"),
-                    ),
-                )
+                new_identity(user_id, username, password, ca)
                 db.commit()
                 audit("register", "ok", user_id=user_id)
                 return redirect(url_for("auth.login"))

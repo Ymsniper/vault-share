@@ -29,6 +29,19 @@ def ca_dir(tmp_path_factory):
 
 
 @pytest.fixture
+def test_certs(ca_dir, ca_passphrase, tmp_path):
+    """Certificates the app must refuse, made by pki/make_test_certs.sh for alice."""
+    out = tmp_path / "test-certs"
+    subprocess.run(
+        ["sh", str(CA_SCRIPT.parent / "make_test_certs.sh"), "alice", str(ca_dir), str(out)],
+        env={**os.environ, "CA_PASSPHRASE": CA_PASSPHRASE},
+        check=True,
+        capture_output=True,
+    )
+    return out
+
+
+@pytest.fixture
 def app(tmp_path, ca_dir):
     app = create_app(
         {
@@ -40,6 +53,7 @@ def app(tmp_path, ca_dir):
             "SECRETS_DIR": str(tmp_path / "secrets"),
             "CA_CERT": str(ca_dir / "ca.crt"),
             "CA_KEY": str(ca_dir / "ca.key"),
+            "CA_CRL": str(tmp_path / "crl.pem"),
             "CA_PASSPHRASE": CA_PASSPHRASE,
         }
     )

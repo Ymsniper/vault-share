@@ -1,7 +1,5 @@
 import io
 import os
-import subprocess
-from pathlib import Path
 
 import pytest
 from cryptography.exceptions import InvalidTag
@@ -11,20 +9,6 @@ from app.db import get_db
 from security.signing import sign_digest, unlock_private_key
 
 from .test_files import CONTRACT, file_id, new_file
-
-PKI = Path(__file__).parent.parent / "pki"
-
-
-@pytest.fixture
-def test_certs(ca_dir, ca_passphrase, tmp_path):
-    out = tmp_path / "test-certs"
-    subprocess.run(
-        ["sh", str(PKI / "make_test_certs.sh"), "alice", str(ca_dir), str(out)],
-        env={**os.environ, "CA_PASSPHRASE": ca_passphrase},
-        check=True,
-        capture_output=True,
-    )
-    return out
 
 
 def private_key_of(app, username, password="contract-2026"):

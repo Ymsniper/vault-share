@@ -43,6 +43,17 @@ To let a user read the audit log:
 
     .venv/bin/flask --app app admin grant <username>
 
+To revoke a user's certificate, for example after their key leaked:
+
+    .venv/bin/flask --app app admin revoke <username>
+
+This needs `CA_PASSPHRASE`: it also writes `instance/ca/crl.pem`, a
+revocation list signed by the CA. Files signed with the revoked certificate
+stop passing verification, and the user's next upload gives them a new key
+and certificate. OpenSSL can check a certificate against the list:
+
+    openssl verify -crl_check -CAfile instance/ca/ca.crt -CRLfile instance/ca/crl.pem <certificate>
+
 ## Tests
 
     .venv/bin/pytest
