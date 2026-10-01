@@ -2,6 +2,7 @@ import hmac
 import io
 import os
 import uuid
+import zipfile
 
 from cryptography.exceptions import InvalidTag
 from flask import (
@@ -292,6 +293,43 @@ def download(id):
     # so even a file with HTML inside cannot run as part of the site
     return send_file(
         io.BytesIO(data), mimetype=f["mime"], as_attachment=True, download_name=f["filename"]
+    )
+
+
+PROOF_README = """\
+Check that {name} was signed by {owner}, without the web app:
+
+1. The signer's certificate was issued by the local CA:
+   openssl verify -CAfile ca.crt signer.crt
+
+2. Take the public key out of the certificate:
+   openssl x509 -in signer.crt -pubkey -noout > signer.pub
+
+3. The signature matches your copy of the file:
+   openssl dgst -sha256 -verify signer.pub -signature "{name}.sig" "{name}"
+"""
+
+
+@bp.route("/files/<uuid:id>/proof")
+@login_required
+def proof(id):
+    """Signature, signer certificate and CA certificate, to check a copy offline."""
+    f = get_file(id)
+    with open(current_app.config["CA_CERT"], "rb") as fp:
+        ca_pem = fp.read()
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr(f"{f['filename']}.sig", f["signature"])
+        z.writestr("signer.crt", f["cert_pem"])
+        z.writestr("ca.crt", ca_pem)
+        z.writestr("README.txt", PROOF_README.format(name=f["filename"], owner=f["owner"]))
+    buf.seek(0)
+    audit("download_proof", "ok", file_id=f["id"])
+    return send_file(
+        buf,
+        mimetype="application/zip",
+        as_attachment=True,
+        download_name=f"{f['filename']}.proof.zip",
     )
 
 

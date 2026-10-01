@@ -4,6 +4,7 @@ import re
 import stat
 import subprocess
 import uuid
+import zipfile
 
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
@@ -324,3 +325,31 @@ def test_revoked_recipient_loses_access(app, alice, bob):
     alice.post(f"{url}/share", data={"username": "bob"})
     alice.post(f"{url}/revoke", data={"recipient_id": user_id(app, "bob")})
     assert bob.get(f"{url}/download").status_code == 403
+
+
+def test_signature_proof_checks_out_offline(app, alice, tmp_path):
+    url = new_file(alice)
+    proof = alice.get(f"{url}/proof")
+    assert proof.headers["Content-Disposition"].startswith("attachment;")
+    with zipfile.ZipFile(io.BytesIO(proof.data)) as z:
+        assert sorted(z.namelist()) == ["README.txt", "ca.crt", "contract.txt.sig", "signer.crt"]
+        z.extractall(tmp_path)
+    (tmp_path / "contract.txt").write_bytes(alice.get(f"{url}/download").data)
+
+    def openssl(*args):
+        return subprocess.run(["openssl", *args], cwd=tmp_path, capture_output=True, text=True)
+
+    assert openssl("verify", "-CAfile", "ca.crt", "signer.crt").returncode == 0
+    pub = openssl("x509", "-in", "signer.crt", "-pubkey", "-noout").stdout
+    (tmp_path / "signer.pub").write_text(pub)
+    r = openssl("dgst", "-sha256", "-verify", "signer.pub", "-signature", "contract.txt.sig", "contract.txt")
+    assert r.stdout.strip() == "Verified OK"
+
+    (tmp_path / "contract.txt").write_bytes(CONTRACT.replace(b"40 EUR", b"14 EUR"))
+    r = openssl("dgst", "-sha256", "-verify", "signer.pub", "-signature", "contract.txt.sig", "contract.txt")
+    assert r.stdout.strip() == "Verification failure"
+
+
+def test_signature_proof_needs_access(alice, bob):
+    url = new_file(alice)
+    assert bob.get(f"{url}/proof").status_code == 403
