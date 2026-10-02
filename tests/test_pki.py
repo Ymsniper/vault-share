@@ -61,6 +61,7 @@ def test_registration_needs_the_ca(tmp_path, ca_dir):
         {
             "TESTING": True,
             "WTF_CSRF_ENABLED": False,
+            "HTTPS": False,
             "DATABASE": str(tmp_path / "test.sqlite3"),
             "STORAGE_FOLDER": str(tmp_path / "storage"),
             "SECRETS_DIR": str(tmp_path / "secrets"),

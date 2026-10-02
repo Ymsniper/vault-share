@@ -32,8 +32,10 @@ the database and that key can read every file.
     pki/create_server_cert.sh    # with CA_PASSPHRASE exported; again to renew
     .venv/bin/python run.py      # now https://localhost:5000
 
-`run.py` serves HTTPS as soon as `instance/tls/server.crt` exists, and then
-marks the cookies Secure so they never travel over plain HTTP. Browsers warn
+`run.py` serves HTTPS as soon as `instance/tls/server.crt` exists. The app
+then redirects plain HTTP to HTTPS and marks the cookies Secure, through
+Flask-Talisman, which also sets the Content-Security-Policy and the other
+security headers. Browsers warn
 until they trust the local CA: import `instance/ca/ca.crt` as a certificate
 authority (in Firefox: Settings, Privacy & Security, View Certificates,
 Authorities, Import). To look at the certificate chain from a terminal:

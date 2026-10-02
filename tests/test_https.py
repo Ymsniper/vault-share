@@ -11,6 +11,8 @@ import pytest
 from cryptography import x509
 from werkzeug.serving import make_server
 
+from app import create_app
+
 PKI = Path(__file__).parent.parent / "pki"
 
 
@@ -27,11 +29,19 @@ def tls_dir(ca_dir, ca_passphrase, tmp_path_factory):
 
 
 @pytest.fixture
-def https_port(app, tls_dir):
-    app.config["SESSION_COOKIE_SECURE"] = True
-    server = make_server(
-        "127.0.0.1", 0, app, ssl_context=(str(tls_dir / "server.crt"), str(tls_dir / "server.key"))
+def https_app(app, tls_dir):
+    """The test app in HTTPS mode, on the same database and files."""
+    config = {k: v for k, v in app.config.items() if k.isupper()}
+    config.update(
+        HTTPS=True, TLS_CERT=str(tls_dir / "server.crt"), TLS_KEY=str(tls_dir / "server.key")
     )
+    return create_app(config)
+
+
+@pytest.fixture
+def https_port(https_app):
+    cfg = https_app.config
+    server = make_server("127.0.0.1", 0, https_app, ssl_context=(cfg["TLS_CERT"], cfg["TLS_KEY"]))
     thread = threading.Thread(target=server.serve_forever)
     thread.start()
     yield server.server_port
@@ -78,3 +88,9 @@ def test_client_without_the_ca_refuses_the_connection(https_port):
     with pytest.raises(ssl.SSLCertVerificationError):
         conn.request("GET", "/auth/login")
     conn.close()
+
+
+def test_plain_http_is_redirected_to_https(https_app):
+    r = https_app.test_client().get("/auth/login")
+    assert r.status_code == 302
+    assert r.headers["Location"] == "https://localhost/auth/login"

@@ -84,7 +84,10 @@ def test_files_need_the_master_key(app, alice, tmp_path):
     # same database and encrypted files, but not the same master key
     thief = create_app(
         {
-            **{k: app.config[k] for k in ("TESTING", "WTF_CSRF_ENABLED", "DATABASE", "STORAGE_FOLDER")},
+            **{
+                k: app.config[k]
+                for k in ("TESTING", "WTF_CSRF_ENABLED", "HTTPS", "DATABASE", "STORAGE_FOLDER")
+            },
             "SECRETS_DIR": str(tmp_path / "another-machine"),
             "SECRET_KEY": app.config["SECRET_KEY"],
         }

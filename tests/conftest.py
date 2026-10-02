@@ -48,6 +48,7 @@ def app(tmp_path, ca_dir):
             "TESTING": True,
             # tests post forms directly; test_csrf.py turns the check back on
             "WTF_CSRF_ENABLED": False,
+            "HTTPS": False,
             "DATABASE": str(tmp_path / "test.sqlite3"),
             "STORAGE_FOLDER": str(tmp_path / "storage"),
             "SECRETS_DIR": str(tmp_path / "secrets"),

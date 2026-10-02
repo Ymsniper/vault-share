@@ -1,6 +1,7 @@
 import os
 
 from flask import Flask, render_template
+from flask_talisman import Talisman
 from flask_wtf.csrf import CSRFProtect
 from werkzeug.exceptions import HTTPException
 
@@ -8,6 +9,7 @@ from security.keys import load_or_create_key
 from security.uploads import MAX_SIZE
 
 csrf = CSRFProtect()
+talisman = Talisman()
 
 
 def create_app(test_config=None):
@@ -25,12 +27,16 @@ def create_app(test_config=None):
         # written by "flask --app app admin revoke"
         CA_CRL=os.path.join(app.instance_path, "ca", "crl.pem"),
         CA_PASSPHRASE=os.environ.get("CA_PASSPHRASE"),
-        SESSION_COOKIE_SAMESITE="Lax",
-        # run.py turns this on when it serves HTTPS
-        SESSION_COOKIE_SECURE=False,
+        # made by pki/create_server_cert.sh
+        TLS_CERT=os.path.join(app.instance_path, "tls", "server.crt"),
+        TLS_KEY=os.path.join(app.instance_path, "tls", "server.key"),
     )
     if test_config is not None:
         app.config.update(test_config)
+    # HTTPS as soon as the server certificate exists; run.py then serves TLS
+    app.config.setdefault(
+        "HTTPS", os.path.exists(app.config["TLS_CERT"]) and os.path.exists(app.config["TLS_KEY"])
+    )
 
     os.makedirs(app.instance_path, exist_ok=True)
     os.makedirs(app.config["STORAGE_FOLDER"], exist_ok=True)
@@ -54,18 +60,27 @@ def create_app(test_config=None):
     app.register_blueprint(files.bp)
     app.register_blueprint(admin.bp)
 
-    @app.after_request
-    def set_security_headers(response):
+    https = app.config["HTTPS"]
+    talisman.init_app(
+        app,
+        # over HTTPS: plain HTTP requests are redirected and cookies are Secure
+        force_https=https,
+        session_cookie_secure=https,
+        # HSTS would make the browser refuse plain HTTP for every server on
+        # localhost, other projects included, so this local app leaves it off
+        strict_transport_security=False,
         # scripts, styles and images only from this site, no plugins, and
         # the pages can never be shown inside another site's frame
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; object-src 'none'; base-uri 'none';"
-            " form-action 'self'; frame-ancestors 'none'"
-        )
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["Referrer-Policy"] = "no-referrer"
-        return response
+        content_security_policy={
+            "default-src": "'self'",
+            "object-src": "'none'",
+            "base-uri": "'none'",
+            "form-action": "'self'",
+            "frame-ancestors": "'none'",
+        },
+        frame_options="DENY",
+        referrer_policy="no-referrer",
+    )
 
     # a plain page for every error, crashes included: no stack trace leaks
     @app.errorhandler(HTTPException)
