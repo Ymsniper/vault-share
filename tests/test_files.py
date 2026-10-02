@@ -356,3 +356,11 @@ def test_signature_proof_checks_out_offline(app, alice, tmp_path):
 def test_signature_proof_needs_access(alice, bob):
     url = new_file(alice)
     assert bob.get(f"{url}/proof").status_code == 403
+
+
+def test_upload_tells_a_plain_zip_from_a_docx(alice):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("payload.txt", "not a Word document")
+    r = upload(alice, buf.getvalue(), name="report.docx")
+    assert b"does not match the .docx extension" in r.data
