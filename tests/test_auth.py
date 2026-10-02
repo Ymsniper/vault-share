@@ -35,7 +35,9 @@ def test_register_validates_password(client):
     assert b"12 to 128 characters" in register(client, password="short-pass").data
     assert b"12 to 128 characters" in register(client, password="x" * 129).data
     assert b"must not contain the username" in register(client, password="alice-contract-2026").data
-    assert b"too common" in register(client, password="Password1234").data
+    assert b"too easy to guess" in register(client, password="Password1234").data
+    assert b"too easy to guess" in register(client, password="qwertyuiop12").data
+    assert register(client, password="amber-lantern-quarry-58").headers["Location"] == "/auth/login"
 
 
 def test_passwords_are_salted_argon2id_hashes(app, client):

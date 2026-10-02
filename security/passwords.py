@@ -3,6 +3,7 @@ import re
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
 from argon2.low_level import Type, hash_secret_raw
+from zxcvbn import zxcvbn
 
 # argon2-cffi defaults to Argon2id with 64 MiB of memory, 3 passes, 4 lanes
 # and a random 16-byte salt per hash (the RFC 9106 low-memory profile). The
@@ -11,28 +12,6 @@ _hasher = PasswordHasher()
 _DUMMY_HASH = _hasher.hash("not a real account")
 
 USERNAME_RE = re.compile(r"[A-Za-z0-9_]{3,32}")
-
-# a few of the most common long passwords; a real deployment would check a
-# large list of leaked passwords instead
-COMMON_PASSWORDS = frozenset(
-    {
-        "123456789012",
-        "1234567890123",
-        "password1234",
-        "password12345",
-        "qwertyuiop12",
-        "qwerty123456",
-        "1q2w3e4r5t6y",
-        "iloveyou1234",
-        "abcdefghijkl",
-        "aaaaaaaaaaaa",
-        "111111111111",
-        "azertyuiop12",
-        "motdepasse123",
-        "administrator",
-        "changeme1234",
-    }
-)
 
 
 def hash_password(password):
@@ -71,6 +50,10 @@ def password_problem(username, password):
         return "Password must be 12 to 128 characters long."
     if username.lower() in password.lower():
         return "Password must not contain the username."
-    if password.lower() in COMMON_PASSWORDS:
-        return "This password is too common."
+    # zxcvbn estimates how many guesses a cracker would need; a score of 3
+    # out of 4 means at least 10^8, too many to try against Argon2id hashes
+    result = zxcvbn(password, user_inputs=[username])
+    if result["score"] < 3:
+        hint = result["feedback"]["warning"] or "Add another word or two."
+        return f"This password is too easy to guess. {hint}"
     return None
