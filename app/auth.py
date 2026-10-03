@@ -16,6 +16,7 @@ from flask import (
 
 from security.passwords import check_password, check_password_of_unknown_user, hash_password
 
+from . import limiter
 from .audit import audit
 from .db import get_db
 from .forms import LoginForm, RegisterForm, first_error
@@ -53,39 +54,32 @@ def end_session(token):
     db.commit()
 
 
-# 5 failures for one username, or 20 from one address, within 15 minutes
-# lock further attempts until the oldest of them is 15 minutes old.
-# Usernames that do not exist are counted too, so the lock message does
-# not tell an attacker which accounts are real.
-MAX_FAILURES_PER_USER = 5
-MAX_FAILURES_PER_IP = 20
+LOCKED = "Too many failed attempts. Try again in 15 minutes."
 
 
-def is_locked(username, ip):
-    db = get_db()
-    by_user = db.execute(
-        "SELECT COUNT(*) FROM login_failures"
-        " WHERE username = ? AND at > datetime('now', '-15 minutes')",
-        (username,),
-    ).fetchone()[0]
-    by_ip = db.execute(
-        "SELECT COUNT(*) FROM login_failures"
-        " WHERE ip = ? AND at > datetime('now', '-15 minutes')",
-        (ip,),
-    ).fetchone()[0]
-    return by_user >= MAX_FAILURES_PER_USER or by_ip >= MAX_FAILURES_PER_IP
+def wrong_password_given(response):
+    """Only failed attempts count toward the limits below."""
+    return g.get("wrong_password", False)
 
 
-def record_failure(username, ip):
-    db = get_db()
-    db.execute("INSERT INTO login_failures (username, ip) VALUES (?, ?)", (username, ip))
-    db.commit()
+def report_lock(request_limit):
+    audit("password", "locked", user_id=None)
 
 
-def clear_failures(username):
-    db = get_db()
-    db.execute("DELETE FROM login_failures WHERE username = ?", (username,))
-    db.commit()
+def password_limit(key_func):
+    """5 wrong passwords for one username, at login or at upload, block that
+    username for 15 minutes. Usernames that do not exist count the same way,
+    so the block says nothing about which accounts are real.
+    """
+    return limiter.shared_limit(
+        "5 per 15 minutes",
+        scope="wrong-password",
+        key_func=key_func,
+        methods=["POST"],
+        deduct_when=wrong_password_given,
+        error_message=LOCKED,
+        on_breach=report_lock,
+    )
 
 
 @bp.route("/register", methods=("GET", "POST"))
@@ -125,16 +119,20 @@ def register():
 
 
 @bp.route("/login", methods=("GET", "POST"))
+@password_limit(lambda: request.form.get("username", ""))
+# and 20 from one address, so one machine cannot try many accounts
+@limiter.limit(
+    "20 per 15 minutes",
+    methods=["POST"],
+    deduct_when=wrong_password_given,
+    error_message=LOCKED,
+    on_breach=report_lock,
+)
 def login():
     form = LoginForm()
     if form.validate_on_submit():
         username = form.username.data
         password = form.password.data
-        if is_locked(username, request.remote_addr):
-            audit("login", "locked", user_id=None)
-            flash("Too many failed attempts. Try again in 15 minutes.")
-            return render_template("auth/login.html")
-
         user = get_db().execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
         if user is None:
             ok = check_password_of_unknown_user(password)
@@ -142,11 +140,10 @@ def login():
             ok = check_password(user["password_hash"], password)
 
         if not ok:
-            record_failure(username, request.remote_addr)
+            g.wrong_password = True
             audit("login", "failed", user_id=None)
             flash("Incorrect username or password.")
         else:
-            clear_failures(username)
             # a token the browser already had, maybe planted by someone
             # else, is never reused: every login gets a fresh one
             old_token = request.cookies.get(SESSION_COOKIE)

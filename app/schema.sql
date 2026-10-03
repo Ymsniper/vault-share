@@ -4,7 +4,6 @@ DROP TABLE IF EXISTS files;
 DROP TABLE IF EXISTS certificates;
 DROP TABLE IF EXISTS user_keys;
 DROP TABLE IF EXISTS sessions;
-DROP TABLE IF EXISTS login_failures;
 DROP TABLE IF EXISTS users;
 
 CREATE TABLE users (
@@ -23,14 +22,6 @@ CREATE TABLE sessions (
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     last_seen TEXT NOT NULL DEFAULT (datetime('now')),
     expires_at TEXT NOT NULL
-);
-
--- recent failed logins, for the lockout; the full history is in audit_log
-CREATE TABLE login_failures (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT NOT NULL,
-    ip TEXT,
-    at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 -- the ECDSA private key, encrypted with AES-256-GCM under a key derived

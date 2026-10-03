@@ -31,7 +31,7 @@ from security.signing import sign_digest, unlock_private_key, verify_digest
 from security.uploads import check_upload, clean_name
 
 from .audit import audit
-from .auth import is_locked, login_required, record_failure
+from .auth import login_required, password_limit
 from .db import get_db
 from .forms import CheckCopyForm, RevokeForm, ShareForm, UploadForm, first_error
 from .identity import load_app_ca, new_identity
@@ -171,6 +171,7 @@ def index():
 
 @bp.route("/upload", methods=("GET", "POST"))
 @login_required
+@password_limit(lambda: g.user["username"] if g.user else "")
 def upload():
     form = UploadForm()
     if form.validate_on_submit():
@@ -188,9 +189,6 @@ def upload():
         # the password unlocks the signing key, so a wrong one counts
         # toward the same lockout as a failed login
         username = g.user["username"]
-        if is_locked(username, request.remote_addr):
-            flash("Too many failed attempts. Try again in 15 minutes.")
-            return render_template("files/upload.html")
         db = get_db()
         signer = db.execute(
             "SELECT k.kdf_salt, k.enc_private_key, c.id AS cert_id, c.pem AS cert_pem,"
@@ -205,7 +203,7 @@ def upload():
                 signer["kdf_salt"], signer["enc_private_key"], password, username.encode()
             )
         except InvalidTag:
-            record_failure(username, request.remote_addr)
+            g.wrong_password = True
             audit("upload", "refused", detail="wrong password")
             flash("Wrong password: your signing key stays locked and nothing was uploaded.")
             return render_template("files/upload.html")

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from app import create_app
+from app import create_app, limiter
 from app.db import init_db
 
 CA_SCRIPT = Path(__file__).parent.parent / "pki" / "create_ca.sh"
@@ -60,6 +60,8 @@ def app(tmp_path, ca_dir):
     )
     with app.app_context():
         init_db()
+    # the limiter keeps its counters in memory, shared by every test app
+    limiter.reset()
     return app
 
 

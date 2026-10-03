@@ -1,6 +1,8 @@
 import os
 
 from flask import Flask, render_template
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from flask_talisman import Talisman
 from flask_wtf.csrf import CSRFProtect
 from werkzeug.exceptions import HTTPException
@@ -10,6 +12,8 @@ from security.uploads import MAX_SIZE
 
 csrf = CSRFProtect()
 talisman = Talisman()
+# counters are kept in memory, so they start from zero when the app restarts
+limiter = Limiter(get_remote_address, storage_uri="memory://", strategy="moving-window")
 
 
 def create_app(test_config=None):
@@ -59,6 +63,8 @@ def create_app(test_config=None):
     app.register_blueprint(auth.bp)
     app.register_blueprint(files.bp)
     app.register_blueprint(admin.bp)
+    # after the blueprints, so the limits can already see who is logged in
+    limiter.init_app(app)
 
     https = app.config["HTTPS"]
     talisman.init_app(

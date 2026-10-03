@@ -1,3 +1,5 @@
+import time
+
 from flask import g
 
 from app.db import get_db
@@ -134,40 +136,51 @@ def test_five_failures_lock_the_account(client):
     for _ in range(5):
         assert b"Incorrect username or password." in login(client, password="wrong guess").data
     r = login(client)
+    assert r.status_code == 429
     assert LOCKED in r.data
     assert not any(c.startswith("sid=") for c in r.headers.getlist("Set-Cookie"))
 
 
-def test_lock_ends_after_15_minutes(app, client):
+def test_lock_ends_after_15_minutes(client, monkeypatch):
     register(client)
     for _ in range(5):
         login(client, password="wrong guess")
-    with app.app_context():
-        db = get_db()
-        db.execute("UPDATE login_failures SET at = datetime('now', '-16 minutes')")
-        db.commit()
+    assert login(client).status_code == 429
+
+    # the limiter's moving window reads time.time()
+    later = time.time() + 16 * 60
+    monkeypatch.setattr(time, "time", lambda: later)
     assert login(client).headers["Location"] == "/"
 
 
-def test_successful_login_resets_the_count(client):
+def test_successful_logins_do_not_count(client):
     register(client)
-    for _ in range(4):
-        login(client, password="wrong guess")
-    login(client)
+    for _ in range(10):
+        assert login(client).headers["Location"] == "/"
     for _ in range(4):
         login(client, password="wrong guess")
     assert login(client).headers["Location"] == "/"
+
+
+def test_lock_is_written_to_the_audit_log(app, client):
+    register(client)
+    for _ in range(6):
+        login(client, password="wrong guess")
+    with app.app_context():
+        actions = [tuple(r) for r in get_db().execute("SELECT action, outcome FROM audit_log")]
+    assert actions.count(("login", "failed")) == 5
+    assert ("password", "locked") in actions
 
 
 def test_unknown_usernames_lock_the_same_way(client):
     for _ in range(5):
         r = login(client, username="ghost", password="wrong guess")
         assert b"Incorrect username or password." in r.data
-    assert LOCKED in login(client, username="ghost", password="wrong guess").data
+    assert login(client, username="ghost", password="wrong guess").status_code == 429
 
 
 def test_one_address_cannot_spray_many_accounts(client):
     for i in range(20):
         login(client, username=f"user{i}", password="wrong guess")
     register(client)
-    assert LOCKED in login(client).data
+    assert login(client).status_code == 429
