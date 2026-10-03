@@ -14,16 +14,11 @@ from flask import (
     url_for,
 )
 
-from security.passwords import (
-    USERNAME_RE,
-    check_password,
-    check_password_of_unknown_user,
-    hash_password,
-    password_problem,
-)
+from security.passwords import check_password, check_password_of_unknown_user, hash_password
 
 from .audit import audit
 from .db import get_db
+from .forms import LoginForm, RegisterForm, first_error
 from .identity import load_app_ca, new_identity
 
 bp = Blueprint("auth", __name__, url_prefix="/auth")
@@ -95,20 +90,16 @@ def clear_failures(username):
 
 @bp.route("/register", methods=("GET", "POST"))
 def register():
-    if request.method == "POST":
-        username = request.form["username"]
-        password = request.form["password"]
-        if not USERNAME_RE.fullmatch(username):
-            error = "Username must be 3 to 32 letters, digits or underscores."
-        else:
-            error = password_problem(username, password)
-
-        if error is None:
-            try:
-                ca = load_app_ca()
-            except (OSError, ValueError) as e:
-                current_app.logger.error("cannot load the CA: %s", e)
-                error = "Registration is unavailable: the certificate authority is not set up."
+    form = RegisterForm()
+    if form.validate_on_submit():
+        username = form.username.data
+        password = form.password.data
+        error = None
+        try:
+            ca = load_app_ca()
+        except (OSError, ValueError) as e:
+            current_app.logger.error("cannot load the CA: %s", e)
+            error = "Registration is unavailable: the certificate authority is not set up."
 
         if error is None:
             db = get_db()
@@ -127,15 +118,18 @@ def register():
                 return redirect(url_for("auth.login"))
 
         flash(error)
+    elif form.is_submitted():
+        flash(first_error(form))
 
     return render_template("auth/register.html")
 
 
 @bp.route("/login", methods=("GET", "POST"))
 def login():
-    if request.method == "POST":
-        username = request.form["username"]
-        password = request.form["password"]
+    form = LoginForm()
+    if form.validate_on_submit():
+        username = form.username.data
+        password = form.password.data
         if is_locked(username, request.remote_addr):
             audit("login", "locked", user_id=None)
             flash("Too many failed attempts. Try again in 15 minutes.")
@@ -170,6 +164,8 @@ def login():
                 secure=current_app.config["SESSION_COOKIE_SECURE"],
             )
             return response
+    elif form.is_submitted():
+        flash("Incorrect username or password.")
 
     return render_template("auth/login.html")
 

@@ -1,5 +1,3 @@
-import re
-
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
 from argon2.low_level import Type, hash_secret_raw
@@ -10,9 +8,6 @@ from zxcvbn import zxcvbn
 # salt and the parameters are stored inside the hash string itself.
 _hasher = PasswordHasher()
 _DUMMY_HASH = _hasher.hash("not a real account")
-
-USERNAME_RE = re.compile(r"[A-Za-z0-9_]{3,32}")
-
 
 def hash_password(password):
     return _hasher.hash(password)
@@ -46,13 +41,11 @@ def check_password_of_unknown_user(password):
 
 def password_problem(username, password):
     """Why this password is refused, or None if it is acceptable."""
-    if not 12 <= len(password) <= 128:
-        return "Password must be 12 to 128 characters long."
     if username.lower() in password.lower():
         return "Password must not contain the username."
     # zxcvbn estimates how many guesses a cracker would need; a score of 3
     # out of 4 means at least 10^8, too many to try against Argon2id hashes
-    result = zxcvbn(password, user_inputs=[username])
+    result = zxcvbn(password, user_inputs=[username], max_length=128)
     if result["score"] < 3:
         hint = result["feedback"]["warning"] or "Add another word or two."
         return f"This password is too easy to guess. {hint}"

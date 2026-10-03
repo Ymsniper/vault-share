@@ -33,6 +33,7 @@ from security.uploads import check_upload, clean_name
 from .audit import audit
 from .auth import is_locked, login_required, record_failure
 from .db import get_db
+from .forms import CheckCopyForm, RevokeForm, ShareForm, UploadForm, first_error
 from .identity import load_app_ca, new_identity
 
 bp = Blueprint("files", __name__)
@@ -171,12 +172,9 @@ def index():
 @bp.route("/upload", methods=("GET", "POST"))
 @login_required
 def upload():
-    if request.method == "POST":
-        file = request.files.get("file")
-        if file is None or file.filename == "":
-            flash("Choose a file to upload.")
-            return render_template("files/upload.html")
-
+    form = UploadForm()
+    if form.validate_on_submit():
+        file = form.file.data
         # files over MAX_CONTENT_LENGTH never get here, Flask answers 413
         name = clean_name(file.filename)
         data = file.read()
@@ -201,7 +199,7 @@ def upload():
             " WHERE k.user_id = ? ORDER BY c.id DESC LIMIT 1",
             (g.user["id"],),
         ).fetchone()
-        password = request.form.get("password", "")
+        password = form.password.data
         try:
             key = unlock_private_key(
                 signer["kdf_salt"], signer["enc_private_key"], password, username.encode()
@@ -247,7 +245,7 @@ def upload():
                 file_id,
                 g.user["id"],
                 name,
-                request.form.get("description", ""),
+                form.description.data or "",
                 mime,
                 len(data),
                 digest.hex(),
@@ -261,6 +259,8 @@ def upload():
         audit("upload", "ok", file_id=file_id)
         flash(f"Uploaded {name}.", "success")
         return redirect(url_for("files.detail", id=file_id))
+    elif form.is_submitted():
+        flash(first_error(form))
 
     return render_template("files/upload.html")
 
@@ -337,10 +337,11 @@ def proof(id):
 @login_required
 def check_copy(id):
     f = get_file(id)
-    copy = request.files.get("copy")
-    if copy is None or copy.filename == "":
-        flash("Choose your local copy of the file.")
+    form = CheckCopyForm()
+    if not form.validate():
+        flash(first_error(form))
         return redirect(url_for("files.detail", id=f["id"]))
+    copy = form.copy.data
 
     # hashed in memory only, the copy is never stored
     digest = sha256(copy.read())
@@ -366,7 +367,11 @@ def check_copy(id):
 @login_required
 def share(id):
     f = get_file(id, owner_only=True)
-    username = request.form["username"]
+    form = ShareForm()
+    if not form.validate():
+        flash(first_error(form))
+        return redirect(url_for("files.detail", id=f["id"]))
+    username = form.username.data
     db = get_db()
     user = db.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
     if user is None:
@@ -391,7 +396,10 @@ def share(id):
 @login_required
 def revoke(id):
     f = get_file(id, owner_only=True)
-    recipient_id = request.form["recipient_id"]
+    form = RevokeForm()
+    if not form.validate():
+        abort(400)
+    recipient_id = int(form.recipient_id.data)
     db = get_db()
     db.execute(
         "UPDATE shares SET revoked_at = datetime('now')"

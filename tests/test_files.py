@@ -364,3 +364,19 @@ def test_upload_tells_a_plain_zip_from_a_docx(alice):
         z.writestr("payload.txt", "not a Word document")
     r = upload(alice, buf.getvalue(), name="report.docx")
     assert b"does not match the .docx extension" in r.data
+
+
+def test_forms_refuse_bad_input(alice):
+    r = alice.post(
+        "/upload",
+        data={"file": (io.BytesIO(CONTRACT), "contract.txt")},
+        content_type="multipart/form-data",
+    )
+    assert b"Type your password to sign the file." in r.data
+    r = upload(alice, description="x" * 1001)
+    assert b"limited to 1000 characters" in r.data
+
+    url = new_file(alice)
+    r = alice.post(f"{url}/share", data={"username": ""}, follow_redirects=True)
+    assert b"Type a username." in r.data
+    assert alice.post(f"{url}/revoke", data={"recipient_id": "1 OR 1=1"}).status_code == 400
