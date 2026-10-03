@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Two-factor login{% endblock %}
+{% block content %}
+<h1 class="h3 mb-3">Two-factor login</h1>
+{% if enabled %}
+<p>Two-factor login is on: after your password, the app asks for the 6-digit code from your authenticator app.</p>
+<h2 class="h5 mt-4">Turn it off</h2>
+<form method="post" action="{{ url_for('totp.disable') }}" class="col-md-4">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="mb-3">
+    <label for="password" class="form-label">Your password</label>
+    <input type="password" name="password" id="password" class="form-control" required>
+  </div>
+  <div class="mb-3">
+    <label for="code" class="form-label">Current code</label>
+    <input name="code" id="code" class="form-control" inputmode="numeric" autocomplete="one-time-code" required>
+  </div>
+  <button type="submit" class="btn btn-outline-danger">Turn off</button>
+</form>
+{% else %}
+<p>Scan this QR code with an authenticator app (for example Aegis or FreeOTP), then type the code it shows to turn two-factor login on.</p>
+<img src="{{ url_for('totp.qr') }}" alt="QR code for your authenticator app" width="200" height="200" class="mb-3">
+<p class="text-body-secondary">No camera? Type this key in the app instead: <code>{{ secret }}</code></p>
+<form method="post" class="col-md-4">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="mb-3">
+    <label for="password" class="form-label">Your password</label>
+    <input type="password" name="password" id="password" class="form-control" required>
+  </div>
+  <div class="mb-3">
+    <label for="code" class="form-label">Code from the app</label>
+    <input name="code" id="code" class="form-control" inputmode="numeric" autocomplete="one-time-code" required>
+  </div>
+  <button type="submit" class="btn btn-primary">Turn on</button>
+</form>
+{% endif %}
+{% endblock %}

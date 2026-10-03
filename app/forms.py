@@ -29,6 +29,14 @@ class RegisterForm(FlaskForm):
             raise ValidationError(problem)
 
 
+class CodeForm(FlaskForm):
+    code = StringField(validators=[Regexp(r"^\d{6}$", message="Type the 6-digit code.")])
+
+
+class TotpForm(CodeForm):
+    password = PasswordField(validators=[DataRequired("Type your password.")])
+
+
 class LoginForm(FlaskForm):
     username = StringField(validators=[DataRequired()])
     password = PasswordField(validators=[DataRequired()])

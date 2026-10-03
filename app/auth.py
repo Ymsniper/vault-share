@@ -1,6 +1,7 @@
 import functools
 import hashlib
 import secrets
+import time
 
 from flask import (
     Blueprint,
@@ -46,6 +47,27 @@ def start_session(user_id):
     )
     db.commit()
     return token
+
+
+def finish_login(user):
+    """Start a fresh server-side session for user and send its cookie."""
+    # a token the browser already had, maybe planted by someone else, is
+    # never reused: every login gets a fresh one
+    old_token = request.cookies.get(SESSION_COOKIE)
+    if old_token:
+        end_session(old_token)
+    session.clear()
+    token = start_session(user["id"])
+    audit("login", "ok", user_id=user["id"])
+    response = redirect(url_for("files.index"))
+    response.set_cookie(
+        SESSION_COOKIE,
+        token,
+        httponly=True,
+        samesite="Lax",
+        secure=current_app.config["SESSION_COOKIE_SECURE"],
+    )
+    return response
 
 
 def end_session(token):
@@ -143,24 +165,14 @@ def login():
             g.wrong_password = True
             audit("login", "failed", user_id=None)
             flash("Incorrect username or password.")
-        else:
-            # a token the browser already had, maybe planted by someone
-            # else, is never reused: every login gets a fresh one
-            old_token = request.cookies.get(SESSION_COOKIE)
-            if old_token:
-                end_session(old_token)
+        elif user["totp_secret"] is not None:
+            # right password, but no session until the code is right too
             session.clear()
-            token = start_session(user["id"])
-            audit("login", "ok", user_id=user["id"])
-            response = redirect(url_for("files.index"))
-            response.set_cookie(
-                SESSION_COOKIE,
-                token,
-                httponly=True,
-                samesite="Lax",
-                secure=current_app.config["SESSION_COOKIE_SECURE"],
-            )
-            return response
+            session["totp_user_id"] = user["id"]
+            session["totp_started"] = time.time()
+            return redirect(url_for("totp.login_code"))
+        else:
+            return finish_login(user)
     elif form.is_submitted():
         flash("Incorrect username or password.")
 

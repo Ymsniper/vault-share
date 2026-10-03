@@ -11,6 +11,10 @@ CREATE TABLE users (
     username TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     is_admin INTEGER NOT NULL DEFAULT 0,
+    -- TOTP secret encrypted under a key derived from the master key, NULL
+    -- while two-factor login is off; last_step stops a code being reused
+    totp_secret BLOB,
+    totp_last_step INTEGER,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

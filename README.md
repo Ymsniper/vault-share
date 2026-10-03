@@ -19,7 +19,12 @@ starts, to issue a certificate to each new user. Uploading asks for your
 password again: it unlocks your private key to sign the file. Five wrong
 passwords for one username, at login or upload, block it for 15 minutes,
 and twenty from one address block that address. The counters live in
-memory (Flask-Limiter), so restarting the app clears them. Each file page
+memory (Flask-Limiter), so restarting the app clears them.
+
+Two-factor login is optional, per user, from the "Two-factor" page: scan
+the QR code with an authenticator app such as Aegis or FreeOTP and confirm
+with a first code. Wrong codes count toward the same limit as wrong
+passwords, and each code works only once. Each file page
 also offers a signature proof: a zip with the signature, the signer's
 certificate, the CA certificate and the OpenSSL commands that check the
 file without the app.

@@ -56,13 +56,14 @@ def create_app(test_config=None):
             os.path.join(app.config["SECRETS_DIR"], "master.key")
         )
 
-    from . import admin, auth, db, files
+    from . import admin, auth, db, files, totp
 
     db.init_app(app)
     csrf.init_app(app)
     app.register_blueprint(auth.bp)
     app.register_blueprint(files.bp)
     app.register_blueprint(admin.bp)
+    app.register_blueprint(totp.bp)
     # after the blueprints, so the limits can already see who is logged in
     limiter.init_app(app)
 
