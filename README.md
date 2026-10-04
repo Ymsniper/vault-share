@@ -15,26 +15,27 @@ HMAC, and signed with an ECDSA key certified by a local CA.
 
 Then open http://127.0.0.1:5000. `pki/create_ca.sh` creates the local CA in
 `instance/ca/` once; the app needs the same `CA_PASSPHRASE` every time it
-starts, to issue a certificate to each new user. Uploading asks for your
-password again: it unlocks your private key to sign the file. Five wrong
-passwords for one username, at login or upload, block it for 15 minutes,
-and twenty from one address block that address. The counters live in
-memory (Flask-Limiter), so restarting the app clears them.
+starts, to issue a certificate to each new user.
+
+Uploading asks for your password again: it unlocks your private key to sign
+the file. Each file page also offers a signature proof, a zip with the
+signature, the signer's certificate, the CA certificate and the OpenSSL
+commands that check the file without the app.
+
+Five wrong passwords for one username, at login or upload, block it for 15
+minutes, and twenty from one address block that address. The counters live
+in memory (Flask-Limiter), so restarting the app clears them.
 
 Two-factor login is optional, per user, from the "Two-factor" page: scan
 the QR code with an authenticator app such as Aegis or FreeOTP and confirm
 with a first code. Wrong codes count toward the same limit as wrong
-passwords, and each code works only once. Each file page
-also offers a signature proof: a zip with the signature, the signer's
-certificate, the CA certificate and the OpenSSL commands that check the
-file without the app.
+passwords, and each code works only once.
 
 On first start the app creates two random keys in `instance/secrets/`:
 `secret_key` signs the cookies and CSRF tokens, and `master.key` protects
 the key of every stored file and the database itself, which SQLCipher keeps
-fully encrypted: without that key it is not even readable as SQLite. Back up `master.key` separately from the
-database: without it no file can be decrypted, and anyone holding both
-the database and that key can read every file.
+fully encrypted. Back up `master.key` separately from the database: without
+it nothing can be decrypted, and anyone holding both can read everything.
 
 ## HTTPS
 
