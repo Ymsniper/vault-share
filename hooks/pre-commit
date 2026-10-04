@@ -1,0 +1,18 @@
+#!/bin/sh
+# Local CI: the security scan and the tests, run before a commit.
+# Run it by hand, or make git run it before every commit with:
+#   git config core.hooksPath hooks
+set -e
+cd "$(git rev-parse --show-toplevel)"
+
+echo "bandit: scanning the code for risky patterns"
+.venv/bin/bandit -q -r app security run.py
+
+# pip-audit needs the internet, so it only runs when the dependencies change
+if git diff --cached --name-only | grep -q '^requirements'; then
+    echo "pip-audit: checking the pinned dependencies for known vulnerabilities"
+    .venv/bin/pip-audit -r requirements.txt
+fi
+
+echo "pytest: running the tests"
+.venv/bin/pytest -q

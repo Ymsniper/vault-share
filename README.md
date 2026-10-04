@@ -70,3 +70,10 @@ and certificate. OpenSSL can check a certificate against the list:
 ## Tests
 
     .venv/bin/pytest
+
+`hooks/pre-commit` runs the local checks: bandit (a security linter), the
+tests, and pip-audit (known vulnerabilities in the pinned dependencies,
+needs the internet) when a requirements file is part of the commit. Run it
+by hand, or have git run it before every commit:
+
+    git config core.hooksPath hooks
