@@ -31,7 +31,8 @@ file without the app.
 
 On first start the app creates two random keys in `instance/secrets/`:
 `secret_key` signs the cookies and CSRF tokens, and `master.key` protects
-the key of every stored file. Back up `master.key` separately from the
+the key of every stored file and the database itself, which SQLCipher keeps
+fully encrypted: without that key it is not even readable as SQLite. Back up `master.key` separately from the
 database: without it no file can be decrypted, and anyone holding both
 the database and that key can read every file.
 

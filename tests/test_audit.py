@@ -45,10 +45,9 @@ def test_failed_login_is_not_blamed_on_the_current_user(app, alice):
 def test_log_never_contains_passwords(app, alice):
     alice.post("/auth/login", data={"username": "alice", "password": "wrong guess 123"})
     with app.app_context():
-        dump = "\n".join(get_db().iterdump())
-    log_lines = [line for line in dump.splitlines() if "audit_log" in line]
-    assert log_lines
-    assert not any("contract-2026" in line or "wrong guess 123" in line for line in log_lines)
+        rows = [str(tuple(r)) for r in get_db().execute("SELECT * FROM audit_log")]
+    assert rows
+    assert not any("contract-2026" in row or "wrong guess 123" in row for row in rows)
 
 
 def test_audit_log_is_for_admins_only(app, alice):

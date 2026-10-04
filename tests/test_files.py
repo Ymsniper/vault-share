@@ -1,12 +1,15 @@
 import io
 import os
 import re
+import sqlite3
 import stat
 import subprocess
 import uuid
 import zipfile
 
+import pytest
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+from sqlcipher3 import dbapi2 as sqlcipher
 
 from app import create_app
 from app.db import get_db
@@ -92,10 +95,22 @@ def test_files_need_the_master_key(app, alice, tmp_path):
             "SECRET_KEY": app.config["SECRET_KEY"],
         }
     )
-    client = thief.test_client()
-    client.set_cookie("sid", alice.get_cookie("sid").value)
-    assert b"Verification failed" in client.get(url).data
-    assert CONTRACT not in client.get(f"{url}/download", follow_redirects=True).data
+    # without the master key even the database cannot be opened, so the
+    # wrapped file keys stay out of reach too
+    with thief.app_context():
+        with pytest.raises(sqlcipher.DatabaseError):
+            get_db().execute("SELECT * FROM files").fetchall()
+
+
+def test_the_database_file_is_encrypted(app, alice, bob):
+    new_file(alice, name="merger-plan.txt")
+    with open(app.config["DATABASE"], "rb") as f:
+        raw = f.read()
+    assert not raw.startswith(b"SQLite format 3")
+    for text in (b"alice", b"bob", b"merger-plan", b"argon2id", b"127.0.0.1"):
+        assert text not in raw
+    with pytest.raises(sqlite3.DatabaseError):
+        sqlite3.connect(app.config["DATABASE"]).execute("SELECT * FROM users").fetchall()
 
 
 def test_upload_requires_a_file(alice):
