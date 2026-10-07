@@ -2,10 +2,10 @@
 {% block title %}Audit log{% endblock %}
 {% block content %}
 <h1 class="h3 mb-3">Audit log</h1>
-<p class="text-body-secondary">Latest 200 events, newest first. Times are UTC.</p>
+<p class="text-body-secondary">Latest 200 events, newest first. Times are UTC. Entries are kept {{ config['AUDIT_LOG_DAYS'] }} days, with only the network part of each address.</p>
 <table class="table table-sm">
   <thead>
-    <tr><th>Time</th><th>User</th><th>Action</th><th>File</th><th>Outcome</th><th>Detail</th><th>IP</th></tr>
+    <tr><th>Time</th><th>User</th><th>Action</th><th>File</th><th>Outcome</th><th>Detail</th><th>Network</th></tr>
   </thead>
   <tbody>
     {% for e in entries %}

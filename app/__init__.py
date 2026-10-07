@@ -25,6 +25,8 @@ def create_app(test_config=None):
         # through the routes that check access
         STORAGE_FOLDER=os.path.join(app.instance_path, "storage"),
         MAX_CONTENT_LENGTH=MAX_SIZE,
+        # how long the audit log keeps an entry
+        AUDIT_LOG_DAYS=90,
         # made by pki/create_ca.sh; the key is encrypted under CA_PASSPHRASE
         CA_CERT=os.path.join(app.instance_path, "ca", "ca.crt"),
         CA_KEY=os.path.join(app.instance_path, "ca", "ca.key"),
