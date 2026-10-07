@@ -54,6 +54,10 @@ class CheckCopyForm(FlaskForm):
     copy = FileField(validators=[FileRequired("Choose your local copy of the file.")])
 
 
+class SearchForm(FlaskForm):
+    q = StringField(validators=[Length(max=255)])
+
+
 class ShareForm(FlaskForm):
     username = StringField(validators=[DataRequired("Type a username."), Length(max=32)])
 

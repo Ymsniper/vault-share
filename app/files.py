@@ -33,7 +33,14 @@ from security.uploads import check_upload, clean_name
 from .audit import audit
 from .auth import login_required, password_limit
 from .db import get_db
-from .forms import CheckCopyForm, RevokeForm, ShareForm, UploadForm, first_error
+from .forms import (
+    CheckCopyForm,
+    RevokeForm,
+    SearchForm,
+    ShareForm,
+    UploadForm,
+    first_error,
+)
 from .identity import load_app_ca, new_identity
 
 bp = Blueprint("files", __name__)
@@ -146,11 +153,14 @@ def signature_problem(f, digest):
     return None
 
 
-@bp.route("/")
+@bp.route("/", methods=("GET", "POST"))
 @login_required
 def index():
     db = get_db()
-    q = request.args.get("q", "")
+    # a POST, so search terms never end up in URLs, server logs or the
+    # browser history; a plain GET lists everything
+    form = SearchForm()
+    q = form.q.data if form.validate_on_submit() else ""
     # instr() rather than LIKE, so % and _ in the search are plain characters
     files = db.execute(
         "SELECT id, filename, size, uploaded_at FROM files"

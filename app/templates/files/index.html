@@ -6,8 +6,9 @@
   <a class="btn btn-primary" href="{{ url_for('files.upload') }}">Upload</a>
 </div>
 
-<form method="get" class="col-md-4 mb-3">
-  <input name="q" value="{{ q }}" class="form-control" placeholder="Search my files">
+<form method="post" class="col-md-4 mb-3">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input name="q" value="{{ q }}" class="form-control" placeholder="Search my files" maxlength="255">
 </form>
 
 {% if files %}

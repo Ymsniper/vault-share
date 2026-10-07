@@ -43,7 +43,7 @@ def stored_path(app, url):
 
 
 def my_files(client, q=""):
-    return client.get("/", query_string={"q": q}).data.split(b"Shared with me")[0]
+    return client.post("/", data={"q": q}).data.split(b"Shared with me")[0]
 
 
 def shared_with_me(client):
@@ -395,3 +395,12 @@ def test_forms_refuse_bad_input(alice):
     r = alice.post(f"{url}/share", data={"username": ""}, follow_redirects=True)
     assert b"Type a username." in r.data
     assert alice.post(f"{url}/revoke", data={"recipient_id": "1 OR 1=1"}).status_code == 400
+
+
+def test_search_terms_stay_out_of_the_url(alice):
+    new_file(alice)
+    new_file(alice, name="invoice-0412.txt")
+    # a query string is ignored: GET always lists everything
+    page = alice.get("/", query_string={"q": "invoice"}).data.split(b"Shared with me")[0]
+    assert b"contract.txt" in page and b"invoice-0412.txt" in page
+    assert b"contract.txt" not in my_files(alice, "invoice")
