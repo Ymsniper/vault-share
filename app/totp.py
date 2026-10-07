@@ -22,6 +22,7 @@ from security.totp import matching_step, new_secret, qr_svg
 from .audit import audit
 from .auth import finish_login, login_required, password_limit
 from .db import get_db
+from .duress import login_flag
 from .forms import CodeForm, TotpForm, first_error
 
 bp = Blueprint("totp", __name__, url_prefix="/auth")
@@ -78,7 +79,10 @@ def setup():
     # kept in Flask's signed session cookie until confirmed; only this user sees it
     secret = session.setdefault("totp_pending", new_secret())
     form = TotpForm()
-    if form.validate_on_submit():
+    if form.is_submitted() and g.duress:
+        # the decoy account cannot change its settings, and does not say why
+        flash("This setting could not be saved. Try again later.")
+    elif form.validate_on_submit():
         step = check_password_and_code(form, secret, None)
         if step is not None:
             db = get_db()
@@ -111,6 +115,9 @@ def qr():
 @password_limit(current_username)
 def disable():
     if g.user["totp_secret"] is None:
+        return redirect(url_for("totp.setup"))
+    if g.duress:
+        flash("This setting could not be saved. Try again later.")
         return redirect(url_for("totp.setup"))
     form = TotpForm()
     if not form.validate():
@@ -160,7 +167,7 @@ def login_code():
             db = get_db()
             db.execute("UPDATE users SET totp_last_step = ? WHERE id = ?", (step, user["id"]))
             db.commit()
-            return finish_login(user)
+            return finish_login(user, login_flag(user["id"], session["totp_mode"]))
         g.wrong_password = True
         audit("login", "failed", user_id=None, detail="wrong code")
         flash("Wrong code.")

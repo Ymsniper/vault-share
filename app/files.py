@@ -20,6 +20,7 @@ from flask import (
 
 from security.crypto import decrypt, encrypt, new_key
 from security.integrity import record_mac, sha256
+from security.passwords import check_password
 from security.keys import subkey
 from security.pki import (
     certificate_problem,
@@ -42,6 +43,7 @@ from .forms import (
     first_error,
 )
 from .identity import load_app_ca, new_identity
+from .storage import storage_path
 
 bp = Blueprint("files", __name__)
 
@@ -58,16 +60,14 @@ def mac_of(f):
     return record_mac(mac_key(), f["id"], f["owner_id"], f["sha256"], f["size"])
 
 
-def storage_path(file_id):
-    # the name on disk is the random file ID, never anything the client sent
-    return os.path.join(current_app.config["STORAGE_FOLDER"], file_id)
-
-
 def get_file(id, owner_only=False):
     """Load a file the current user may use, or stop with 404 or 403.
 
     The owner may do anything; a user with an active share may only read.
     """
+    if g.duress:
+        # the decoy account holds no files at all
+        abort(404)
     id = str(id)
     db = get_db()
     f = db.execute(
@@ -101,7 +101,8 @@ def check_file(f):
     # the hash alone proves nothing if whoever edits the database can also
     # rewrite it, but the HMAC needs the master key, which is not in there
     if not hmac.compare_digest(mac_of(f), f["record_mac"]):
-        return None, "Verification failed: the record of this file was changed in the database.", None
+        error = "Verification failed: the record of this file was changed in the database."
+        return None, error, None
 
     # the file ID is the associated data of both layers, so a key or a
     # file moved onto another file's record no longer decrypts
@@ -161,6 +162,9 @@ def index():
     # browser history; a plain GET lists everything
     form = SearchForm()
     q = form.q.data if form.validate_on_submit() else ""
+    if g.duress:
+        # the decoy account owns nothing and nothing is shared with it
+        return render_template("files/index.html", files=[], shared=[], q=q)
     # instr() rather than LIKE, so % and _ in the search are plain characters
     files = db.execute(
         "SELECT id, filename, size, uploaded_at FROM files"
@@ -196,9 +200,16 @@ def upload():
             flash(str(e))
             return render_template("files/upload.html")
 
+        if g.duress:
+            # the decoy account accepts nothing, and says nothing about why
+            audit("upload", "refused", detail="duress session")
+            flash("The upload failed. Try again later.")
+            return render_template("files/upload.html")
+
         # the password unlocks the signing key, so a wrong one counts
         # toward the same lockout as a failed login
         username = g.user["username"]
+        password = form.password.data
         db = get_db()
         signer = db.execute(
             "SELECT k.kdf_salt, k.enc_private_key, c.id AS cert_id, c.pem AS cert_pem,"
@@ -207,28 +218,44 @@ def upload():
             " WHERE k.user_id = ? ORDER BY c.id DESC LIMIT 1",
             (g.user["id"],),
         ).fetchone()
-        password = form.password.data
-        try:
-            key = unlock_private_key(
-                signer["kdf_salt"], signer["enc_private_key"], password, username.encode()
-            )
-        except InvalidTag:
+        key = None
+        if signer is None:
+            # the private key was destroyed by a duress wipe: check the
+            # password against the account, a new key pair follows below
+            password_ok = check_password(g.user["password_hash"], password)
+        else:
+            try:
+                key = unlock_private_key(
+                    signer["kdf_salt"], signer["enc_private_key"], password, username.encode()
+                )
+                password_ok = True
+            except InvalidTag:
+                password_ok = False
+        if not password_ok:
             g.wrong_password = True
             audit("upload", "refused", detail="wrong password")
             flash("Wrong password: your signing key stays locked and nothing was uploaded.")
             return render_template("files/upload.html")
 
-        cert_id = signer["cert_id"]
-        ca_cert = load_ca_certificate(current_app.config["CA_CERT"])
-        cert_problem = certificate_problem(load_certificate(signer["cert_pem"]), ca_cert, username)
-        if signer["revoked_at"] is not None or cert_problem is not None:
-            # a revoked or expired certificate cannot vouch for new files, so
-            # the user gets a new key pair, locked with the password just typed
+        if signer is None:
+            renew = True
+        else:
+            cert_id = signer["cert_id"]
+            ca_cert = load_ca_certificate(current_app.config["CA_CERT"])
+            cert_problem = certificate_problem(
+                load_certificate(signer["cert_pem"]), ca_cert, username
+            )
+            renew = signer["revoked_at"] is not None or cert_problem is not None
+        if renew:
+            # no usable certificate (revoked, expired, or wiped together with
+            # the key): a new key pair, locked with the password just typed
             try:
                 key, cert_id = new_identity(g.user["id"], username, password, load_app_ca())
             except (OSError, ValueError) as e:
                 current_app.logger.error("cannot load the CA: %s", e)
-                flash("Your certificate needs renewing, but the certificate authority is not set up.")
+                flash(
+                    "Your certificate needs renewing, but the certificate authority is not set up."
+                )
                 return render_template("files/upload.html")
             audit("renew_certificate", "ok")
 

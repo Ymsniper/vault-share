@@ -1,6 +1,6 @@
 from flask_wtf import FlaskForm
 from flask_wtf.file import FileField, FileRequired
-from wtforms import HiddenField, PasswordField, StringField, TextAreaField
+from wtforms import BooleanField, HiddenField, PasswordField, RadioField, StringField, TextAreaField
 from wtforms.validators import DataRequired, Length, Regexp, ValidationError
 
 from security.passwords import password_problem
@@ -34,6 +34,25 @@ class CodeForm(FlaskForm):
 
 
 class TotpForm(CodeForm):
+    password = PasswordField(validators=[DataRequired("Type your password.")])
+
+
+class DuressForm(FlaskForm):
+    password = PasswordField(validators=[DataRequired("Type your password.")])
+    duress_password = PasswordField(
+        validators=[
+            Length(12, 128, message="The duress password must be 12 to 128 characters long.")
+        ]
+    )
+    mode = RadioField(choices=["decoy", "wipe"], default="decoy")
+    confirm_wipe = BooleanField()
+
+    def validate_confirm_wipe(self, field):
+        if self.mode.data == "wipe" and not field.data:
+            raise ValidationError("Tick the box to confirm the wipe: it cannot be undone.")
+
+
+class RemoveDuressForm(FlaskForm):
     password = PasswordField(validators=[DataRequired("Type your password.")])
 
 

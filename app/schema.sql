@@ -15,6 +15,11 @@ CREATE TABLE users (
     -- while two-factor login is off; last_step stops a code being reused
     totp_secret BLOB,
     totp_last_step INTEGER,
+    -- every account has a duress slot, set or not: an unused one holds the
+    -- hash of a random secret, and the mode is encrypted, so the database
+    -- does not show who set a duress password or what it does
+    duress_hash TEXT NOT NULL,
+    duress_policy BLOB NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -25,7 +30,9 @@ CREATE TABLE sessions (
     user_id INTEGER NOT NULL REFERENCES users (id),
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     last_seen TEXT NOT NULL DEFAULT (datetime('now')),
-    expires_at TEXT NOT NULL
+    expires_at TEXT NOT NULL,
+    -- opened with the duress password: the account shows as empty
+    duress INTEGER NOT NULL DEFAULT 0
 );
 
 -- the ECDSA private key, encrypted with AES-256-GCM under a key derived

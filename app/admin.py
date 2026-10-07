@@ -12,7 +12,8 @@ bp = Blueprint("admin", __name__, url_prefix="/admin")
 @bp.route("/log")
 @login_required
 def log():
-    if not g.user["is_admin"]:
+    # the decoy account is never an administrator
+    if not g.user["is_admin"] or g.duress:
         audit("read_log", "denied")
         abort(403)
     entries = get_db().execute(

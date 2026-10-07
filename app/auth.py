@@ -20,6 +20,7 @@ from security.passwords import check_password, check_password_of_unknown_user, h
 from . import limiter
 from .audit import audit
 from .db import get_db
+from .duress import WIPE, empty_slot, mode_of, seal_login_flag, wipe_account
 from .forms import LoginForm, RegisterForm, first_error
 from .identity import load_app_ca, new_identity
 
@@ -32,7 +33,7 @@ def token_hash(token):
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-def start_session(user_id):
+def start_session(user_id, duress=False):
     """Create a server-side session and return its token for the cookie."""
     token = secrets.token_urlsafe(32)
     db = get_db()
@@ -41,23 +42,26 @@ def start_session(user_id):
         " OR last_seen <= datetime('now', '-30 minutes')"
     )
     db.execute(
-        "INSERT INTO sessions (token_hash, user_id, expires_at)"
-        " VALUES (?, ?, datetime('now', '+8 hours'))",
-        (token_hash(token), user_id),
+        "INSERT INTO sessions (token_hash, user_id, expires_at, duress)"
+        " VALUES (?, ?, datetime('now', '+8 hours'), ?)",
+        (token_hash(token), user_id, int(duress)),
     )
     db.commit()
     return token
 
 
-def finish_login(user):
-    """Start a fresh server-side session for user and send its cookie."""
+def finish_login(user, duress=False):
+    """Start a fresh server-side session for user and send its cookie.
+
+    A session opened with the duress password shows the account as empty.
+    """
     # a token the browser already had, maybe planted by someone else, is
     # never reused: every login gets a fresh one
     old_token = request.cookies.get(SESSION_COOKIE)
     if old_token:
         end_session(old_token)
     session.clear()
-    token = start_session(user["id"])
+    token = start_session(user["id"], duress)
     audit("login", "ok", user_id=user["id"])
     response = redirect(url_for("files.index"))
     response.set_cookie(
@@ -120,9 +124,11 @@ def register():
         if error is None:
             db = get_db()
             try:
+                duress_hash, duress_policy = empty_slot(username)
                 cur = db.execute(
-                    "INSERT INTO users (username, password_hash) VALUES (?, ?)",
-                    (username, hash_password(password)),
+                    "INSERT INTO users (username, password_hash, duress_hash, duress_policy)"
+                    " VALUES (?, ?, ?, ?)",
+                    (username, hash_password(password), duress_hash, duress_policy),
                 )
             except db.IntegrityError:
                 error = f"User {username} is already registered."
@@ -156,23 +162,35 @@ def login():
         username = form.username.data
         password = form.password.data
         user = get_db().execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+        # both passwords are checked every time, so the time a login takes
+        # does not show which one matched
         if user is None:
-            ok = check_password_of_unknown_user(password)
+            check_password_of_unknown_user(password)
+            check_password_of_unknown_user(password)
+            real = duress = False
         else:
-            ok = check_password(user["password_hash"], password)
+            real = check_password(user["password_hash"], password)
+            duress = check_password(user["duress_hash"], password)
 
-        if not ok:
+        if not (real or duress):
             g.wrong_password = True
             audit("login", "failed", user_id=None)
             flash("Incorrect username or password.")
-        elif user["totp_secret"] is not None:
-            # right password, but no session until the code is right too
-            session.clear()
-            session["totp_user_id"] = user["id"]
-            session["totp_started"] = time.time()
-            return redirect(url_for("totp.login_code"))
         else:
-            return finish_login(user)
+            if duress:
+                wipe = mode_of(user) == WIPE
+                if wipe:
+                    wipe_account(user)
+                # the silent alarm: only an administrator ever sees it
+                audit("duress", "used", user_id=user["id"], detail="wipe" if wipe else "decoy")
+            if user["totp_secret"] is not None:
+                # right password, but no session until the code is right too
+                session.clear()
+                session["totp_user_id"] = user["id"]
+                session["totp_started"] = time.time()
+                session["totp_mode"] = seal_login_flag(user["id"], duress)
+                return redirect(url_for("totp.login_code"))
+            return finish_login(user, duress)
     elif form.is_submitted():
         flash("Incorrect username or password.")
 
@@ -195,18 +213,21 @@ def logout():
 @bp.before_app_request
 def load_logged_in_user():
     g.user = None
+    g.duress = False
     token = request.cookies.get(SESSION_COOKIE)
     if not token:
         return
     db = get_db()
     # a session ends 8 hours after login, or after 30 minutes without a request
     g.user = db.execute(
-        "SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id"
+        "SELECT u.*, s.duress AS session_duress"
+        " FROM sessions s JOIN users u ON u.id = s.user_id"
         " WHERE s.token_hash = ? AND s.expires_at > datetime('now')"
         " AND s.last_seen > datetime('now', '-30 minutes')",
         (token_hash(token),),
     ).fetchone()
     if g.user is not None:
+        g.duress = bool(g.user["session_duress"])
         db.execute(
             "UPDATE sessions SET last_seen = datetime('now') WHERE token_hash = ?",
             (token_hash(token),),

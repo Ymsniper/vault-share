@@ -31,6 +31,13 @@ the QR code with an authenticator app such as Aegis or FreeOTP and confirm
 with a first code. Wrong codes count toward the same limit as wrong
 passwords, and each code works only once.
 
+A duress password, set from the "Duress" page, is the one to give if someone
+forces you to log in. It opens your account as if it were empty and writes a
+silent alert to the audit log; with the wipe option it first destroys your
+files, their keys and your private key, which nobody can undo. Every account
+has a duress slot, used or not, and its mode is stored encrypted, so the
+database does not show who set one.
+
 On first start the app creates two random keys in `instance/secrets/`:
 `secret_key` signs the cookies and CSRF tokens, and `master.key` protects
 the key of every stored file and the database itself, which SQLCipher keeps
