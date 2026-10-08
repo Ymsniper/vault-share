@@ -1,5 +1,6 @@
 import http.client
 import os
+import socket
 import ssl
 import stat
 import subprocess
@@ -9,9 +10,8 @@ from urllib.parse import urlencode
 
 import pytest
 from cryptography import x509
-from werkzeug.serving import make_server
-
 from app import create_app
+from app.serving import make_app_server
 
 PKI = Path(__file__).parent.parent / "pki"
 
@@ -40,8 +40,7 @@ def https_app(app, tls_dir):
 
 @pytest.fixture
 def https_port(https_app):
-    cfg = https_app.config
-    server = make_server("127.0.0.1", 0, https_app, ssl_context=(cfg["TLS_CERT"], cfg["TLS_KEY"]))
+    server = make_app_server(https_app, port=0)
     thread = threading.Thread(target=server.serve_forever)
     thread.start()
     yield server.server_port
@@ -94,3 +93,17 @@ def test_plain_http_is_redirected_to_https(https_app):
     r = https_app.test_client().get("/auth/login")
     assert r.status_code == 302
     assert r.headers["Location"] == "https://localhost/auth/login"
+
+
+def test_a_silent_client_does_not_freeze_the_server(ca_dir, https_port):
+    # connects, then never starts the TLS handshake, as a browser stuck on
+    # a certificate warning does
+    silent = socket.create_connection(("127.0.0.1", https_port))
+    try:
+        trusting = ssl.create_default_context(cafile=str(ca_dir / "ca.crt"))
+        conn = http.client.HTTPSConnection("localhost", https_port, context=trusting, timeout=5)
+        conn.request("GET", "/auth/login")
+        assert conn.getresponse().status == 200
+        conn.close()
+    finally:
+        silent.close()

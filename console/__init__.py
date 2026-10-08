@@ -28,10 +28,10 @@ from textual.widgets import (
     TabbedContent,
     TabPane,
 )
-from werkzeug.serving import make_server
 
 from app.admin import grant_admin, revoke_certificate
 from app.db import get_db, init_db
+from app.serving import make_app_server
 from app.unlock import (
     FactorError,
     add_usb,
@@ -47,7 +47,7 @@ PKI = HERE.parent / "pki"
 
 
 class Server:
-    """The Flask app served from a background thread, as run.py does."""
+    """The Flask app served from a background thread."""
 
     def __init__(self, flask_app, host="127.0.0.1", port=5000):
         self.flask_app = flask_app
@@ -64,11 +64,7 @@ class Server:
         return f"{scheme}://localhost:{self.port}"
 
     def start(self):
-        cfg = self.flask_app.config
-        tls = (cfg["TLS_CERT"], cfg["TLS_KEY"]) if cfg["HTTPS"] else None
-        self._httpd = make_server(
-            self.host, self.port, self.flask_app, threaded=True, ssl_context=tls
-        )
+        self._httpd = make_app_server(self.flask_app, self.host, self.port)
         self.port = self._httpd.server_port
         threading.Thread(target=self._httpd.serve_forever, name="http", daemon=True).start()
 
