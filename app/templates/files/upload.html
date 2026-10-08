@@ -6,7 +6,7 @@
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <div class="mb-3">
     <label for="file" class="form-label">File</label>
-    <input type="file" name="file" id="file" class="form-control" required>
+    <input type="file" name="file" id="file" class="form-control" accept=".pdf,.txt,.md,.cfg,.json,.png,.jpg,.jpeg,.docx,.xlsx" required>
   </div>
   <div class="mb-3">
     <label for="description" class="form-label">Description</label>
@@ -14,7 +14,7 @@
   </div>
   <div class="mb-3">
     <label for="password" class="form-label">Your password</label>
-    <input type="password" name="password" id="password" class="form-control" required>
+    <input type="password" name="password" id="password" class="form-control" autocomplete="current-password" required>
     <div class="form-text">Unlocks your private key to sign the file. It is never stored.</div>
   </div>
   <button type="submit" class="btn btn-primary">Upload</button>

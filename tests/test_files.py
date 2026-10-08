@@ -404,3 +404,16 @@ def test_search_terms_stay_out_of_the_url(alice):
     page = alice.get("/", query_string={"q": "invoice"}).data.split(b"Shared with me")[0]
     assert b"contract.txt" in page and b"invoice-0412.txt" in page
     assert b"contract.txt" not in my_files(alice, "invoice")
+
+
+def test_pages_load_the_form_helpers(alice):
+    page = alice.get("/upload").data
+    assert b'src="/static/app.js"' in page
+    script = alice.get("/static/app.js")
+    assert script.status_code == 200 and script.mimetype == "text/javascript"
+
+
+def test_duress_field_is_not_a_password_field(alice):
+    page = alice.get("/auth/duress").data
+    field = re.search(rb'<input[^>]*name="duress_password"[^>]*>', page).group(0)
+    assert b'type="text"' in field and b"masked" in field and b'autocomplete="off"' in field

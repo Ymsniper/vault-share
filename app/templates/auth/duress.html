@@ -4,16 +4,21 @@
 <h1 class="h3 mb-3">Duress password</h1>
 <p>If someone forces you to log in, give them this password instead of your real one. The app opens your account as if it were empty and quietly warns the administrator. With the wipe option it first destroys your files and your keys: after that nobody can get them back, not even you.</p>
 <p class="text-body-secondary">This page never shows whether a duress password is set. Saving a new one replaces the old one.</p>
+<p class="text-body-secondary">Never let your browser save the duress password, here or after a login: it could later fill it in for you by mistake.</p>
 
-<form method="post" class="col-md-6 mb-5">
+<form method="post" class="col-md-6 mb-5" autocomplete="off">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <div class="mb-3">
     <label for="password" class="form-label">Your password</label>
-    <input type="password" name="password" id="password" class="form-control" required>
+    <input type="password" name="password" id="password" class="form-control" autocomplete="current-password" required>
   </div>
   <div class="mb-3">
     <label for="duress_password" class="form-label">Duress password</label>
-    <input type="password" name="duress_password" id="duress_password" class="form-control" required>
+    {# a text field hidden with CSS, not a password field, so browsers and
+       password managers never offer to save it as the login password #}
+    <input type="text" name="duress_password" id="duress_password" class="form-control masked"
+           autocomplete="off" spellcheck="false" autocapitalize="off"
+           data-lpignore="true" data-1p-ignore data-bwignore="true" required>
   </div>
   <div class="mb-3">
     <div class="form-check">
@@ -37,7 +42,7 @@
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <div class="mb-3">
     <label for="remove-password" class="form-label">Your password</label>
-    <input type="password" name="password" id="remove-password" class="form-control" required>
+    <input type="password" name="password" id="remove-password" class="form-control" autocomplete="current-password" required>
   </div>
   <button type="submit" class="btn btn-outline-secondary">Remove</button>
 </form>

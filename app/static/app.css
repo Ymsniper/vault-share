@@ -1,0 +1,6 @@
+/* Hides what is typed in a text field without making it a password field,
+   which browsers would offer to save. Browsers without this property show
+   the text; the eye button works either way. */
+.masked {
+  -webkit-text-security: disc;
+}
