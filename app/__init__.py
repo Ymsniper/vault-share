@@ -106,7 +106,10 @@ def create_app(test_config=None):
 
     @app.errorhandler(Locked)
     def show_locked(e):
-        return render_template("locked.html", reason=str(e), keyring=keyring), 503
+        # visitors only learn that the service is paused; why is for the
+        # operator, in the server log
+        app.logger.warning("locked: %s", e)
+        return render_template("locked.html"), 503
 
     # a plain page for every error, crashes included: no stack trace leaks
     @app.errorhandler(HTTPException)

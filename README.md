@@ -59,9 +59,10 @@ nothing. Stop the app before changing this:
 keep it on paper, away from the stick, since it replaces a lost stick
 (`keys remove-usb` asks for it when the stick is missing). While `run.py`
 runs, pulling the stick out locks the app within a second: the key is
-dropped from memory, everyone is logged out and every page says "Locked".
-Plugging it back unlocks it. With a passphrase, the Locked page asks for it
-after every start. Adding or removing a factor re-encrypts the database and
+dropped from memory, everyone is logged out and visitors only see "This
+service is paused"; the reason goes to the server log. Plugging it back
+unlocks it. With a passphrase, the operator types it at `/unlock` after
+every start; no page links there. Adding or removing a factor re-encrypts the database and
 the wrapped file keys; the encrypted files themselves are not touched.
 
 ## HTTPS

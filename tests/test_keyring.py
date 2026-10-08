@@ -96,7 +96,8 @@ def test_pulling_the_stick_locks_the_app(app, alice, stick):
     keyring(app).poll(app)
     assert keyring(app).locked
     r = alice.get(url)
-    assert r.status_code == 503 and b"Plug in the key USB stick." in r.data
+    assert r.status_code == 503 and b"This service is paused." in r.data
+    assert b"USB" not in r.data and b"passphrase" not in r.data.lower()
     with app.app_context(), pytest.raises(Exception):
         get_db()
 
@@ -140,9 +141,10 @@ def test_a_passphrase_is_asked_after_every_start(app, alice):
     assert started.extensions["keyring"].locked
     client = started.test_client()
     page = client.get("/")
-    assert page.status_code == 503 and b'name="passphrase"' in page.data
+    assert page.status_code == 503 and b'name="passphrase"' not in page.data
+    assert b'name="passphrase"' in client.get("/unlock").data
 
-    r = client.post("/unlock", data={"passphrase": "not the passphrase"}, follow_redirects=True)
+    r = client.post("/unlock", data={"passphrase": "not the passphrase"})
     assert b"Wrong passphrase" in r.data
     client.post("/unlock", data={"passphrase": PASSPHRASE})
     assert not started.extensions["keyring"].locked

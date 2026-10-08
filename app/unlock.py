@@ -2,7 +2,7 @@ import hashlib
 import os
 
 import click
-from flask import Blueprint, current_app, flash, g, redirect, url_for
+from flask import Blueprint, current_app, flash, g, redirect, render_template, url_for
 from flask.cli import AppGroup
 
 from security.passwords import derive_key, password_problem
@@ -134,7 +134,9 @@ def remove_passphrase_command():
     click.echo("The passphrase is no longer required.")
 
 
-@bp.route("/unlock", methods=("POST",))
+# for the operator only: no page links here, and visitors of a locked app
+# only see that the service is paused
+@bp.route("/unlock", methods=("GET", "POST"))
 @limiter.limit(
     "5 per 15 minutes",
     deduct_when=lambda response: g.get("wrong_password", False),
@@ -145,16 +147,18 @@ def unlock():
     if not keyring.locked:
         return redirect(url_for("files.index"))
     form = UnlockForm()
+    if not form.is_submitted():
+        return render_template("unlock.html")
     if not form.validate():
         flash(first_error(form))
-        return redirect(url_for("files.index"))
+        return render_template("unlock.html")
     try:
         keyring.unlock(form.passphrase.data)
     except Locked as e:
         # a missing stick is not a guess, a wrong passphrase with the stick in is
         g.wrong_password = not keyring.needs_usb or keyring.find_usb_share() is not None
         flash(str(e))
-        return redirect(url_for("files.index"))
+        return render_template("unlock.html")
     audit("unlock", "ok", user_id=None)
     flash("Unlocked. Everyone has to log in again.", "success")
     return redirect(url_for("auth.login"))

@@ -1,17 +1,6 @@
 {% extends "base.html" %}
-{% block title %}Locked{% endblock %}
+{% block title %}Paused{% endblock %}
 {% block content %}
-<h1 class="h3 mb-3">Locked</h1>
-<p>{{ reason }}</p>
-<p class="text-body-secondary">The database and the files stay encrypted until the key USB stick is plugged in{% if keyring.needs_passphrase %} and the passphrase is typed{% endif %}.</p>
-{% if keyring.needs_passphrase %}
-<form method="post" action="{{ url_for('unlock.unlock') }}" class="col-md-4">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <div class="mb-3">
-    <label for="passphrase" class="form-label">Passphrase</label>
-    <input type="password" name="passphrase" id="passphrase" class="form-control" autocomplete="off" required>
-  </div>
-  <button type="submit" class="btn btn-primary">Unlock</button>
-</form>
-{% endif %}
+<h1 class="h3 mb-3">Service paused</h1>
+<p>This service is paused. Try again later.</p>
 {% endblock %}
