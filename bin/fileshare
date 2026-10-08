@@ -1,0 +1,33 @@
+#!/bin/sh
+# One command for the server, from any terminal:
+#   fileshare                  open the console
+#   fileshare serve            run the server without the console
+#   fileshare keys status      any `flask --app app` command (keys, admin, init-db...)
+#   fileshare install          put this command on the PATH, in ~/.local/bin
+set -e
+self=$(readlink -f "$0")
+root=$(dirname "$(dirname "$self")")
+# the project is found through PYTHONPATH rather than a cd, so paths given
+# as arguments (a USB stick's mount point) still mean what the user typed
+export PYTHONPATH="$root${PYTHONPATH:+:$PYTHONPATH}"
+
+case "${1:-}" in
+    "")
+        exec "$root/.venv/bin/python" -m console
+        ;;
+    serve)
+        exec "$root/.venv/bin/python" "$root/run.py"
+        ;;
+    install)
+        mkdir -p "$HOME/.local/bin"
+        ln -sf "$self" "$HOME/.local/bin/fileshare"
+        echo "installed: $HOME/.local/bin/fileshare"
+        case ":$PATH:" in
+            *":$HOME/.local/bin:"*) ;;
+            *) echo "add $HOME/.local/bin to your PATH to use it from any terminal" ;;
+        esac
+        ;;
+    *)
+        exec "$root/.venv/bin/flask" --app app "$@"
+        ;;
+esac

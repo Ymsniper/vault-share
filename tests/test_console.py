@@ -1,4 +1,5 @@
 import asyncio
+import os
 
 from textual.widgets import DataTable
 
@@ -56,3 +57,22 @@ def test_start_and_stop_the_server(app):
             assert not console.server.running
 
     run(scenario)
+
+
+def test_asks_for_the_ca_passphrase_when_missing(app, ca_passphrase):
+    app.config["CA_PASSPHRASE"] = None
+
+    async def scenario():
+        console = Console(app, start_server=False)
+        async with console.run_test(size=(120, 40)) as pilot:
+            await pilot.press("enter")
+            await pilot.pause()
+            for text in ("not the passphrase", ca_passphrase):
+                await pilot.click("#field-0")
+                await pilot.press(*text)
+                await pilot.press("enter")
+                await pilot.pause()
+
+    run(scenario)
+    assert app.config["CA_PASSPHRASE"] == ca_passphrase
+    assert "CA_PASSPHRASE" not in os.environ or os.environ["CA_PASSPHRASE"] != ca_passphrase

@@ -7,7 +7,6 @@ import os
 # only runs the fixed scripts in pki/
 import subprocess  # nosec B404
 import threading
-import time
 from pathlib import Path
 
 from flask.logging import default_handler
@@ -41,6 +40,7 @@ from app.unlock import (
     remove_usb,
     set_passphrase,
 )
+from security.pki import load_ca
 
 HERE = Path(__file__).parent
 PKI = HERE.parent / "pki"
@@ -276,6 +276,7 @@ class Main(Screen):
         self.set_interval(1, self.app.show_status)
         self.set_interval(3, self.app.load_audit)
         self.app.main_ready()
+        self.app.ask_ca_passphrase()
 
 
 SETUP_HELP = (
@@ -660,24 +661,53 @@ class Console(App):
             "create_server_cert.sh", "HTTPS certificate created. Restart the console to use it."))
 
     def with_ca_passphrase(self, then):
-        if os.environ.get("CA_PASSPHRASE"):
+        if self.flask_app.config.get("CA_PASSPHRASE"):
             then()
             return
 
         def got(values):
             if values and values[0]:
-                os.environ["CA_PASSPHRASE"] = values[0]
+                # kept in this process only: not in the environment, so no
+                # other program started from here inherits it
                 self.flask_app.config["CA_PASSPHRASE"] = values[0]
                 then()
 
-        self.push_screen(Ask("CA passphrase", [("CA_PASSPHRASE", True)],
-                             "Used for this console session only, never stored."), got)
+        self.push_screen(Ask("CA passphrase", [("CA passphrase", True)],
+                             "Kept in memory for this session only, never written anywhere."), got)
+
+    def ask_ca_passphrase(self):
+        """At startup: the app needs the CA key to register users, renew and
+        revoke certificates. Asked instead of an exported variable, which
+        would end up in the shell history."""
+        cfg = self.flask_app.config
+        if cfg.get("CA_PASSPHRASE") or not os.path.exists(cfg["CA_KEY"]):
+            return
+
+        def got(values):
+            if not values or not values[0]:
+                self.notify("No CA passphrase: registration stays off until it is set "
+                            "(Setup tab).", severity="warning", timeout=8)
+                return
+            try:
+                load_ca(cfg["CA_CERT"], cfg["CA_KEY"], values[0])
+            except (OSError, ValueError):
+                self.notify("Wrong CA passphrase.", severity="error")
+                self.ask_ca_passphrase()
+                return
+            cfg["CA_PASSPHRASE"] = values[0]
+            self.notify("CA passphrase accepted: registration is on.")
+
+        self.push_screen(Ask("CA passphrase", [("CA passphrase", True)],
+                             "Unlocks the certificate authority's key so new users can register. "
+                             "Kept in memory only. Leave it empty to skip."), got)
 
     @work(thread=True)
     def run_script(self, script, done):
         # a fixed script from this repo, no shell and no user input in the command
+        # the passphrase goes to this one script only, for as long as it runs
+        env = {**os.environ, "CA_PASSPHRASE": self.flask_app.config["CA_PASSPHRASE"]}
         r = subprocess.run(  # nosec B603
-            ["/bin/sh", str(PKI / script)], capture_output=True, text=True
+            ["/bin/sh", str(PKI / script)], capture_output=True, text=True, env=env
         )
         for line in (r.stdout + r.stderr).splitlines():
             self.call_from_thread(self.log_line, Text(line))

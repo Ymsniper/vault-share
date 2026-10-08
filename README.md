@@ -8,10 +8,18 @@ HMAC, and signed with an ECDSA key certified by a local CA.
 
     python -m venv .venv
     .venv/bin/pip install -r requirements-dev.txt
-    export CA_PASSPHRASE='a long passphrase only you know'
+    bin/fileshare install          # the `fileshare` command, from any terminal
+    read -s -x CA_PASSPHRASE       # fish; in bash: read -rs CA_PASSPHRASE && export CA_PASSPHRASE
     pki/create_ca.sh
-    .venv/bin/flask --app app init-db
-    .venv/bin/python run.py
+    fileshare init-db
+    fileshare                      # the console; `fileshare serve` runs the server alone
+
+`read -s` asks for the CA passphrase without showing it and without saving
+it in the shell history, which `export CA_PASSPHRASE='...'` would do. The
+console asks for it itself at startup when it is not set, and keeps it in
+memory only. `fileshare` passes anything else to `flask --app app`, so
+`fileshare keys status` or `fileshare admin grant alice` work from any
+folder; `fileshare install` links the command into `~/.local/bin`.
 
 Then open http://127.0.0.1:5000. `pki/create_ca.sh` creates the local CA in
 `instance/ca/` once; the app needs the same `CA_PASSPHRASE` every time it
