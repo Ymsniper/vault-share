@@ -44,6 +44,17 @@ the key of every stored file and the database itself, which SQLCipher keeps
 fully encrypted. Back up `master.key` separately from the database: without
 it nothing can be decrypted, and anyone holding both can read everything.
 
+## Server console
+
+    .venv/bin/python -m console
+
+A terminal console (Textual) that runs the app and replaces most commands:
+start and stop the server and watch its log, unlock it, see users and make
+one an admin or revoke a certificate, read the audit log as it fills, add or
+remove the USB stick and the passphrase, create the CA and the HTTPS
+certificate, and reset the database. It uses the terminal's own colors.
+Every action also stays available as a `flask --app app ...` command.
+
 ## USB stick and passphrase
 
 By default the master key is `instance/secrets/master.key` alone. It can

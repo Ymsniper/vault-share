@@ -1,0 +1,123 @@
+/* No colors of its own: the terminal's palette shows through. */
+
+#splash {
+    width: 100%;
+    height: 100%;
+    align: center middle;
+}
+
+#art, #name, #hint {
+    width: 100%;
+    text-align: center;
+}
+
+#name {
+    margin: 1 0;
+}
+
+Center {
+    height: auto;
+}
+
+#checks {
+    width: 56;
+}
+
+#hint {
+    margin-top: 1;
+}
+
+#status {
+    height: 1;
+    padding: 0 1;
+}
+
+TabbedContent, TabPane {
+    height: 1fr;
+}
+
+.buttons {
+    height: auto;
+    margin: 1 0;
+}
+
+.buttons Button {
+    margin-right: 2;
+}
+
+#log {
+    height: 1fr;
+    border: round $foreground 30%;
+}
+
+#users, #audit {
+    height: 1fr;
+}
+
+#factors, #setup-help {
+    margin: 1 0 0 0;
+}
+
+Ask, Choose, Show {
+    align: center middle;
+}
+
+.dialog {
+    width: 76;
+    height: auto;
+    padding: 1 2;
+    border: round $foreground;
+    background: $background;
+}
+
+.dialog-title {
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+.dialog-note, .dialog-text {
+    margin-bottom: 1;
+}
+
+.dialog Input {
+    margin-bottom: 1;
+}
+
+.dialog OptionList {
+    height: auto;
+    max-height: 10;
+    margin-bottom: 1;
+}
+
+.dialog-buttons {
+    height: auto;
+}
+
+.dialog-buttons Button {
+    margin-right: 2;
+}
+
+/* buttons as one reversed line: visible with any terminal palette */
+Button {
+    height: 1;
+    min-width: 0;
+    border: none;
+    padding: 0 1;
+    background: $background;
+    color: $foreground;
+    text-style: bold reverse;
+}
+
+Button:hover, Button:focus {
+    text-style: bold reverse underline;
+}
+
+Button:disabled {
+    text-style: dim;
+}
+
+RichLog, DataTable, OptionList {
+    scrollbar-size-vertical: 1;
+    scrollbar-background: $background;
+    scrollbar-color: $foreground 30%;
+}

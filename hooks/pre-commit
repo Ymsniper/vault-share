@@ -6,7 +6,7 @@ set -e
 cd "$(git rev-parse --show-toplevel)"
 
 echo "bandit: scanning the code for risky patterns"
-.venv/bin/bandit -q -r app security run.py
+.venv/bin/bandit -q -r app security console run.py
 
 # pip-audit needs the internet, so it only runs when the dependencies change
 if git diff --cached --name-only | grep -q '^requirements'; then
