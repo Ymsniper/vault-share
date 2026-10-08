@@ -1,3 +1,4 @@
+import json
 import unicodedata
 
 import filetype
@@ -13,7 +14,13 @@ ALLOWED = {
     "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "txt": "text/plain; charset=utf-8",
+    "md": "text/markdown; charset=utf-8",
+    "cfg": "text/plain; charset=utf-8",
+    "json": "application/json",
 }
+
+# filetype only knows binary formats, so these are checked by decoding them
+TEXT_TYPES = {"txt", "md", "cfg", "json"}
 
 
 def clean_name(name):
@@ -36,15 +43,22 @@ def check_upload(name, data):
     """
     ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
     if ext not in ALLOWED:
-        raise ValueError("This file type is not allowed. Use PDF, TXT, PNG, JPG, DOCX or XLSX.")
-    if ext == "txt":
-        # filetype only knows binary formats, so text is checked by decoding it
+        raise ValueError(
+            "This file type is not allowed."
+            " Use PDF, TXT, MD, CFG, JSON, PNG, JPG, DOCX or XLSX."
+        )
+    if ext in TEXT_TYPES:
         try:
             text = data.decode("utf-8")
         except UnicodeDecodeError:
-            raise ValueError("A .txt file must contain UTF-8 text.") from None
+            raise ValueError(f"A .{ext} file must contain UTF-8 text.") from None
         if "\x00" in text:
-            raise ValueError("A .txt file must contain UTF-8 text.")
+            raise ValueError(f"A .{ext} file must contain UTF-8 text.")
+        if ext == "json":
+            try:
+                json.loads(text)
+            except ValueError:
+                raise ValueError("This .json file is not valid JSON.") from None
     else:
         kind = filetype.guess(data)
         if kind is None or kind.extension != ("jpg" if ext == "jpeg" else ext):

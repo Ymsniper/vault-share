@@ -406,6 +406,21 @@ def test_search_terms_stay_out_of_the_url(alice):
     assert b"contract.txt" not in my_files(alice, "invoice")
 
 
+def test_markdown_config_and_json_files(alice):
+    for name, data in (
+        ("notes.md", b"# Meeting\n\n- sign the contract\n"),
+        ("server.cfg", b"[server]\nport = 8443\n"),
+        ("export.json", b'{"invoices": [412, 413]}'),
+    ):
+        assert f"Uploaded {name}.".encode() in upload(alice, data, name=name).data
+    assert b"is not valid JSON" in upload(alice, b"{not json", name="broken.json").data
+    assert b"must contain UTF-8 text" in upload(alice, b"\xff\xfe", name="notes.md").data
+    url = new_file(alice, b'{"invoices": [412]}', name="export2.json")
+    r = alice.get(f"{url}/download")
+    assert r.mimetype == "application/json"
+    assert r.headers["Content-Disposition"].startswith("attachment;")
+
+
 def test_pages_load_the_form_helpers(alice):
     page = alice.get("/upload").data
     assert b'src="/static/app.js"' in page
