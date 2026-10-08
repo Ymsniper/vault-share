@@ -23,6 +23,7 @@ from .audit import audit
 from .auth import finish_login, login_required, password_limit
 from .db import get_db
 from .duress import login_flag
+from .keyring import master_key
 from .forms import CodeForm, TotpForm, first_error
 
 bp = Blueprint("totp", __name__, url_prefix="/auth")
@@ -32,12 +33,12 @@ PENDING_LOGIN_SECONDS = 300
 
 
 def seal(user_id, secret):
-    key = subkey(current_app.config["MASTER_KEY"], "totp-secret")
+    key = subkey(master_key(), "totp-secret")
     return encrypt(key, secret.encode(), f"totp:{user_id}".encode())
 
 
 def unseal(user_id, blob):
-    key = subkey(current_app.config["MASTER_KEY"], "totp-secret")
+    key = subkey(master_key(), "totp-secret")
     return decrypt(key, blob, f"totp:{user_id}".encode()).decode()
 
 

@@ -6,14 +6,16 @@ from sqlcipher3 import dbapi2 as sqlcipher
 
 from security.keys import subkey
 
+from .keyring import master_key
+
 
 def get_db():
     if "db" not in g:
-        g.db = sqlcipher.connect(current_app.config["DATABASE"])
         # SQLCipher encrypts the whole file with AES-256, so usernames, file
         # names, shares and the audit log are unreadable without the master
         # key. PRAGMA takes no parameters; the key is our own hex string.
-        key = subkey(current_app.config["MASTER_KEY"], "database")
+        key = subkey(master_key(), "database")
+        g.db = sqlcipher.connect(current_app.config["DATABASE"])
         g.db.execute(f"PRAGMA key = \"x'{key.hex()}'\"")
         g.db.row_factory = sqlcipher.Row
         g.db.execute("PRAGMA foreign_keys = ON")

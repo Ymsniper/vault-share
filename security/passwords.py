@@ -41,7 +41,7 @@ def check_password_of_unknown_user(password):
 
 def password_problem(username, password):
     """Why this password is refused, or None if it is acceptable."""
-    if username.lower() in password.lower():
+    if username and username.lower() in password.lower():
         return "Password must not contain the username."
     # zxcvbn estimates how many guesses a cracker would need; a score of 3
     # out of 4 means at least 10^8, too many to try against Argon2id hashes

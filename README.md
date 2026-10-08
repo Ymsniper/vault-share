@@ -44,6 +44,26 @@ the key of every stored file and the database itself, which SQLCipher keeps
 fully encrypted. Back up `master.key` separately from the database: without
 it nothing can be decrypted, and anyone holding both can read everything.
 
+## USB stick and passphrase
+
+By default the master key is `instance/secrets/master.key` alone. It can
+also need a USB stick, a passphrase, or both; it is then rebuilt from all of
+them each time, so the disk, the stick or the passphrase alone opens
+nothing. Stop the app before changing this:
+
+    .venv/bin/flask --app app keys add-usb /run/media/$USER/STICK
+    .venv/bin/flask --app app keys set-passphrase
+    .venv/bin/flask --app app keys status
+
+`add-usb` writes a random key file on the stick and prints a recovery code:
+keep it on paper, away from the stick, since it replaces a lost stick
+(`keys remove-usb` asks for it when the stick is missing). While `run.py`
+runs, pulling the stick out locks the app within a second: the key is
+dropped from memory, everyone is logged out and every page says "Locked".
+Plugging it back unlocks it. With a passphrase, the Locked page asks for it
+after every start. Adding or removing a factor re-encrypts the database and
+the wrapped file keys; the encrypted files themselves are not touched.
+
 ## HTTPS
 
     pki/create_server_cert.sh    # with CA_PASSPHRASE exported; again to renew

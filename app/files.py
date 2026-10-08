@@ -43,17 +43,18 @@ from .forms import (
     first_error,
 )
 from .identity import load_app_ca, new_identity
+from .keyring import master_key
 from .storage import storage_path
 
 bp = Blueprint("files", __name__)
 
 
 def wrap_key():
-    return subkey(current_app.config["MASTER_KEY"], "file-key-wrap")
+    return subkey(master_key(), "file-key-wrap")
 
 
 def mac_key():
-    return subkey(current_app.config["MASTER_KEY"], "file-record-hmac")
+    return subkey(master_key(), "file-record-hmac")
 
 
 def mac_of(f):

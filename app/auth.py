@@ -215,7 +215,7 @@ def load_logged_in_user():
     g.user = None
     g.duress = False
     token = request.cookies.get(SESSION_COOKIE)
-    if not token:
+    if not token or current_app.extensions["keyring"].locked:
         return
     db = get_db()
     # a session ends 8 hours after login, or after 30 minutes without a request

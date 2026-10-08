@@ -56,6 +56,10 @@ class RemoveDuressForm(FlaskForm):
     password = PasswordField(validators=[DataRequired("Type your password.")])
 
 
+class UnlockForm(FlaskForm):
+    passphrase = PasswordField(validators=[DataRequired("Type the passphrase.")])
+
+
 class LoginForm(FlaskForm):
     username = StringField(validators=[DataRequired()])
     password = PasswordField(validators=[DataRequired()])

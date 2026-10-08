@@ -1,6 +1,6 @@
 import os
 
-from flask import Flask, render_template
+from flask import Flask, render_template, request
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_talisman import Talisman
@@ -9,6 +9,8 @@ from werkzeug.exceptions import HTTPException
 
 from security.keys import load_or_create_key
 from security.uploads import MAX_SIZE
+
+from .keyring import Keyring, Locked
 
 csrf = CSRFProtect()
 talisman = Talisman()
@@ -27,6 +29,8 @@ def create_app(test_config=None):
         MAX_CONTENT_LENGTH=MAX_SIZE,
         # how long the audit log keeps an entry
         AUDIT_LOG_DAYS=90,
+        # where USB sticks are mounted on Linux
+        USB_MOUNT_ROOTS=["/run/media", "/media", "/mnt"],
         # made by pki/create_ca.sh; the key is encrypted under CA_PASSPHRASE
         CA_CERT=os.path.join(app.instance_path, "ca", "ca.crt"),
         CA_KEY=os.path.join(app.instance_path, "ca", "ca.key"),
@@ -52,13 +56,19 @@ def create_app(test_config=None):
         app.config["SECRET_KEY"] = load_or_create_key(
             os.path.join(app.config["SECRETS_DIR"], "secret_key")
         )
-    # protects every file key; losing it makes every stored file unreadable
-    if not app.config.get("MASTER_KEY"):
-        app.config["MASTER_KEY"] = load_or_create_key(
-            os.path.join(app.config["SECRETS_DIR"], "master.key")
-        )
+    # the master key protects the database and every file key; it comes from
+    # instance/secrets/master.key, plus the USB stick and the passphrase if
+    # they were added with "flask --app app keys"
+    keyring = Keyring(app.config["SECRETS_DIR"], app.config["USB_MOUNT_ROOTS"])
+    app.extensions["keyring"] = keyring
 
-    from . import admin, auth, db, files, settings, totp
+    # first of the checks, so nothing touches the database while locked
+    @app.before_request
+    def stop_when_locked():
+        if keyring.locked and request.endpoint not in ("static", "unlock.unlock"):
+            raise Locked(keyring.missing())
+
+    from . import admin, auth, db, files, settings, totp, unlock
 
     db.init_app(app)
     csrf.init_app(app)
@@ -67,6 +77,8 @@ def create_app(test_config=None):
     app.register_blueprint(admin.bp)
     app.register_blueprint(totp.bp)
     app.register_blueprint(settings.bp)
+    app.register_blueprint(unlock.bp)
+    app.cli.add_command(unlock.keys_cli)
     # after the blueprints, so the limits can already see who is logged in
     limiter.init_app(app)
 
@@ -91,6 +103,10 @@ def create_app(test_config=None):
         frame_options="DENY",
         referrer_policy="no-referrer",
     )
+
+    @app.errorhandler(Locked)
+    def show_locked(e):
+        return render_template("locked.html", reason=str(e), keyring=keyring), 503
 
     # a plain page for every error, crashes included: no stack trace leaks
     @app.errorhandler(HTTPException)

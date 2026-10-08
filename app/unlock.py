@@ -1,0 +1,160 @@
+import hashlib
+import os
+
+import click
+from flask import Blueprint, current_app, flash, g, redirect, url_for
+from flask.cli import AppGroup
+
+from security.passwords import derive_key, password_problem
+
+from . import limiter
+from .audit import audit
+from .forms import UnlockForm, first_error
+from .keyring import (
+    USB_KEY_FILE,
+    Locked,
+    combine,
+    get_keyring,
+    recovery_code,
+    reencrypt,
+    share_from_recovery_code,
+)
+
+bp = Blueprint("unlock", __name__)
+keys_cli = AppGroup("keys", help="The factors the master key is made of. Stop the app first.")
+
+
+def unlock_or_exit(keyring, passphrase=None, usb_share=None):
+    try:
+        return keyring.unlock(passphrase, usb_share)
+    except Locked as e:
+        raise click.ClickException(str(e)) from None
+
+
+def ask_passphrase(keyring):
+    if keyring.needs_passphrase:
+        return click.prompt("Passphrase", hide_input=True)
+    return None
+
+
+def change_factors(keyring, config, usb_share, passphrase_key):
+    """Move the data to the master key made of these factors, then save them."""
+    old = keyring.master()
+    new = combine(keyring.machine, usb_share, passphrase_key)
+    try:
+        reencrypt(current_app.config["DATABASE"], old, new)
+    except ValueError as e:
+        raise click.ClickException(f"nothing was changed: {e}") from None
+    keyring.save(config, new)
+
+
+@keys_cli.command("status")
+def status_command():
+    """Show which factors the master key needs."""
+    keyring = get_keyring()
+    click.echo(f"USB stick: {'required' if keyring.needs_usb else 'not used'}")
+    click.echo(f"Passphrase: {'required' if keyring.needs_passphrase else 'not used'}")
+
+
+@keys_cli.command("add-usb")
+@click.argument("mountpoint", type=click.Path(exists=True, file_okay=False, writable=True))
+def add_usb_command(mountpoint):
+    """Require the USB stick mounted at MOUNTPOINT from now on."""
+    keyring = get_keyring()
+    if keyring.needs_usb:
+        raise click.ClickException("a USB stick is already required; run remove-usb first")
+    _, passphrase_key = unlock_or_exit(keyring, ask_passphrase(keyring))
+    share = os.urandom(32)
+    path = os.path.join(mountpoint, USB_KEY_FILE)
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        raise click.ClickException(f"{path} already exists; remove it first") from None
+    with os.fdopen(fd, "wb") as f:
+        f.write(share)
+    config = {**keyring.config, "usb": {"fingerprint": hashlib.sha256(share).hexdigest()}}
+    try:
+        change_factors(keyring, config, share, passphrase_key)
+    except Exception:
+        os.remove(path)
+        raise
+    click.echo("The USB stick is now required: without it the app stays locked.")
+    click.echo("Write down this recovery code and keep it away from the stick. It")
+    click.echo("replaces the stick if you lose it, so guard it like the stick itself:")
+    click.echo(recovery_code(share))
+
+
+@keys_cli.command("remove-usb")
+def remove_usb_command():
+    """Stop requiring the USB stick. Without the stick, asks for the recovery code."""
+    keyring = get_keyring()
+    if not keyring.needs_usb:
+        raise click.ClickException("no USB stick is required")
+    share = keyring.find_usb_share()
+    if share is None:
+        code = click.prompt("The stick is not plugged in. Recovery code")
+        try:
+            share = share_from_recovery_code(code)
+        except ValueError:
+            raise click.ClickException("that is not a recovery code") from None
+    _, passphrase_key = unlock_or_exit(keyring, ask_passphrase(keyring), share)
+    config = {k: v for k, v in keyring.config.items() if k not in ("usb", "check")}
+    change_factors(keyring, config, None, passphrase_key)
+    click.echo("The USB stick is no longer required; its key file is now useless.")
+
+
+@keys_cli.command("set-passphrase")
+def set_passphrase_command():
+    """Require a passphrase, typed on the Locked page after every start."""
+    keyring = get_keyring()
+    if keyring.needs_passphrase:
+        raise click.ClickException("a passphrase is already required; run remove-passphrase first")
+    usb_share, _ = unlock_or_exit(keyring)
+    passphrase = click.prompt("New passphrase", hide_input=True, confirmation_prompt=True)
+    if len(passphrase) < 12:
+        raise click.ClickException("use at least 12 characters")
+    problem = password_problem("", passphrase)
+    if problem is not None:
+        raise click.ClickException(problem)
+    salt = os.urandom(16)
+    config = {**keyring.config, "passphrase": {"salt": salt.hex()}}
+    change_factors(keyring, config, usb_share, derive_key(passphrase, salt))
+    click.echo("The passphrase is now required after every start of the app.")
+
+
+@keys_cli.command("remove-passphrase")
+def remove_passphrase_command():
+    """Stop requiring the passphrase."""
+    keyring = get_keyring()
+    if not keyring.needs_passphrase:
+        raise click.ClickException("no passphrase is required")
+    usb_share, _ = unlock_or_exit(keyring, click.prompt("Passphrase", hide_input=True))
+    config = {k: v for k, v in keyring.config.items() if k not in ("passphrase", "check")}
+    change_factors(keyring, config, usb_share, None)
+    click.echo("The passphrase is no longer required.")
+
+
+@bp.route("/unlock", methods=("POST",))
+@limiter.limit(
+    "5 per 15 minutes",
+    deduct_when=lambda response: g.get("wrong_password", False),
+    error_message="Too many failed attempts. Try again in 15 minutes.",
+)
+def unlock():
+    keyring = get_keyring()
+    if not keyring.locked:
+        return redirect(url_for("files.index"))
+    form = UnlockForm()
+    if not form.validate():
+        flash(first_error(form))
+        return redirect(url_for("files.index"))
+    try:
+        keyring.unlock(form.passphrase.data)
+    except Locked as e:
+        # a missing stick is not a guess, a wrong passphrase with the stick in is
+        g.wrong_password = not keyring.needs_usb or keyring.find_usb_share() is not None
+        flash(str(e))
+        return redirect(url_for("files.index"))
+    audit("unlock", "ok", user_id=None)
+    flash("Unlocked. Everyone has to log in again.", "success")
+    return redirect(url_for("auth.login"))

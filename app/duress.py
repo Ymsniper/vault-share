@@ -9,6 +9,7 @@ from security.passwords import hash_password
 
 from .db import get_db
 from .identity import write_crl
+from .keyring import master_key
 from .storage import storage_path
 
 # what the duress password does, stored encrypted and always one byte long,
@@ -18,7 +19,7 @@ WIPE = b"W"
 
 
 def _key(label):
-    return subkey(current_app.config["MASTER_KEY"], label)
+    return subkey(master_key(), label)
 
 
 def seal_mode(username, mode):

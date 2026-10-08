@@ -52,6 +52,7 @@ def app(tmp_path, ca_dir):
             "DATABASE": str(tmp_path / "test.sqlite3"),
             "STORAGE_FOLDER": str(tmp_path / "storage"),
             "SECRETS_DIR": str(tmp_path / "secrets"),
+            "USB_MOUNT_ROOTS": [str(tmp_path / "media")],
             "CA_CERT": str(ca_dir / "ca.crt"),
             "CA_KEY": str(ca_dir / "ca.key"),
             "CA_CRL": str(tmp_path / "crl.pem"),
