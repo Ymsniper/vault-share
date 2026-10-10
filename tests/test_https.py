@@ -28,7 +28,7 @@ def https_port(https_app):
     server = make_app_server(https_app, port=0)
     thread = threading.Thread(target=server.serve_forever)
     thread.start()
-    yield server.server_port
+    yield server.port
     server.shutdown()
     thread.join()
 

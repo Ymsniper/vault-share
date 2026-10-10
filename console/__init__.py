@@ -2,6 +2,7 @@
 screen. Every action here also exists as a `flask --app app ...` command."""
 
 import asyncio
+import errno
 import logging
 import os
 # only runs the fixed scripts in pki/
@@ -67,9 +68,11 @@ class Server:
         return f"{scheme}://localhost:{self.port}"
 
     def start(self):
-        self._httpd = make_app_server(self.flask_app, self.host, self.port)
-        self.port = self._httpd.server_port
-        threading.Thread(target=self._httpd.serve_forever, name="http", daemon=True).start()
+        httpd = make_app_server(self.flask_app, self.host, self.port)
+        self.port = httpd.port
+        threading.Thread(target=httpd.serve_forever, name="http", daemon=True).start()
+        # only now: stop() waits for serve_forever, which must be running
+        self._httpd = httpd
 
     def stop(self):
         if self._httpd is not None:
@@ -507,7 +510,12 @@ class Console(App):
         try:
             self.server.start()
         except OSError as e:
-            self.notify(f"Cannot start: {e}", severity="error")
+            if e.errno == errno.EADDRINUSE:
+                message = (f"Cannot start: port {self.server.port} is already in use. Is another "
+                           "console or 'fileshare serve' still running?")
+            else:
+                message = f"Cannot start: {e}"
+            self.notify(message, severity="error", timeout=12)
             return
         self.log_line(Text(f"server started on {self.server.url}", style="bold"))
 
