@@ -19,6 +19,7 @@ from flask import (
 )
 
 from security.crypto import decrypt, encrypt, new_key
+from security.hybrid import unwrap_file_key, wrap_file_key
 from security.integrity import record_mac, sha256
 from security.passwords import check_password
 from security.keys import subkey
@@ -36,21 +37,18 @@ from .auth import login_required, password_limit
 from .db import get_db
 from .forms import (
     CheckCopyForm,
+    DownloadForm,
     RevokeForm,
     SearchForm,
     ShareForm,
     UploadForm,
     first_error,
 )
-from .identity import load_app_ca, new_identity
+from .identity import ensure_encryption_key, load_app_ca, new_identity, unlock_encryption_key
 from .keyring import master_key
 from .storage import storage_path
 
 bp = Blueprint("files", __name__)
-
-
-def wrap_key():
-    return subkey(master_key(), "file-key-wrap")
 
 
 def mac_key():
@@ -94,38 +92,71 @@ def get_file(id, owner_only=False):
     abort(403)
 
 
-def check_file(f):
-    """Decrypt a stored file, then check its hash and its signature.
+def record_problem(f):
+    """Why the record of a file cannot be trusted, or None.
 
-    Returns (data, error, signer); data is None when a check fails.
+    Checks the HMAC over its fields and the owner's signature over its
+    recorded hash. No file key is needed, so the file page can show this;
+    the content itself is checked by open_file at every download.
     """
     # the hash alone proves nothing if whoever edits the database can also
     # rewrite it, but the HMAC needs the master key, which is not in there
     if not hmac.compare_digest(mac_of(f), f["record_mac"]):
-        error = "Verification failed: the record of this file was changed in the database."
-        return None, error, None
+        return "the record of this file was changed in the database"
+    return signature_problem(f, bytes.fromhex(f["sha256"]))
 
-    # the file ID is the associated data of both layers, so a key or a
-    # file moved onto another file's record no longer decrypts
-    aad = f["id"].encode()
+
+def my_file_key(f, password):
+    """The file's key, from the current user's own copy opened with their password.
+
+    Returns (key, error). A wrong password counts toward the same lockout
+    as a failed login.
+    """
+    user = g.user
     try:
-        file_key = decrypt(wrap_key(), f["wrapped_key"], aad)
+        private_key = unlock_encryption_key(user["id"], user["username"], password)
     except InvalidTag:
-        return None, "Verification failed: the file's key was modified.", None
+        private_key, password_ok = None, False
+    else:
+        # no encryption key at all (only after a duress wipe): the password
+        # is still checked, so it cannot be guessed here for free
+        password_ok = private_key is not None or check_password(user["password_hash"], password)
+    if not password_ok:
+        g.wrong_password = True
+        return None, "Wrong password."
+    copy = get_db().execute(
+        "SELECT wrapped_key FROM file_keys WHERE file_id = ? AND user_id = ?",
+        (f["id"], user["id"]),
+    ).fetchone()
+    if private_key is None or copy is None:
+        return None, "You have no key for this file. Ask its owner to share it again."
+    try:
+        return unwrap_file_key(private_key, copy["wrapped_key"], f["id"], user["id"]), None
+    except InvalidTag:
+        return None, "Verification failed: your copy of the file's key was modified."
+
+
+def open_file(f, file_key):
+    """Decrypt a stored file, then check it against its record.
+
+    Returns (data, error); data is None when a check fails.
+    """
+    problem = record_problem(f)
+    if problem is not None:
+        return None, f"Verification failed: {problem}."
+    # the file ID is the associated data, so a file moved onto another
+    # file's record no longer decrypts
     try:
         with open(storage_path(f["id"]), "rb") as fp:
-            data = decrypt(file_key, fp.read(), aad)
+            data = decrypt(file_key, fp.read(), f["id"].encode())
     except FileNotFoundError:
-        return None, "Verification failed: the stored file is missing.", None
+        return None, "Verification failed: the stored file is missing."
     except InvalidTag:
-        return None, "Verification failed: the stored file was modified.", None
-    digest = sha256(data)
-    if not hmac.compare_digest(digest.hex(), f["sha256"]):
-        return None, "Verification failed: the file does not match its SHA-256 hash.", None
-    problem = signature_problem(f, digest)
-    if problem is not None:
-        return None, f"Verification failed: {problem}.", None
-    return data, None, f["owner"]
+        return None, "Verification failed: the stored file was modified."
+    # the signature covers the recorded hash, so the content must match it
+    if not hmac.compare_digest(sha256(data).hex(), f["sha256"]):
+        return None, "Verification failed: the file does not match its SHA-256 hash."
+    return data, None
 
 
 def signature_problem(f, digest):
@@ -264,19 +295,19 @@ def upload():
         digest = sha256(data)
         signature = sign_digest(key, digest)
 
-        # a new random key for every file, kept only in wrapped form
+        # a new random key for every file, kept only as copies encrypted to
+        # the public keys of the people who may open it: for now the owner
         file_key = new_key()
-        aad = file_id.encode()
         with open(storage_path(file_id), "wb") as out:
-            out.write(encrypt(file_key, data, aad))
-        wrapped_key = encrypt(wrap_key(), file_key, aad)
+            out.write(encrypt(file_key, data, file_id.encode()))
+        owner_public_key = ensure_encryption_key(g.user["id"], username, password)
         mac = record_mac(mac_key(), file_id, g.user["id"], digest.hex(), len(data))
 
         db.execute(
             "INSERT INTO files"
-            " (id, owner_id, filename, description, mime, size, sha256, wrapped_key,"
-            " record_mac, signature, cert_id)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " (id, owner_id, filename, description, mime, size, sha256, record_mac,"
+            " signature, cert_id)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 file_id,
                 g.user["id"],
@@ -285,10 +316,17 @@ def upload():
                 mime,
                 len(data),
                 digest.hex(),
-                wrapped_key,
                 mac,
                 signature,
                 cert_id,
+            ),
+        )
+        db.execute(
+            "INSERT INTO file_keys (file_id, user_id, wrapped_key) VALUES (?, ?, ?)",
+            (
+                file_id,
+                g.user["id"],
+                wrap_file_key(owner_public_key, file_key, file_id, g.user["id"]),
             ),
         )
         db.commit()
@@ -305,21 +343,31 @@ def upload():
 @login_required
 def detail(id):
     f = get_file(id)
-    _, error, signer = check_file(f)
+    problem = record_problem(f)
+    error = f"Verification failed: {problem}." if problem else None
     audit("verify", "failed" if error else "ok", file_id=f["id"], detail=error)
     shares = get_db().execute(
         "SELECT u.id, u.username FROM shares s JOIN users u ON u.id = s.recipient_id"
         " WHERE s.file_id = ? AND s.revoked_at IS NULL ORDER BY u.username",
         (f["id"],),
     ).fetchall()
-    return render_template("files/detail.html", f=f, error=error, signer=signer, shares=shares)
+    return render_template("files/detail.html", f=f, error=error, shares=shares)
 
 
-@bp.route("/files/<uuid:id>/download")
+@bp.route("/files/<uuid:id>/download", methods=("POST",))
 @login_required
+@password_limit(lambda: g.user["username"] if g.user else "")
 def download(id):
     f = get_file(id)
-    data, error, _ = check_file(f)
+    form = DownloadForm()
+    if not form.validate():
+        flash(first_error(form))
+        return redirect(url_for("files.detail", id=f["id"]))
+    # the password unlocks this user's private key for this request only,
+    # so a stolen session cookie alone cannot download anything
+    file_key, error = my_file_key(f, form.password.data)
+    if error is None:
+        data, error = open_file(f, file_key)
     if error is not None:
         audit("download", "refused", file_id=f["id"], detail=error)
         flash(error)
@@ -386,10 +434,8 @@ def check_copy(id):
         flash("Your copy is different from the original.")
         return redirect(url_for("files.detail", id=f["id"]))
 
-    if not hmac.compare_digest(mac_of(f), f["record_mac"]):
-        problem = "the record of this file was changed in the database"
-    else:
-        problem = signature_problem(f, digest)
+    # the copy matches the recorded hash, so the record's checks cover it
+    problem = record_problem(f)
     if problem is not None:
         audit("check_copy", "failed", file_id=f["id"], detail=problem)
         flash(f"Your copy matches the stored hash, but {problem}.")
@@ -401,21 +447,42 @@ def check_copy(id):
 
 @bp.route("/files/<uuid:id>/share", methods=("POST",))
 @login_required
+@password_limit(lambda: g.user["username"] if g.user else "")
 def share(id):
     f = get_file(id, owner_only=True)
     form = ShareForm()
     if not form.validate():
         flash(first_error(form))
         return redirect(url_for("files.detail", id=f["id"]))
+    # the owner's password opens their copy of the file key, which is then
+    # encrypted again to the recipient's public key
+    file_key, error = my_file_key(f, form.password.data)
+    if error is not None:
+        audit("share", "refused", file_id=f["id"], detail=error)
+        flash(error)
+        return redirect(url_for("files.detail", id=f["id"]))
     username = form.username.data
     db = get_db()
-    user = db.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
+    user = db.execute(
+        "SELECT u.id, e.public_key FROM users u"
+        " LEFT JOIN encryption_keys e ON e.user_id = u.id WHERE u.username = ?",
+        (username,),
+    ).fetchone()
     if user is None:
         audit("share", "failed", file_id=f["id"], detail="unknown user")
         flash("Unknown user.")
     elif user["id"] == f["owner_id"]:
         flash("The owner already has access.")
+    elif user["public_key"] is None:
+        # only after a duress wipe, until that user logs in again
+        audit("share", "failed", file_id=f["id"], detail="no encryption key")
+        flash(f"{username} cannot receive files until they log in again.")
     else:
+        db.execute(
+            "INSERT INTO file_keys (file_id, user_id, wrapped_key) VALUES (?, ?, ?)"
+            " ON CONFLICT (file_id, user_id) DO UPDATE SET wrapped_key = excluded.wrapped_key",
+            (f["id"], user["id"], wrap_file_key(user["public_key"], file_key, f["id"], user["id"])),
+        )
         db.execute(
             "INSERT INTO shares (file_id, recipient_id) VALUES (?, ?)"
             " ON CONFLICT (file_id, recipient_id)"
@@ -441,6 +508,12 @@ def revoke(id):
         "UPDATE shares SET revoked_at = datetime('now')"
         " WHERE file_id = ? AND recipient_id = ? AND revoked_at IS NULL",
         (f["id"], recipient_id),
+    )
+    # without their copy of the key, the recipient cannot open the file even
+    # if the share row comes back; the owner's own copy is never touched
+    db.execute(
+        "DELETE FROM file_keys WHERE file_id = ? AND user_id = ? AND user_id != ?",
+        (f["id"], recipient_id, f["owner_id"]),
     )
     db.commit()
     audit("revoke", "ok", file_id=f["id"], detail=f"user {recipient_id}")

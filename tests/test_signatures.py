@@ -8,7 +8,7 @@ from cryptography.hazmat.primitives.serialization import load_pem_private_key
 from app.db import get_db
 from security.signing import sign_digest, unlock_private_key
 
-from .test_files import CONTRACT, file_id, new_file
+from .test_files import CONTRACT, download, file_id, new_file
 
 
 def private_key_of(app, username, password="contract-2026"):
@@ -45,7 +45,7 @@ def test_owner_changed_in_the_database(app, alice, bob):
         db.execute("UPDATE files SET owner_id = (SELECT id FROM users WHERE username = 'bob')")
         db.commit()
     assert b"record of this file was changed in the database" in page(bob, url)
-    assert CONTRACT not in bob.get(f"{url}/download", follow_redirects=True).data
+    assert CONTRACT not in download(bob, url, follow_redirects=True).data
 
 
 def test_signature_by_another_user_is_refused(app, alice, bob):
@@ -77,7 +77,7 @@ def test_certificate_from_an_unknown_ca_is_refused(app, alice, test_certs):
     key = load_pem_private_key((test_certs / "rogue.key").read_bytes(), None)
     resign(app, url, key, (test_certs / "rogue.crt").read_text())
     assert b"the certificate was not issued by the local CA" in page(alice, url)
-    assert alice.get(f"{url}/download").headers["Location"] == url
+    assert download(alice, url).headers["Location"] == url
 
 
 def test_revoked_certificate_is_refused(app, alice):
@@ -91,7 +91,7 @@ def test_revoked_certificate_is_refused(app, alice):
 
 def test_valid_file_still_passes(alice):
     url = new_file(alice)
-    assert b"Integrity verified. Signature valid, signed by alice." in page(alice, url)
+    assert b"Record verified. Signature valid, signed by alice." in page(alice, url)
 
 
 def test_private_keys_are_stored_encrypted(app, alice):

@@ -3,6 +3,8 @@ import io
 from app.audit import network_of
 from app.db import get_db
 
+from .test_files import download, share
+
 
 def log_rows(app):
     with app.app_context():
@@ -23,8 +25,8 @@ def test_file_actions_are_logged(app, alice, bob):
     ).headers["Location"]
     file_id = url.rsplit("/", 1)[-1]
     alice.get(url)
-    alice.post(f"{url}/share", data={"username": "bob"})
-    bob.get(f"{url}/download")
+    share(alice, url, "bob")
+    download(bob, url)
     alice.post(f"{url}/delete")
 
     rows = log_rows(app)

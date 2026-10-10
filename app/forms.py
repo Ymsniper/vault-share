@@ -81,8 +81,13 @@ class SearchForm(FlaskForm):
     q = StringField(validators=[Length(max=255)])
 
 
+class DownloadForm(FlaskForm):
+    password = PasswordField(validators=[DataRequired("Type your password to open the file.")])
+
+
 class ShareForm(FlaskForm):
     username = StringField(validators=[DataRequired("Type a username."), Length(max=32)])
+    password = PasswordField(validators=[DataRequired("Type your password to share the file.")])
 
 
 class RevokeForm(FlaskForm):

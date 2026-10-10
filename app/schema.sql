@@ -1,4 +1,5 @@
 DROP TABLE IF EXISTS audit_log;
+DROP TABLE IF EXISTS file_keys;
 DROP TABLE IF EXISTS shares;
 DROP TABLE IF EXISTS files;
 DROP TABLE IF EXISTS certificates;
@@ -72,8 +73,6 @@ CREATE TABLE files (
     mime TEXT NOT NULL,
     size INTEGER NOT NULL,
     sha256 TEXT NOT NULL,
-    -- the file's own AES key, encrypted under the wrap key
-    wrapped_key BLOB NOT NULL,
     -- HMAC of id, owner_id, sha256 and size, so editing them is detected
     record_mac BLOB NOT NULL,
     signature BLOB NOT NULL,
@@ -87,6 +86,16 @@ CREATE TABLE shares (
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     revoked_at TEXT,
     PRIMARY KEY (file_id, recipient_id)
+);
+
+-- the file's own AES key, encrypted with HPKE to each person who may open
+-- the file: its owner and every recipient of an active share. Only that
+-- person's private key opens their copy; the master key does not.
+CREATE TABLE file_keys (
+    file_id TEXT NOT NULL REFERENCES files (id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users (id),
+    wrapped_key BLOB NOT NULL,
+    PRIMARY KEY (file_id, user_id)
 );
 
 CREATE TABLE audit_log (

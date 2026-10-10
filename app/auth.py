@@ -93,8 +93,8 @@ def report_lock(request_limit):
 
 
 def password_limit(key_func):
-    """5 wrong passwords for one username, at login or at upload, block that
-    username for 15 minutes. Usernames that do not exist count the same way,
+    """5 wrong passwords for one username, at login, upload, download or
+    share, block that username for 15 minutes. Usernames that do not exist count the same way,
     so the block says nothing about which accounts are real.
     """
     return limiter.shared_limit(

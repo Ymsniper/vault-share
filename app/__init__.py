@@ -56,9 +56,10 @@ def create_app(test_config=None):
         app.config["SECRET_KEY"] = load_or_create_key(
             os.path.join(app.config["SECRETS_DIR"], "secret_key")
         )
-    # the master key protects the database and every file key; it comes from
-    # instance/secrets/master.key, plus the USB stick and the passphrase if
-    # they were added with "flask --app app keys"
+    # the master key protects the database, the file records' HMACs and the
+    # TOTP secrets, not the file keys (those need a user's password); it
+    # comes from instance/secrets/master.key, plus the USB stick and the
+    # passphrase if they were added with "flask --app app keys"
     keyring = Keyring(app.config["SECRETS_DIR"], app.config["USB_MOUNT_ROOTS"])
     app.extensions["keyring"] = keyring
 

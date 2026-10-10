@@ -5,7 +5,7 @@ import re
 from app import auth
 from app.db import get_db
 
-from .test_files import CONTRACT, new_file, shared_with_me, stored_path
+from .test_files import CONTRACT, download, new_file, share, shared_with_me, stored_path
 from .test_totp import code, turn_on
 
 PASSWORD = "contract-2026"
@@ -33,7 +33,7 @@ def alice_id(app):
 def test_duress_password_opens_an_empty_account(app, alice, bob):
     url = new_file(alice)
     bob_url = new_file(bob, name="bob-notes.txt")
-    bob.post(f"{bob_url}/share", data={"username": "alice"})
+    share(bob, bob_url, "alice")
     assert b"Duress password saved." in set_duress(alice).data
 
     forced, r = log_in(app, DURESS)
@@ -42,11 +42,11 @@ def test_duress_password_opens_an_empty_account(app, alice, bob):
     assert b"contract.txt" not in page and b"bob-notes.txt" not in page
     assert b"No files found." in page and b"Nothing shared with you yet." in page
     assert forced.get(url).status_code == 404
-    assert forced.get(f"{bob_url}/download").status_code == 404
+    assert download(forced, bob_url).status_code == 404
 
     # nothing was destroyed: the real password still opens everything
     real, _ = log_in(app, PASSWORD)
-    assert real.get(f"{url}/download").data == CONTRACT
+    assert download(real, url).data == CONTRACT
 
 
 def test_duress_raises_a_silent_alarm(app, alice):
@@ -82,7 +82,7 @@ def test_the_decoy_account_cannot_upload_or_read_the_log(app, alice):
 
 def test_wipe_destroys_files_and_keys(app, alice, bob):
     url = new_file(alice)
-    alice.post(f"{url}/share", data={"username": "bob"})
+    share(alice, url, "bob")
     set_duress(alice, mode="wipe")
 
     forced, _ = log_in(app, DURESS)
@@ -102,6 +102,22 @@ def test_wipe_destroys_files_and_keys(app, alice, bob):
     assert b"contract.txt" not in shared_with_me(bob)
 
 
+def test_wipe_removes_the_copies_made_for_the_user(app, alice, bob):
+    bob_url = new_file(bob, name="bob-notes.txt")
+    share(bob, bob_url, "alice")
+    set_duress(alice, mode="wipe")
+    log_in(app, DURESS)
+    with app.app_context():
+        db = get_db()
+        assert db.execute(
+            "SELECT COUNT(*) FROM file_keys WHERE user_id = ?", (alice_id(app),)
+        ).fetchone()[0] == 0
+        assert db.execute(
+            "SELECT revoked_at FROM shares WHERE recipient_id = ?", (alice_id(app),)
+        ).fetchone()[0] is not None
+    # the owner's own copy is untouched
+    assert download(bob, bob_url).data == CONTRACT
+
 def test_after_a_wipe_the_real_password_starts_over(app, alice):
     def encryption_key():
         with app.app_context():
@@ -117,7 +133,7 @@ def test_after_a_wipe_the_real_password_starts_over(app, alice):
     # a new key pair at the first real login after the wipe
     assert encryption_key()["public_key"] != before
     url = new_file(real)
-    assert b"Integrity verified. Signature valid, signed by alice." in real.get(url).data
+    assert b"Record verified. Signature valid, signed by alice." in real.get(url).data
 
 
 def test_wipe_needs_confirmation(alice):

@@ -13,7 +13,7 @@ from app.keyring import USB_KEY_FILE, connect
 from app.totp import unseal
 
 from .test_duress import set_duress
-from .test_files import CONTRACT, file_id, new_file
+from .test_files import CONTRACT, download, file_id, new_file, share
 from .test_totp import code, turn_on
 
 PASSPHRASE = "amber-lantern-quarry-58"
@@ -61,7 +61,7 @@ def test_by_default_only_the_machine_key_is_used(app):
 
 def test_adding_a_stick_keeps_everything_readable(app, alice, bob, stick):
     url = new_file(alice)
-    alice.post(f"{url}/share", data={"username": "bob"})
+    share(alice, url, "bob")
     secret = turn_on(alice)
     set_duress(alice)
 
@@ -73,8 +73,8 @@ def test_adding_a_stick_keeps_everything_readable(app, alice, bob, stick):
     assert "USB stick: required" in keys(app, "status").output
 
     # files, shares, two-factor secrets and duress settings all moved over
-    assert b"Integrity verified" in alice.get(url).data
-    assert bob.get(f"{url}/download").data == CONTRACT
+    assert b"Record verified" in alice.get(url).data
+    assert download(bob, url).data == CONTRACT
     alice.post("/auth/logout")
     alice.post("/auth/login", data={"username": "alice", "password": "contract-2026"})
     assert alice.post("/auth/login/code", data={"code": code(secret, 1)}).headers["Location"] == "/"
@@ -107,7 +107,7 @@ def test_pulling_the_stick_locks_the_app(app, alice, stick):
     # everyone was logged out when the stick went away
     assert alice.get(url).headers["Location"] == "/auth/login"
     alice.post("/auth/login", data={"username": "alice", "password": "contract-2026"})
-    assert alice.get(f"{url}/download").data == CONTRACT
+    assert download(alice, url).data == CONTRACT
 
 
 def test_another_stick_does_not_unlock(app, stick):
@@ -129,7 +129,7 @@ def test_the_recovery_code_replaces_a_lost_stick(app, alice, stick):
     assert not keyring(app).locked
     assert "USB stick: not used" in keys(app, "status").output
     alice.post("/auth/login", data={"username": "alice", "password": "contract-2026"})
-    assert alice.get(f"{url}/download").data == CONTRACT
+    assert download(alice, url).data == CONTRACT
 
 
 def test_a_passphrase_is_asked_after_every_start(app, alice):
@@ -149,7 +149,7 @@ def test_a_passphrase_is_asked_after_every_start(app, alice):
     client.post("/unlock", data={"passphrase": PASSPHRASE})
     assert not started.extensions["keyring"].locked
     client.post("/auth/login", data={"username": "alice", "password": "contract-2026"})
-    assert client.get(f"{url}/download").data == CONTRACT
+    assert download(client, url).data == CONTRACT
 
 
 def test_unlock_guesses_are_limited(app):
@@ -176,7 +176,7 @@ def test_removing_both_factors_brings_back_the_machine_key(app, alice, stick):
     assert not os.path.exists(os.path.join(app.config["SECRETS_DIR"], "keyring.json"))
     # the database opens with the machine key alone again
     connect(app.config["DATABASE"], keyring(app).machine).execute("SELECT * FROM users").fetchall()
-    assert alice.get(f"{url}/download").data == CONTRACT
+    assert download(alice, url).data == CONTRACT
 
 
 def test_a_tampered_record_stops_the_change(app, alice, stick):

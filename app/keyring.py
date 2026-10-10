@@ -237,10 +237,11 @@ def master_key():
 def reencrypt(database, old, new):
     """Move everything that depends on the master key from old to new.
 
-    The database key, the wrapped file keys, the record HMACs, the TOTP
-    secrets and the duress modes change; the encrypted files on disk do not,
-    which is what makes changing the master key cheap. The new database is
-    built beside the old one and replaces it only once it is complete.
+    The database key, the record HMACs, the TOTP secrets and the duress
+    modes change. The file keys do not: their copies are encrypted to the
+    users' public keys, not to the master key, and the files on disk stay
+    as they are. The new database is built beside the old one and replaces
+    it only once it is complete.
     """
     if not os.path.exists(database):
         return
@@ -254,18 +255,15 @@ def reencrypt(database, old, new):
         db.execute(f"ATTACH DATABASE '{attach_path}' AS fresh KEY \"x'{new_key}'\"")
         db.execute("SELECT sqlcipher_export('fresh')")
 
-        old_wrap, new_wrap = subkey(old, "file-key-wrap"), subkey(new, "file-key-wrap")
         old_mac, new_mac = subkey(old, "file-record-hmac"), subkey(new, "file-record-hmac")
         for f in db.execute("SELECT * FROM fresh.files").fetchall():
             fields = (f["id"], f["owner_id"], f["sha256"], f["size"])
             # a record edited behind the app's back must not get a valid new HMAC
             if not hmac.compare_digest(record_mac(old_mac, *fields), f["record_mac"]):
                 raise ValueError(f"the record of file {f['id']} was changed in the database")
-            aad = f["id"].encode()
-            file_key = decrypt(old_wrap, f["wrapped_key"], aad)
             db.execute(
-                "UPDATE fresh.files SET wrapped_key = ?, record_mac = ? WHERE id = ?",
-                (encrypt(new_wrap, file_key, aad), record_mac(new_mac, *fields), f["id"]),
+                "UPDATE fresh.files SET record_mac = ? WHERE id = ?",
+                (record_mac(new_mac, *fields), f["id"]),
             )
 
         old_totp, new_totp = subkey(old, "totp-secret"), subkey(new, "totp-secret")
