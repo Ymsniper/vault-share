@@ -1,7 +1,8 @@
 import asyncio
 import os
 
-from textual.widgets import DataTable
+import pytest
+from textual.widgets import Button, DataTable, Static
 
 from app.db import get_db
 from console import Console, Main, Splash
@@ -76,3 +77,113 @@ def test_asks_for_the_ca_passphrase_when_missing(app, ca_passphrase):
     run(scenario)
     assert app.config["CA_PASSPHRASE"] == ca_passphrase
     assert "CA_PASSPHRASE" not in os.environ or os.environ["CA_PASSPHRASE"] != ca_passphrase
+
+
+def setup_state(console):
+    return str(console.get_screen("main").query_one("#setup-state", Static).content)
+
+
+def enabled(console, button_id):
+    return not console.get_screen("main").query_one(button_id, Button).disabled
+
+
+async def open_setup_tab(console, pilot):
+    console.get_screen("main").query_one("#tabs").active = "setup-tab"
+    await pilot.pause()
+
+
+@pytest.mark.parametrize(
+    ("certificate", "https", "shown"),
+    [
+        (False, False, "none (optional): plain HTTP"),
+        (True, False, "in use once the console restarts"),
+        (True, True, "in use, valid until"),
+    ],
+    ids=["no certificate", "certificate for the next start", "certificate in use"],
+)
+def test_setup_tab_shows_what_is_set_up(app, tls_dir, certificate, https, shown):
+    if certificate:
+        app.config.update(
+            HTTPS=https, TLS_CERT=str(tls_dir / "server.crt"), TLS_KEY=str(tls_dir / "server.key")
+        )
+
+    async def scenario():
+        console = Console(app, start_server=False)
+        async with console.run_test(size=(120, 40)) as pilot:
+            await pilot.press("enter")
+            await pilot.pause()
+            await open_setup_tab(console, pilot)
+            state = setup_state(console)
+            assert "ready, valid until" in state
+            assert "entered: new users can register" in state
+            assert shown in state
+            # a CA exists and its passphrase is known
+            assert not enabled(console, "#create-ca")
+            assert not enabled(console, "#ca-passphrase")
+            assert enabled(console, "#server-cert")
+
+    run(scenario)
+
+
+def test_enter_the_ca_passphrase_from_the_setup_tab(app, ca_passphrase):
+    app.config["CA_PASSPHRASE"] = None
+
+    async def scenario():
+        console = Console(app, start_server=False)
+        async with console.run_test(size=(120, 40)) as pilot:
+            await pilot.press("enter")
+            await pilot.pause()
+            await pilot.click("#cancel")  # skips the question at startup
+            await pilot.pause()
+            await open_setup_tab(console, pilot)
+            assert "not entered: registration is off" in setup_state(console)
+            await pilot.click("#ca-passphrase")
+            await pilot.pause()
+            for text in ("not the passphrase", ca_passphrase):
+                await pilot.click("#field-0")
+                await pilot.press(*text)
+                await pilot.press("enter")
+                await pilot.pause()
+            assert "entered: new users can register" in setup_state(console)
+            assert not enabled(console, "#ca-passphrase")
+
+    run(scenario)
+    assert app.config["CA_PASSPHRASE"] == ca_passphrase
+
+
+def test_create_the_ca_from_the_setup_tab(app, tmp_path):
+    ca = tmp_path / "new-ca"
+    app.config.update(CA_CERT=str(ca / "ca.crt"), CA_KEY=str(ca / "ca.key"), CA_PASSPHRASE=None)
+    good = "orchid lantern basalt ferry"
+
+    async def scenario():
+        console = Console(app, start_server=False)
+        async with console.run_test(size=(120, 40)) as pilot:
+
+            async def create(passphrase, again):
+                await pilot.click("#create-ca")
+                await pilot.pause()
+                await pilot.click("#field-0")
+                await pilot.press(*passphrase)
+                await pilot.click("#field-1")
+                await pilot.press(*again)
+                await pilot.press("enter")
+                await pilot.pause()
+                await console.workers.wait_for_complete()
+                await pilot.pause()
+
+            await pilot.press("enter")
+            await pilot.pause()
+            await open_setup_tab(console, pilot)
+            assert "missing: create it first" in setup_state(console)
+            await create(good, "orchid lantern basalt ferries")
+            assert not (ca / "ca.key").exists()
+            await create("too short", "too short")
+            assert not (ca / "ca.key").exists()
+            await create(good, good)
+            assert (ca / "ca.key").exists() and (ca / "ca.crt").exists()
+            assert "ready, valid until" in setup_state(console)
+            assert not enabled(console, "#create-ca")
+
+    run(scenario)
+    assert app.config["CA_PASSPHRASE"] == good

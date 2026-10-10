@@ -54,7 +54,7 @@ TabbedContent, TabPane {
     height: 1fr;
 }
 
-#factors, #setup-help {
+#factors, #setup-state {
     margin: 1 0 0 0;
 }
 

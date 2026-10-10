@@ -7,6 +7,8 @@ import os
 # only runs the fixed scripts in pki/
 import subprocess  # nosec B404
 import threading
+from datetime import datetime, timezone
+from functools import partial
 from pathlib import Path
 
 from flask.logging import default_handler
@@ -40,7 +42,8 @@ from app.unlock import (
     remove_usb,
     set_passphrase,
 )
-from security.pki import load_ca
+from security.passwords import passphrase_problem
+from security.pki import load_ca, load_ca_certificate
 
 HERE = Path(__file__).parent
 PKI = HERE.parent / "pki"
@@ -255,10 +258,12 @@ class Main(Screen):
                     yield Button("Set passphrase", id="set-passphrase", compact=True)
                     yield Button("Remove passphrase", id="remove-passphrase", compact=True)
             with TabPane("Setup", id="setup-tab"):
-                yield Static(Text(SETUP_HELP), id="setup-help")
+                yield Static("", id="setup-state")
                 with Horizontal(classes="buttons"):
                     yield Button("Create the CA", id="create-ca", compact=True)
-                    yield Button("HTTPS certificate", id="server-cert", compact=True)
+                    yield Button("Enter CA passphrase", id="ca-passphrase", compact=True)
+                    yield Button("New HTTPS certificate", id="server-cert", compact=True)
+                with Horizontal(classes="buttons"):
                     yield Button("Reset database", id="reset-db", variant="error", compact=True)
         yield Footer()
 
@@ -275,12 +280,15 @@ class Main(Screen):
         self.app.ask_ca_passphrase()
 
 
-SETUP_HELP = (
-    "First run, in this order: create the CA (it asks for CA_PASSPHRASE if it\n"
-    "is not set), then optionally the HTTPS certificate, which takes effect\n"
-    "at the next start of the console. Resetting the database deletes every\n"
-    "user and file."
-)
+def certificate_state(path):
+    """(still valid, how it reads) for the certificate in path."""
+    try:
+        end = load_ca_certificate(path).not_valid_after_utc
+    except (OSError, ValueError):
+        return False, "unreadable"
+    if end < datetime.now(timezone.utc):
+        return False, f"expired on {end:%Y-%m-%d}"
+    return True, f"valid until {end:%Y-%m-%d}"
 
 
 class Console(App):
@@ -338,6 +346,33 @@ class Console(App):
             ("lock", "unlocked" if not k.locked else k.missing(), not k.locked),
         ]
 
+    def setup_state(self):
+        """What the Setup tab shows: the CA, its passphrase and the HTTPS
+        certificate as they are right now."""
+        cfg = self.flask_app.config
+        rows = []
+        if os.path.exists(cfg["CA_KEY"]):
+            valid, dates = certificate_state(cfg["CA_CERT"])
+            rows.append(("CA", f"ready, {dates}" if valid else dates))
+            rows.append(("CA passphrase", "entered: new users can register"
+                         if cfg.get("CA_PASSPHRASE") else "not entered: registration is off"))
+        else:
+            rows.append(("CA", "missing: create it first, registration needs it"))
+        if cfg["HTTPS"]:
+            https = "in use, " + certificate_state(cfg["TLS_CERT"])[1]
+        elif os.path.exists(cfg["TLS_CERT"]):
+            valid, dates = certificate_state(cfg["TLS_CERT"])
+            https = f"ready, {dates}, in use once the console restarts" if valid else dates
+        else:
+            https = "none (optional): plain HTTP on localhost"
+        rows.append(("HTTPS certificate", https))
+        text = Text()
+        for label, value in rows:
+            text.append(f"{label:<20}", style="bold")
+            text.append(f"{value}\n")
+        text.append("\nReset database deletes every user, file and log entry.")
+        return text
+
     def show_status(self):
         main = self.get_screen("main")
         k = self.keyring
@@ -362,6 +397,8 @@ class Console(App):
             factors.append("USB stick" + (", plugged in" if k.find_usb_share() else ", missing"))
         if k.needs_passphrase:
             factors.append("passphrase")
+        cfg = self.flask_app.config
+        ca = os.path.exists(cfg["CA_KEY"])
         # only the buttons that make sense right now
         for button_id, enabled in (
             ("#start", not self.server.running),
@@ -373,6 +410,11 @@ class Console(App):
             ("#remove-usb", k.needs_usb),
             ("#set-passphrase", not k.needs_passphrase and not k.locked),
             ("#remove-passphrase", k.needs_passphrase),
+            # create_ca.sh refuses to replace a CA key anyway: a new CA would
+            # make every certificate already issued untrusted
+            ("#create-ca", not ca),
+            ("#ca-passphrase", ca and not cfg.get("CA_PASSPHRASE")),
+            ("#server-cert", ca),
             ("#reset-db", not k.locked),
         ):
             main.query_one(button_id, Button).disabled = not enabled
@@ -380,6 +422,7 @@ class Console(App):
             Text("The master key is made of: " + " + ".join(factors) + ".\n"
                  "Changing it stops the server for a moment, then starts it again.")
         )
+        main.query_one("#setup-state", Static).update(self.setup_state())
 
     def counts(self):
         try:
@@ -649,61 +692,91 @@ class Console(App):
 
     @on(Button.Pressed, "#create-ca")
     def create_ca_pressed(self):
-        self.with_ca_passphrase(lambda: self.run_script("create_ca.sh", "Local CA created."))
+        create = partial(self.run_script, "create_ca.sh", "Local CA created.",
+                         os.path.dirname(self.flask_app.config["CA_KEY"]))
+        if self.flask_app.config.get("CA_PASSPHRASE"):
+            create()
+            return
+        self.push_screen(
+            Ask("New CA passphrase", [("Passphrase", True), ("Again", True)],
+                "12 characters or more. It protects the CA's private key on disk. "
+                "Kept in memory for this session only, never written anywhere."),
+            lambda values: self.new_ca_passphrase(values, create),
+        )
+
+    def new_ca_passphrase(self, values, then):
+        if values is None:
+            return
+        if values[0] != values[1]:
+            self.notify("The two passphrases differ.", severity="error")
+            return
+        problem = passphrase_problem(values[0])
+        if problem is not None:
+            self.notify(problem, severity="error")
+            return
+        # kept in this process only: not in the environment, so no other
+        # program started from here inherits it
+        self.flask_app.config["CA_PASSPHRASE"] = values[0]
+        then()
+
+    @on(Button.Pressed, "#ca-passphrase")
+    def ca_passphrase_pressed(self):
+        self.ask_ca_passphrase()
 
     @on(Button.Pressed, "#server-cert")
     def server_cert_pressed(self):
-        self.with_ca_passphrase(lambda: self.run_script(
-            "create_server_cert.sh", "HTTPS certificate created. Restart the console to use it."))
+        cfg = self.flask_app.config
+        self.with_ca_passphrase(partial(
+            self.run_script, "create_server_cert.sh",
+            "HTTPS certificate created. Restart the console to use it.",
+            os.path.dirname(cfg["CA_KEY"]), os.path.dirname(cfg["TLS_CERT"]),
+        ))
 
     def with_ca_passphrase(self, then):
+        """Runs then once the CA passphrase is known, asking for it if needed."""
         if self.flask_app.config.get("CA_PASSPHRASE"):
             then()
-            return
+        else:
+            self.ask_ca_passphrase(then)
 
-        def got(values):
-            if values and values[0]:
-                # kept in this process only: not in the environment, so no
-                # other program started from here inherits it
-                self.flask_app.config["CA_PASSPHRASE"] = values[0]
-                then()
-
-        self.push_screen(Ask("CA passphrase", [("CA passphrase", True)],
-                             "Kept in memory for this session only, never written anywhere."), got)
-
-    def ask_ca_passphrase(self):
-        """At startup: the app needs the CA key to register users, renew and
-        revoke certificates. Asked instead of an exported variable, which
-        would end up in the shell history."""
+    def ask_ca_passphrase(self, then=None):
+        """Asks until the CA key opens with the passphrase, keeps it in memory,
+        then runs then. Also at startup: the app needs the CA key to register
+        users, renew and revoke certificates. Asked instead of an exported
+        variable, which would end up in the shell history."""
         cfg = self.flask_app.config
         if cfg.get("CA_PASSPHRASE") or not os.path.exists(cfg["CA_KEY"]):
             return
 
         def got(values):
             if not values or not values[0]:
-                self.notify("No CA passphrase: registration stays off until it is set "
+                self.notify("No CA passphrase: registration stays off until it is entered "
                             "(Setup tab).", severity="warning", timeout=8)
                 return
             try:
                 load_ca(cfg["CA_CERT"], cfg["CA_KEY"], values[0])
             except (OSError, ValueError):
                 self.notify("Wrong CA passphrase.", severity="error")
-                self.ask_ca_passphrase()
+                self.ask_ca_passphrase(then)
                 return
             cfg["CA_PASSPHRASE"] = values[0]
             self.notify("CA passphrase accepted: registration is on.")
+            self.show_status()
+            if then:
+                then()
 
         self.push_screen(Ask("CA passphrase", [("CA passphrase", True)],
                              "Unlocks the certificate authority's key so new users can register. "
                              "Kept in memory only. Leave it empty to skip."), got)
 
     @work(thread=True)
-    def run_script(self, script, done):
-        # a fixed script from this repo, no shell and no user input in the command
+    def run_script(self, script, done, *folders):
+        # a fixed script from this repo, no shell; its only arguments are
+        # folders from the app's config, so it writes where the app reads
         # the passphrase goes to this one script only, for as long as it runs
         env = {**os.environ, "CA_PASSPHRASE": self.flask_app.config["CA_PASSPHRASE"]}
         r = subprocess.run(  # nosec B603
-            ["/bin/sh", str(PKI / script)], capture_output=True, text=True, env=env
+            ["/bin/sh", str(PKI / script), *folders], capture_output=True, text=True, env=env
         )
         for line in (r.stdout + r.stderr).splitlines():
             self.call_from_thread(self.log_line, Text(line))

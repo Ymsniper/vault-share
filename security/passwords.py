@@ -50,3 +50,14 @@ def password_problem(username, password):
         hint = result["feedback"]["warning"] or "Add another word or two."
         return f"This password is too easy to guess. {hint}"
     return None
+
+
+def passphrase_problem(passphrase):
+    """Why a passphrase for one of the server's keys is refused, or None.
+    These keys can be attacked offline once their files are copied: the
+    master key and the CA's private key."""
+    if len(passphrase) < 12:
+        return "Use at least 12 characters."
+    if len(passphrase) > 128:
+        return "Use at most 128 characters."
+    return password_problem("", passphrase)

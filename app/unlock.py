@@ -6,7 +6,7 @@ import click
 from flask import Blueprint, current_app, flash, g, redirect, render_template, url_for
 from flask.cli import AppGroup
 
-from security.passwords import derive_key, password_problem
+from security.passwords import derive_key, passphrase_problem
 
 from . import limiter
 from .audit import audit
@@ -105,9 +105,7 @@ def set_passphrase(new_passphrase):
     keyring = get_keyring()
     if keyring.needs_passphrase:
         raise FactorError("a passphrase is already required; remove it first")
-    if len(new_passphrase) < 12:
-        raise FactorError("use at least 12 characters")
-    problem = password_problem("", new_passphrase)
+    problem = passphrase_problem(new_passphrase)
     if problem is not None:
         raise FactorError(problem)
     usb_share, _ = _unlock(keyring)

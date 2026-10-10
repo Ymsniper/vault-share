@@ -5,7 +5,6 @@ import ssl
 import stat
 import subprocess
 import threading
-from pathlib import Path
 from urllib.parse import urlencode
 
 import pytest
@@ -13,21 +12,6 @@ from cryptography import x509
 from app import create_app
 from app.serving import make_app_server
 from tests.test_csrf import token_from
-
-PKI = Path(__file__).parent.parent / "pki"
-
-
-@pytest.fixture(scope="session")
-def tls_dir(ca_dir, ca_passphrase, tmp_path_factory):
-    out = tmp_path_factory.mktemp("tls")
-    subprocess.run(
-        ["sh", str(PKI / "create_server_cert.sh"), str(ca_dir), str(out)],
-        env={**os.environ, "CA_PASSPHRASE": ca_passphrase},
-        check=True,
-        capture_output=True,
-    )
-    return out
-
 
 @pytest.fixture
 def https_app(app, tls_dir):
