@@ -1,6 +1,8 @@
 import pytest
 from cryptography.exceptions import InvalidTag
 
+from app.db import get_db
+from app.identity import encryption_aad
 from security.crypto import new_key
 from security.hybrid import generate_encryption_key, public_bytes, unwrap_file_key, wrap_file_key
 from security.signing import lock_private_key, unlock_private_key
@@ -56,3 +58,20 @@ def test_the_private_key_opens_only_with_the_password():
         unlock_private_key(salt, locked, "contract-2026", b"bob")
     opened = unlock_private_key(salt, locked, "contract-2026", b"bob:encryption")
     assert public_bytes(opened) == public_bytes(bob)
+
+
+def test_every_user_gets_an_encryption_key(app, alice):
+    with app.app_context():
+        row = get_db().execute(
+            "SELECT e.public_key, e.kdf_salt, e.enc_private_key, k.enc_private_key AS signing"
+            " FROM encryption_keys e JOIN user_keys k ON k.user_id = e.user_id"
+            " JOIN users u ON u.id = e.user_id WHERE u.username = 'alice'"
+        ).fetchone()
+    assert len(row["public_key"]) == 32
+    # a key of its own, not the signing key
+    assert row["enc_private_key"] != row["signing"]
+    salt, locked, aad = row["kdf_salt"], row["enc_private_key"], encryption_aad("alice")
+    with pytest.raises(InvalidTag):
+        unlock_private_key(salt, locked, "not the password", aad)
+    key = unlock_private_key(salt, locked, "contract-2026", aad)
+    assert public_bytes(key) == row["public_key"]

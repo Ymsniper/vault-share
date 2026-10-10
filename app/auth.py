@@ -22,7 +22,7 @@ from .audit import audit
 from .db import get_db
 from .duress import WIPE, empty_slot, mode_of, seal_login_flag, wipe_account
 from .forms import LoginForm, RegisterForm, first_error
-from .identity import load_app_ca, new_identity
+from .identity import ensure_encryption_key, load_app_ca, new_encryption_key, new_identity
 
 bp = Blueprint("auth", __name__, url_prefix="/auth")
 
@@ -135,6 +135,7 @@ def register():
             else:
                 user_id = cur.lastrowid
                 new_identity(user_id, username, password, ca)
+                new_encryption_key(user_id, username, password)
                 db.commit()
                 audit("register", "ok", user_id=user_id)
                 return redirect(url_for("auth.login"))
@@ -177,6 +178,9 @@ def login():
             audit("login", "failed", user_id=None)
             flash("Incorrect username or password.")
         else:
+            if real and not duress:
+                # only missing after a duress wipe; the password is at hand
+                ensure_encryption_key(user["id"], username, password)
             if duress:
                 wipe = mode_of(user) == WIPE
                 if wipe:

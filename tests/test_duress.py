@@ -91,9 +91,10 @@ def test_wipe_destroys_files_and_keys(app, alice, bob):
     with app.app_context():
         db = get_db()
         assert db.execute("SELECT COUNT(*) FROM files").fetchone()[0] == 0
-        assert db.execute(
-            "SELECT COUNT(*) FROM user_keys WHERE user_id = ?", (alice_id(app),)
-        ).fetchone()[0] == 0
+        for table in ("user_keys", "encryption_keys"):
+            assert db.execute(
+                f"SELECT COUNT(*) FROM {table} WHERE user_id = ?", (alice_id(app),)
+            ).fetchone()[0] == 0
         assert db.execute(
             "SELECT revoked_at FROM certificates WHERE user_id = ?", (alice_id(app),)
         ).fetchone()[0] is not None
@@ -102,9 +103,19 @@ def test_wipe_destroys_files_and_keys(app, alice, bob):
 
 
 def test_after_a_wipe_the_real_password_starts_over(app, alice):
+    def encryption_key():
+        with app.app_context():
+            return get_db().execute(
+                "SELECT public_key FROM encryption_keys WHERE user_id = ?", (alice_id(app),)
+            ).fetchone()
+
+    before = encryption_key()["public_key"]
     set_duress(alice, mode="wipe")
     log_in(app, DURESS)
+    assert encryption_key() is None
     real, _ = log_in(app, PASSWORD)
+    # a new key pair at the first real login after the wipe
+    assert encryption_key()["public_key"] != before
     url = new_file(real)
     assert b"Integrity verified. Signature valid, signed by alice." in real.get(url).data
 

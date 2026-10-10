@@ -64,6 +64,7 @@ def wipe_account(user):
             pass
     db.execute("DELETE FROM files WHERE owner_id = ?", (user["id"],))
     db.execute("DELETE FROM user_keys WHERE user_id = ?", (user["id"],))
+    db.execute("DELETE FROM encryption_keys WHERE user_id = ?", (user["id"],))
     db.execute(
         "UPDATE certificates SET revoked_at = datetime('now')"
         " WHERE user_id = ? AND revoked_at IS NULL",

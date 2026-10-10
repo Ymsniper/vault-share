@@ -2,6 +2,7 @@ DROP TABLE IF EXISTS audit_log;
 DROP TABLE IF EXISTS shares;
 DROP TABLE IF EXISTS files;
 DROP TABLE IF EXISTS certificates;
+DROP TABLE IF EXISTS encryption_keys;
 DROP TABLE IF EXISTS user_keys;
 DROP TABLE IF EXISTS sessions;
 DROP TABLE IF EXISTS users;
@@ -39,6 +40,15 @@ CREATE TABLE sessions (
 -- from the user's password (Argon2id with kdf_salt)
 CREATE TABLE user_keys (
     user_id INTEGER PRIMARY KEY REFERENCES users (id),
+    kdf_salt BLOB NOT NULL,
+    enc_private_key BLOB NOT NULL
+);
+
+-- the X25519 key pair that receives file keys (security/hybrid.py), kept
+-- apart from the signing key; its private key is locked the same way
+CREATE TABLE encryption_keys (
+    user_id INTEGER PRIMARY KEY REFERENCES users (id),
+    public_key BLOB NOT NULL,
     kdf_salt BLOB NOT NULL,
     enc_private_key BLOB NOT NULL
 );
