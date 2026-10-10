@@ -1,10 +1,13 @@
 import asyncio
+import errno
 import os
+import socket
 
 import pytest
 from textual.widgets import Button, DataTable, Static
 
 from app.db import get_db
+from app.serving import make_app_server
 from console import Console, Main, Splash
 
 
@@ -187,3 +190,28 @@ def test_create_the_ca_from_the_setup_tab(app, tmp_path):
 
     run(scenario)
     assert app.config["CA_PASSPHRASE"] == good
+
+
+def test_a_taken_port_raises_instead_of_ending_the_program(app):
+    with socket.create_server(("127.0.0.1", 0)) as taken:
+        with pytest.raises(OSError) as e:
+            make_app_server(app, port=taken.getsockname()[1])
+    assert e.value.errno == errno.EADDRINUSE
+
+
+def test_a_taken_port_is_reported_and_the_console_stays_open(app):
+    with socket.create_server(("127.0.0.1", 0)) as taken:
+
+        async def scenario():
+            console = Console(app, start_server=False)
+            console.server.port = taken.getsockname()[1]
+            async with console.run_test(size=(120, 40)) as pilot:
+                await pilot.press("enter")
+                await pilot.pause()
+                await pilot.press("s")
+                await pilot.pause()
+                assert not console.server.running
+                assert isinstance(console.screen, Main)
+                assert any("already in use" in n.message for n in console._notifications)
+
+        run(scenario)

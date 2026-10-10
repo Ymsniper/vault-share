@@ -1,3 +1,4 @@
+import socket
 import ssl
 
 from werkzeug.serving import WSGIRequestHandler, make_server
@@ -26,8 +27,15 @@ def make_app_server(app, host="127.0.0.1", port=5000):
     the handshake (a browser showing a certificate warning does that)
     freezes the whole server. Here the handshake waits for the
     connection's own thread instead.
+
+    Raises OSError when the port is taken.
     """
-    server = make_server(host, port, app, threaded=True, request_handler=Handler)
+    # bound here, so a taken port raises OSError: when Werkzeug binds it, it
+    # prints a message and ends the whole program, console included
+    with socket.create_server((host, port)) as listener:
+        server = make_server(
+            host, port, app, threaded=True, request_handler=Handler, fd=listener.fileno()
+        )
     if app.config["HTTPS"]:
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.minimum_version = ssl.TLSVersion.TLSv1_2
