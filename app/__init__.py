@@ -101,7 +101,9 @@ def create_app(test_config=None):
             "frame-ancestors": "'none'",
         },
         frame_options="DENY",
-        referrer_policy="no-referrer",
+        # the Referer reaches this site only: Flask-WTF checks it on every form
+        # sent over HTTPS, and other sites never learn our URLs
+        referrer_policy="same-origin",
     )
 
     @app.errorhandler(Locked)

@@ -12,6 +12,7 @@ import pytest
 from cryptography import x509
 from app import create_app
 from app.serving import make_app_server
+from tests.test_csrf import token_from
 
 PKI = Path(__file__).parent.parent / "pki"
 
@@ -107,3 +108,63 @@ def test_a_silent_client_does_not_freeze_the_server(ca_dir, https_port):
         conn.close()
     finally:
         silent.close()
+
+
+@pytest.fixture
+def csrf_on(https_app):
+    # Flask-WTF reads this on every request, as in test_csrf.py
+    https_app.config["WTF_CSRF_ENABLED"] = True
+
+
+def register_over_https(ca_dir, port, referer):
+    """Registers alice as a browser does: the form page first, then the form
+    sent back with its token, the cookies and the given Referer."""
+    trusting = ssl.create_default_context(cafile=str(ca_dir / "ca.crt"))
+    conn = http.client.HTTPSConnection("localhost", port, context=trusting)
+    try:
+        conn.request("GET", "/auth/register")
+        page = conn.getresponse()
+        cookies = "; ".join(c.split(";")[0] for c in page.headers.get_all("Set-Cookie", []))
+        form = {"username": "alice", "password": "contract-2026",
+                "csrf_token": token_from(page.read())}
+        headers = {"Content-Type": "application/x-www-form-urlencoded", "Cookie": cookies}
+        if referer:
+            headers["Referer"] = referer
+        conn.request("POST", "/auth/register", urlencode(form), headers)
+        response = conn.getresponse()
+        return response.status, response.read()
+    finally:
+        conn.close()
+
+
+def test_pages_send_the_referer_to_this_site_only(ca_dir, https_port):
+    # a browser following no-referrer sends no Referer at all, and Flask-WTF
+    # then refuses every form over HTTPS
+    trusting = ssl.create_default_context(cafile=str(ca_dir / "ca.crt"))
+    conn = http.client.HTTPSConnection("localhost", https_port, context=trusting)
+    conn.request("GET", "/auth/login")
+    assert conn.getresponse().getheader("Referrer-Policy") == "same-origin"
+    conn.close()
+
+
+def test_form_from_this_site_is_accepted_over_https(csrf_on, ca_dir, https_port):
+    status, _ = register_over_https(
+        ca_dir, https_port, f"https://localhost:{https_port}/auth/register"
+    )
+    assert status == 302
+
+
+@pytest.mark.parametrize(
+    ("referer", "reason"),
+    [
+        (None, b"The referrer header is missing."),
+        ("https://evil.example/auth/register", b"The referrer does not match the host."),
+    ],
+    ids=["no referer", "another site"],
+)
+def test_form_not_from_this_site_is_refused_over_https(
+    csrf_on, ca_dir, https_port, referer, reason
+):
+    status, page = register_over_https(ca_dir, https_port, referer)
+    assert status == 400
+    assert reason in page
