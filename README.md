@@ -1,8 +1,9 @@
 # Secure file sharing
 
 Flask web app for sharing confidential files between users. Each file is
-encrypted at rest with its own AES-256-GCM key, checked with SHA-256 and an
-HMAC, and signed with an ECDSA key certified by a local CA.
+encrypted at rest with its own AES-256-GCM key, kept only as copies
+encrypted to the public key of each person allowed to open it, checked with
+SHA-256 and an HMAC, and signed with an ECDSA key certified by a local CA.
 
 ## Run
 
@@ -42,15 +43,38 @@ passwords, and each code works only once.
 A duress password, set from the "Duress" page, is the one to give if someone
 forces you to log in. It opens your account as if it were empty and writes a
 silent alert to the audit log; with the wipe option it first destroys your
-files, their keys and your private key, which nobody can undo. Every account
+files, every file key copy made for you and your private keys, which nobody
+can undo. Every account
 has a duress slot, used or not, and its mode is stored encrypted, so the
 database does not show who set one.
 
 On first start the app creates two random keys in `instance/secrets/`:
 `secret_key` signs the cookies and CSRF tokens, and `master.key` protects
-the key of every stored file and the database itself, which SQLCipher keeps
-fully encrypted. Back up `master.key` separately from the database: without
-it nothing can be decrypted, and anyone holding both can read everything.
+the database itself, which SQLCipher keeps fully encrypted, along with the
+file records' HMACs, the two-factor secrets and the duress settings. Back up
+`master.key` separately from the database: without it the database cannot
+be opened.
+
+## File keys
+
+The master key does not open files. Each file's key is stored only as
+copies encrypted with HPKE (RFC 9180: X25519, HKDF-SHA256, AES-256-GCM), one
+for each person who may open the file: its owner and every recipient of an
+active share. Every user has an X25519 key pair for this, separate from
+their signing key, and its private key is locked under a key derived from
+their password with Argon2id. So even someone holding the whole server, keys
+included, opens no file without the password of a person it was shared with.
+
+That is why download and share ask for your password, like upload: it
+unlocks your key for that one request, so a stolen session cookie alone
+downloads nothing. Sharing opens your copy and encrypts the key again for
+the recipient; revoking deletes their copy, so bringing the share back in
+the database gives them nothing.
+
+This is not end-to-end encryption. While a file is uploaded or downloaded
+the server sees it, which is what lets it check uploads; a compromised
+running server could keep what passes through it. The same library also
+offers a post-quantum suite (`MLKEM768_X25519`) for a later upgrade.
 
 ## Server console
 
@@ -82,7 +106,8 @@ dropped from memory, everyone is logged out and visitors only see "This
 service is paused"; the reason goes to the server log. Plugging it back
 unlocks it. With a passphrase, the operator types it at `/unlock` after
 every start; no page links there. Adding or removing a factor re-encrypts the database and
-the wrapped file keys; the encrypted files themselves are not touched.
+the record HMACs; file keys and the encrypted files are not touched, since
+the master key does not protect them.
 
 ## HTTPS
 
