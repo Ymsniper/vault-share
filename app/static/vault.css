@@ -247,10 +247,22 @@ code {
   color: var(--vs-brass-hi);
 }
 
-.vs-brand .vs-emblem {
-  width: 40px;
-  height: 40px;
+/* the winged logo is 1000 x 413.8 */
+.vs-brand .vs-logo {
+  width: 116px;
+  height: 48px;
   filter: drop-shadow(0 0 7px rgba(242, 197, 61, 0.35));
+}
+
+/* the door turns about its own center: once as a gate page opens, and when
+   the header logo is pointed at. Twelve teeth, so it starts without a jump */
+.vs-emblem-cog {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.vs-brand:hover .vs-emblem-cog {
+  animation: vs-turn 1.2s cubic-bezier(0.2, 0.75, 0.2, 1);
 }
 
 .vs-wordmark {
@@ -464,8 +476,8 @@ code {
 
 .vs-gate-emblem {
   display: block;
-  width: 108px;
-  height: 108px;
+  width: min(330px, 80vw);
+  aspect-ratio: 1000 / 413.8;
   margin: 0 auto 1.4rem;
   color: var(--vs-brass);
   filter: drop-shadow(0 0 18px rgba(242, 197, 61, 0.28));
@@ -476,10 +488,7 @@ code {
   height: 100%;
 }
 
-/* the door turns once as the page opens */
 .vs-gate-emblem .vs-emblem-cog {
-  transform-box: view-box;
-  transform-origin: 32px 32px;
   animation: vs-turn 1.6s cubic-bezier(0.2, 0.75, 0.2, 1) both;
 }
 
@@ -824,8 +833,8 @@ code {
 }
 
 .vs-empty .vs-emblem {
-  width: 54px;
-  height: 54px;
+  width: 140px;
+  height: 58px;
   margin-bottom: 0.9rem;
   color: rgba(242, 197, 61, 0.35);
 }
@@ -1071,6 +1080,11 @@ code {
 @media (max-width: 720px) {
   .vs-wordmark {
     font-size: 1.6rem;
+  }
+
+  .vs-brand .vs-logo {
+    width: 97px;
+    height: 40px;
   }
 
   .vs-nav {
