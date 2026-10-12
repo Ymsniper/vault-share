@@ -1,9 +1,10 @@
-# Secure file sharing
+# Vault-Share
 
-Flask web app for sharing confidential files between users. Each file is
-encrypted at rest with its own AES-256-GCM key, kept only as copies
-encrypted to the public key of each person allowed to open it, checked with
-SHA-256 and an HMAC, and signed with an ECDSA key certified by a local CA.
+Secure file sharing: a Flask web app for sharing confidential files between
+users. Each file is encrypted at rest with its own AES-256-GCM key, kept
+only as copies encrypted to the public key of each person allowed to open
+it, checked with SHA-256 and an HMAC, and signed with an ECDSA key certified
+by a local CA.
 
 ## Run
 

@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Paused{% endblock %}
 {% block content %}
-<h1 class="h3 mb-3">Service paused</h1>
-<p>This service is paused. Try again later.</p>
+<div class="vs-gate">
+  <div class="vs-gate-emblem">{% include "partials/emblem.svg" %}</div>
+  <h1>Service paused</h1>
+  <p class="vs-lede">This service is paused. Try again later.</p>
+</div>
 {% endblock %}

@@ -1,94 +1,135 @@
 {% extends "base.html" %}
 {% block title %}{{ f['filename'] }}{% endblock %}
 {% block content %}
-<h1 class="h3 mb-3">{{ f['filename'] }}</h1>
-
-{% if error %}
-<div class="alert alert-danger">{{ error }}</div>
-{% else %}
-<div class="alert alert-success">Record verified. Signature valid, signed by {{ f['owner'] }}. The file itself is checked again at every download.</div>
-{% endif %}
-
-<dl class="row">
-  <dt class="col-sm-2">Owner</dt>
-  <dd class="col-sm-10">{{ f['owner'] }}</dd>
-  <dt class="col-sm-2">Description</dt>
-  <dd class="col-sm-10">{{ f['description'] }}</dd>
-  <dt class="col-sm-2">Size</dt>
-  <dd class="col-sm-10">{{ f['size'] }} bytes</dd>
-  <dt class="col-sm-2">SHA-256</dt>
-  <dd class="col-sm-10"><code>{{ f['sha256'] }}</code></dd>
-  <dt class="col-sm-2">Certificate</dt>
-  <dd class="col-sm-10">serial <code>{{ f['cert_serial'] }}</code>, valid until {{ f['cert_not_after'] }} UTC</dd>
-  <dt class="col-sm-2">Uploaded</dt>
-  <dd class="col-sm-10">{{ f['uploaded_at'] }} UTC</dd>
-</dl>
-
-{% if not error %}
-<form method="post" action="{{ url_for('files.download', id=f['id']) }}" class="row g-2 mb-1">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <div class="col-auto">
-    <input type="password" name="password" class="form-control" placeholder="Your password" autocomplete="current-password" required>
+{% set mine = f['owner_id'] == g.user['id'] %}
+<div class="vs-page-head">
+  <div>
+    <p class="vs-kicker">File record</p>
+    <h1 class="vs-filename">{{ f['filename'] }}</h1>
+    <p class="vs-sub">{% if mine %}In your vault{% else %}Shared with you by <strong>{{ f['owner'] }}</strong>{% endif %} · uploaded {{ f['uploaded_at'] }} UTC</p>
   </div>
-  <div class="col-auto">
-    <button type="submit" class="btn btn-primary">Download</button>
-  </div>
-</form>
-<div class="form-text mb-3">Your password opens your own copy of this file's key. It is never stored.</div>
-<a class="btn btn-outline-primary mb-4" href="{{ url_for('files.proof', id=f['id']) }}">Signature proof</a>
-{% endif %}
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('files.index') }}">All files</a>
+</div>
 
-<h2 class="h5">Check a local copy</h2>
-<form method="post" enctype="multipart/form-data" action="{{ url_for('files.check_copy', id=f['id']) }}" class="row g-2 mb-4">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <div class="col-auto">
-    <input type="file" name="copy" class="form-control" required>
-  </div>
-  <div class="col-auto">
-    <button type="submit" class="btn btn-outline-secondary">Compare</button>
-  </div>
-</form>
+<div class="row g-4">
+  <div class="col-lg-7">
+    {% if error %}
+    <div class="vs-seal vs-seal-bad" role="alert">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 2.8 22 20.5H2z"/><path d="M12 9.5v5" stroke-linecap="round"/><circle cx="12" cy="17.4" r=".6" fill="currentColor"/></svg>
+      <div>
+        <p class="vs-seal-label">Check failed</p>
+        <p>{{ error }}</p>
+      </div>
+    </div>
+    {% else %}
+    <div class="vs-seal">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 2.5 20 5.6v6.1c0 4.7-3.3 8.4-8 9.8-4.7-1.4-8-5.1-8-9.8V5.6z"/><path d="m8.2 12.2 2.6 2.6 5-5.2" stroke-linecap="round"/></svg>
+      <div>
+        <p class="vs-seal-label">Verified</p>
+        <p>Record verified. Signature valid, signed by {{ f['owner'] }}. The file itself is checked again at every download.</p>
+      </div>
+    </div>
+    {% endif %}
 
-{% if f['owner_id'] == g.user['id'] %}
-<h2 class="h5">Shared with</h2>
-{% if shares %}
-<ul class="list-group col-md-6 mb-3">
-  {% for s in shares %}
-  <li class="list-group-item d-flex align-items-center">
-    <span class="me-auto">{{ s['username'] }}</span>
-    <form method="post" action="{{ url_for('files.revoke', id=f['id']) }}">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <input type="hidden" name="recipient_id" value="{{ s['id'] }}">
-      <button type="submit" class="btn btn-sm btn-outline-secondary">Revoke</button>
-    </form>
-  </li>
-  {% endfor %}
-</ul>
-{% else %}
-<p class="text-body-secondary">Nobody yet.</p>
-{% endif %}
+    <section class="vs-panel mt-4">
+      <h2 class="vs-panel-title">Record</h2>
+      <dl class="vs-spec">
+        <dt>Owner</dt>
+        <dd>{{ f['owner'] }}</dd>
+        <dt>Description</dt>
+        <dd>{% if f['description'] %}{{ f['description'] }}{% else %}<span class="vs-meta">none</span>{% endif %}</dd>
+        <dt>Size</dt>
+        <dd>{{ f['size']|filesizeformat }} <span class="vs-meta">({{ f['size'] }} bytes)</span></dd>
+        <dt>SHA-256</dt>
+        <dd><span class="vs-hash">{{ f['sha256'] }}</span></dd>
+        <dt>Certificate</dt>
+        <dd><span class="vs-mono">serial {{ f['cert_serial'] }}</span><br><span class="vs-meta">valid until {{ f['cert_not_after'] }} UTC</span></dd>
+        <dt>Uploaded</dt>
+        <dd class="vs-mono">{{ f['uploaded_at'] }} UTC</dd>
+      </dl>
+    </section>
 
-<form method="post" action="{{ url_for('files.share', id=f['id']) }}" class="row g-2 mb-1">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  {# tells the browser whose password this is, so it puts the saved login
-     here instead of in the recipient's field; it has no name, so it is never sent #}
-  <input type="text" autocomplete="username" value="{{ g.user['username'] }}" hidden>
-  <div class="col-auto">
-    <input name="username" class="form-control" placeholder="Username" autocomplete="off"
-           data-lpignore="true" data-1p-ignore data-bwignore="true" required>
+    <section class="vs-panel">
+      <h2 class="vs-panel-title">Check a local copy</h2>
+      <p class="vs-note">Compare a copy you already have with this record. It is hashed in memory and never stored.</p>
+      <form method="post" enctype="multipart/form-data" action="{{ url_for('files.check_copy', id=f['id']) }}" class="row g-2 align-items-start">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="col-sm">
+          <input type="file" name="copy" class="form-control" required aria-label="Your local copy">
+        </div>
+        <div class="col-sm-auto">
+          <button type="submit" class="btn btn-outline-secondary">Compare</button>
+        </div>
+      </form>
+    </section>
   </div>
-  <div class="col-auto">
-    <input type="password" name="password" class="form-control" placeholder="Your password" autocomplete="current-password" required>
-  </div>
-  <div class="col-auto">
-    <button type="submit" class="btn btn-outline-primary">Share</button>
-  </div>
-</form>
-<div class="form-text mb-4">Your password opens your copy of the file's key, which is then encrypted again for the recipient.</div>
 
-<form method="post" action="{{ url_for('files.delete', id=f['id']) }}">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <button type="submit" class="btn btn-outline-danger">Delete</button>
-</form>
-{% endif %}
+  <div class="col-lg-5">
+    {% if not error %}
+    <section class="vs-panel">
+      <h2 class="vs-panel-title">Open</h2>
+      <form method="post" action="{{ url_for('files.download', id=f['id']) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="mb-3">
+          <label for="download-password" class="form-label">Your password</label>
+          <input type="password" name="password" id="download-password" class="form-control" autocomplete="current-password" required>
+          <div class="form-text">Your password opens your own copy of this file's key. It is never stored.</div>
+        </div>
+        <button type="submit" class="btn btn-primary w-100">Download</button>
+      </form>
+      <a class="btn btn-outline-secondary w-100 mt-2" href="{{ url_for('files.proof', id=f['id']) }}">Signature proof</a>
+    </section>
+    {% endif %}
+
+    {% if mine %}
+    <section class="vs-panel">
+      <h2 class="vs-panel-title">Shared with <span class="vs-count">{{ shares|length }}</span></h2>
+      {% if shares %}
+      <ul class="vs-people">
+        {% for s in shares %}
+        <li>
+          <span class="vs-avatar" aria-hidden="true">{{ s['username'][:1] }}</span>
+          <span class="vs-name">{{ s['username'] }}</span>
+          <form method="post" action="{{ url_for('files.revoke', id=f['id']) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="recipient_id" value="{{ s['id'] }}">
+            <button type="submit" class="btn btn-sm btn-outline-secondary">Revoke</button>
+          </form>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="vs-note">Nobody yet.</p>
+      {% endif %}
+
+      <form method="post" action="{{ url_for('files.share', id=f['id']) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {# tells the browser whose password this is, so it puts the saved login
+           here instead of in the recipient's field; it has no name, so it is never sent #}
+        <input type="text" autocomplete="username" value="{{ g.user['username'] }}" hidden>
+        <div class="mb-3">
+          <label for="share-username" class="form-label">Share with</label>
+          <input name="username" id="share-username" class="form-control" placeholder="Username" autocomplete="off"
+                 data-lpignore="true" data-1p-ignore data-bwignore="true" required>
+        </div>
+        <div class="mb-3">
+          <label for="share-password" class="form-label">Your password</label>
+          <input type="password" name="password" id="share-password" class="form-control" autocomplete="current-password" required>
+          <div class="form-text">Your password opens your copy of the file's key, which is then encrypted again for the recipient.</div>
+        </div>
+        <button type="submit" class="btn btn-outline-primary w-100">Share</button>
+      </form>
+    </section>
+
+    <section class="vs-panel vs-panel-danger">
+      <h2 class="vs-panel-title">Delete</h2>
+      <p class="vs-note">Removes the file, every copy of its key and every share. This cannot be undone.</p>
+      <form method="post" action="{{ url_for('files.delete', id=f['id']) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-outline-danger w-100">Delete</button>
+      </form>
+    </section>
+    {% endif %}
+  </div>
+</div>
 {% endblock %}

@@ -1,7 +1,13 @@
 {% extends "base.html" %}
 {% block title %}{{ error.code }}{% endblock %}
 {% block content %}
-<h1 class="h3 mb-3">{{ error.code }} {{ error.name }}</h1>
-<p>{{ error.description }}</p>
-<a href="{{ url_for('files.index') }}">Back to my files</a>
+<div class="vs-gate">
+  <span class="vs-error-code" aria-hidden="true">{{ error.code }}</span>
+  <h1>{{ error.code }} {{ error.name }}</h1>
+  <p class="vs-lede">{{ error.description }}</p>
+  <p class="vs-gate-foot">
+    {% if g.user %}<a href="{{ url_for('files.index') }}">Back to my files</a>
+    {% else %}<a href="{{ url_for('auth.login') }}">Log in</a>{% endif %}
+  </p>
+</div>
 {% endblock %}

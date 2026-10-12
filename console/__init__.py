@@ -202,7 +202,7 @@ class Splash(Screen):
         self.typed = 0
         self.set_interval(0.04, self.type_name)
 
-    NAME = "file sharing server"
+    NAME = "vault-share server"
 
     def type_name(self):
         if self.typed < len(self.NAME):
@@ -296,7 +296,7 @@ def certificate_state(path):
 
 class Console(App):
     CSS_PATH = "console.tcss"
-    TITLE = "File sharing server"
+    TITLE = "Vault-Share server"
 
     def __init__(self, flask_app, start_server=True):
         # the terminal's own palette, not a Textual theme

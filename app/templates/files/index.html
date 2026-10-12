@@ -1,52 +1,71 @@
 {% extends "base.html" %}
 {% block title %}My files{% endblock %}
+{% macro file_type(name) -%}
+  {{- (name.rsplit('.', 1)[-1] if '.' in name else 'file')[:5] | upper -}}
+{%- endmacro %}
 {% block content %}
-<div class="d-flex align-items-center mb-3">
-  <h1 class="h3 mb-0 me-auto">My files</h1>
+<div class="vs-page-head">
+  <div>
+    <p class="vs-kicker">Vault</p>
+    <h1>My files</h1>
+  </div>
+  <form method="post" class="vs-search" role="search">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="7" cy="7" r="5"/><path d="M11 11l3.5 3.5"/></svg>
+    <input name="q" value="{{ q }}" class="form-control" placeholder="Search my files" maxlength="255" aria-label="Search my files">
+  </form>
   <a class="btn btn-primary" href="{{ url_for('files.upload') }}">Upload</a>
 </div>
 
-<form method="post" class="col-md-4 mb-3">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <input name="q" value="{{ q }}" class="form-control" placeholder="Search my files" maxlength="255">
-</form>
+<section class="vs-panel">
+  <h2 class="vs-panel-title">Stored by me <span class="vs-count">{{ files|length }}</span></h2>
+  {% if files %}
+  <div class="vs-table-wrap">
+    <table class="table table-hover">
+      <thead>
+        <tr><th>Name</th><th>Size</th><th>Uploaded (UTC)</th></tr>
+      </thead>
+      <tbody>
+        {% for f in files %}
+        <tr>
+          <td><a class="vs-file" href="{{ url_for('files.detail', id=f['id']) }}"><span class="vs-type">{{ file_type(f['filename']) }}</span>{{ f['filename'] }}</a></td>
+          <td class="vs-meta">{{ f['size']|filesizeformat }}</td>
+          <td class="vs-meta">{{ f['uploaded_at'] }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="vs-empty">
+    {% include "partials/emblem.svg" %}
+    <p>No files found.</p>
+    {% if not q %}<a class="btn btn-outline-primary btn-sm" href="{{ url_for('files.upload') }}">Upload a file</a>{% endif %}
+  </div>
+  {% endif %}
+</section>
 
-{% if files %}
-<table class="table">
-  <thead>
-    <tr><th>Name</th><th>Size</th><th>Uploaded (UTC)</th></tr>
-  </thead>
-  <tbody>
-    {% for f in files %}
-    <tr>
-      <td><a href="{{ url_for('files.detail', id=f['id']) }}">{{ f['filename'] }}</a></td>
-      <td>{{ f['size'] }} bytes</td>
-      <td>{{ f['uploaded_at'] }}</td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
-{% else %}
-<p class="text-body-secondary">No files found.</p>
-{% endif %}
-
-<h2 class="h4 mt-5 mb-3">Shared with me</h2>
-{% if shared %}
-<table class="table">
-  <thead>
-    <tr><th>Name</th><th>Owner</th><th>Uploaded (UTC)</th></tr>
-  </thead>
-  <tbody>
-    {% for f in shared %}
-    <tr>
-      <td><a href="{{ url_for('files.detail', id=f['id']) }}">{{ f['filename'] }}</a></td>
-      <td>{{ f['owner'] }}</td>
-      <td>{{ f['uploaded_at'] }}</td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
-{% else %}
-<p class="text-body-secondary">Nothing shared with you yet.</p>
-{% endif %}
+<section class="vs-panel">
+  <h2 class="vs-panel-title">Shared with me <span class="vs-count">{{ shared|length }}</span></h2>
+  {% if shared %}
+  <div class="vs-table-wrap">
+    <table class="table table-hover">
+      <thead>
+        <tr><th>Name</th><th>Owner</th><th>Uploaded (UTC)</th></tr>
+      </thead>
+      <tbody>
+        {% for f in shared %}
+        <tr>
+          <td><a class="vs-file" href="{{ url_for('files.detail', id=f['id']) }}"><span class="vs-type">{{ file_type(f['filename']) }}</span>{{ f['filename'] }}</a></td>
+          <td class="vs-meta">{{ f['owner'] }}</td>
+          <td class="vs-meta">{{ f['uploaded_at'] }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="vs-empty"><p>Nothing shared with you yet.</p></div>
+  {% endif %}
+</section>
 {% endblock %}

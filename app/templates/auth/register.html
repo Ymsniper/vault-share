@@ -1,17 +1,24 @@
 {% extends "base.html" %}
 {% block title %}Register{% endblock %}
 {% block content %}
-<h1 class="h3 mb-3">Register</h1>
-<form method="post" class="col-md-4">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <div class="mb-3">
-    <label for="username" class="form-label">Username</label>
-    <input name="username" id="username" class="form-control" autocomplete="username" required>
-  </div>
-  <div class="mb-3">
-    <label for="password" class="form-label">Password</label>
-    <input type="password" name="password" id="password" class="form-control" autocomplete="new-password" required>
-  </div>
-  <button type="submit" class="btn btn-primary">Register</button>
-</form>
+<div class="vs-gate">
+  <div class="vs-gate-emblem">{% include "partials/emblem.svg" %}</div>
+  <h1>Register</h1>
+  <p class="vs-lede">Every account gets its own signing certificate and its own encryption key.</p>
+  <form method="post" class="vs-panel">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="mb-3">
+      <label for="username" class="form-label">Username</label>
+      <input name="username" id="username" class="form-control" autocomplete="username" required autofocus>
+      <div class="form-text">3 to 32 letters, digits or underscores.</div>
+    </div>
+    <div class="mb-4">
+      <label for="password" class="form-label">Password</label>
+      <input type="password" name="password" id="password" class="form-control" autocomplete="new-password" required>
+      <div class="form-text">12 to 128 characters, and hard to guess. It locks your keys, so it cannot be reset.</div>
+    </div>
+    <button type="submit" class="btn btn-primary">Register</button>
+  </form>
+  <p class="vs-gate-foot">Already registered? <a href="{{ url_for('auth.login') }}">Log in</a></p>
+</div>
 {% endblock %}

@@ -1,0 +1,1103 @@
+/* Vault-Share: retro-futurist theme on top of Bootstrap.
+   Navy steel, brass and a little phosphor. Everything is served from this
+   site, so the Content-Security-Policy (default-src 'self') still holds. */
+
+/* Futura: Book, Medium, Bold and Extra Bold, and the condensed cuts for the
+   wordmark and the big titles. "block": text waits for Futura rather than
+   showing in another font first. */
+@font-face {
+  font-family: "Futura";
+  src: url("fonts/futura-book.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-stretch: 100%;
+  font-display: block;
+}
+
+@font-face {
+  font-family: "Futura";
+  src: url("fonts/futura-book-oblique.woff2") format("woff2");
+  font-weight: 400;
+  font-style: italic;
+  font-stretch: 100%;
+  font-display: block;
+}
+
+@font-face {
+  font-family: "Futura";
+  src: url("fonts/futura-medium.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-stretch: 100%;
+  font-display: block;
+}
+
+@font-face {
+  font-family: "Futura";
+  src: url("fonts/futura-bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-stretch: 100%;
+  font-display: block;
+}
+
+@font-face {
+  font-family: "Futura";
+  src: url("fonts/futura-extrabold.woff2") format("woff2");
+  font-weight: 800;
+  font-style: normal;
+  font-stretch: 100%;
+  font-display: block;
+}
+
+@font-face {
+  font-family: "Futura";
+  src: url("fonts/futura-bold-condensed.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-stretch: 75%;
+  font-display: block;
+}
+
+@font-face {
+  font-family: "Futura";
+  src: url("fonts/futura-extrabold-condensed.woff2") format("woff2");
+  font-weight: 800;
+  font-style: normal;
+  font-stretch: 75%;
+  font-display: block;
+}
+
+@font-face {
+  font-family: "Share Tech Mono";
+  src: url("fonts/share-tech-mono-latin-400-normal.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root,
+[data-bs-theme="dark"] {
+  --vs-ink: #0a1628;
+  --vs-ink-2: #0f2038;
+  --vs-ink-3: #152b48;
+  --vs-well: rgba(5, 12, 24, 0.7);
+  --vs-cream: #ece3cc;
+  --vs-bright: #fff6dc;
+  --vs-mute: #8fa1ba;
+  --vs-brass: #f2c53d;
+  --vs-brass-hi: #ffd864;
+  --vs-brass-lo: #c99a17;
+  --vs-phosphor: #72e7a1;
+  --vs-amber: #ffb547;
+  --vs-alert: #ff6f5e;
+  --vs-line: rgba(242, 197, 61, 0.2);
+  --vs-line-soft: rgba(236, 227, 204, 0.1);
+  --vs-rivet: rgba(242, 197, 61, 0.5);
+  --vs-display: "Futura", sans-serif;
+  --vs-mono: "Share Tech Mono", ui-monospace, "DejaVu Sans Mono", monospace;
+  --vs-radius: 12px;
+
+  --bs-body-bg: var(--vs-ink);
+  --bs-body-bg-rgb: 10, 22, 40;
+  --bs-body-color: var(--vs-cream);
+  --bs-body-color-rgb: 236, 227, 204;
+  --bs-body-font-family: var(--vs-display);
+  --bs-body-font-weight: 400;
+  --bs-emphasis-color: var(--vs-bright);
+  --bs-secondary-color: var(--vs-mute);
+  --bs-secondary-color-rgb: 143, 161, 186;
+  --bs-tertiary-bg: var(--vs-ink-2);
+  --bs-border-color: var(--vs-line-soft);
+  --bs-heading-color: var(--vs-bright);
+  --bs-link-color: var(--vs-brass);
+  --bs-link-color-rgb: 242, 197, 61;
+  --bs-link-hover-color: var(--vs-brass-hi);
+  --bs-link-hover-color-rgb: 255, 216, 100;
+  --bs-code-color: var(--vs-phosphor);
+  --bs-primary: var(--vs-brass);
+  --bs-primary-rgb: 242, 197, 61;
+  --bs-focus-ring-color: rgba(242, 197, 61, 0.3);
+  --bs-form-valid-color: var(--vs-phosphor);
+  --bs-form-invalid-color: var(--vs-alert);
+}
+
+/* ---- page */
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  letter-spacing: 0.01em;
+  background:
+    radial-gradient(1100px 520px at 50% -220px, rgba(242, 197, 61, 0.09), transparent 62%),
+    radial-gradient(900px 600px at 105% -10%, rgba(40, 78, 128, 0.55), transparent 70%),
+    radial-gradient(700px 500px at -10% 110%, rgba(40, 78, 128, 0.35), transparent 70%),
+    var(--vs-ink);
+}
+
+/* faint scanlines, like an old monitor: felt more than seen */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.022) 0,
+    rgba(255, 255, 255, 0.022) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+}
+
+::selection {
+  background: rgba(242, 197, 61, 0.35);
+  color: var(--vs-bright);
+}
+
+a {
+  text-underline-offset: 0.2em;
+}
+
+:focus-visible {
+  outline: 2px solid var(--vs-brass);
+  outline-offset: 2px;
+}
+
+h1, h2, h3, .h1, .h2, .h3, .h4, .h5 {
+  font-family: var(--vs-display);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--vs-bright);
+}
+
+/* titles in Futura Extra Bold Condensed, the weight of the old posters */
+h1, .h1 {
+  font-size: clamp(1.9rem, 3.3vw, 2.65rem);
+  font-weight: 800;
+  font-stretch: condensed;
+  letter-spacing: 0.035em;
+  line-height: 1.05;
+}
+
+h2, .h2 {
+  font-size: 0.95rem;
+  letter-spacing: 0.16em;
+  color: var(--vs-cream);
+  margin-bottom: 1rem;
+}
+
+code, .vs-mono {
+  font-family: var(--vs-mono);
+}
+
+code {
+  font-size: 0.92em;
+  color: var(--vs-phosphor);
+  overflow-wrap: anywhere;
+}
+
+/* ---- header */
+
+.vs-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: linear-gradient(180deg, rgba(22, 45, 76, 0.97), rgba(13, 28, 50, 0.97));
+  border-bottom: 1px solid var(--vs-line);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.55), 0 14px 30px -20px rgba(0, 0, 0, 0.9);
+}
+
+/* a thin brass rule under the bar */
+.vs-header::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -3px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(242, 197, 61, 0.55) 20%, rgba(242, 197, 61, 0.55) 80%, transparent);
+  opacity: 0.6;
+}
+
+.vs-header-inner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  min-height: 70px;
+}
+
+.vs-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  color: var(--vs-brass);
+  text-decoration: none;
+}
+
+.vs-brand:hover {
+  color: var(--vs-brass-hi);
+}
+
+.vs-brand .vs-emblem {
+  width: 40px;
+  height: 40px;
+  filter: drop-shadow(0 0 7px rgba(242, 197, 61, 0.35));
+}
+
+.vs-wordmark {
+  display: inline-block;
+  font-family: var(--vs-display);
+  font-weight: 800;
+  font-stretch: condensed;
+  font-size: 1.95rem;
+  line-height: 1;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.55);
+}
+
+.vs-nav {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.15rem;
+  margin-left: auto;
+}
+
+.vs-nav form {
+  display: inline;
+  margin: 0;
+}
+
+.vs-nav a,
+.vs-nav button {
+  display: inline-block;
+  padding: 0.5rem 0.7rem;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--vs-cream);
+  opacity: 0.82;
+  font-family: var(--vs-display);
+  font-size: 0.8rem;
+  font-weight: 500;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  text-decoration: none;
+  transition: color 0.15s, background-color 0.15s, opacity 0.15s;
+}
+
+.vs-nav a:hover,
+.vs-nav button:hover {
+  opacity: 1;
+  color: var(--vs-brass);
+  background: rgba(242, 197, 61, 0.07);
+}
+
+.vs-nav a[aria-current="page"] {
+  opacity: 1;
+  color: var(--vs-brass);
+  box-shadow: inset 0 -2px 0 var(--vs-brass);
+  border-radius: 7px 7px 0 0;
+}
+
+.vs-user {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0 0.35rem;
+  padding: 0.3rem 0.75rem;
+  border: 1px solid var(--vs-line-soft);
+  border-radius: 999px;
+  color: var(--vs-mute);
+  font-family: var(--vs-mono);
+  font-size: 0.84rem;
+}
+
+.vs-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--vs-phosphor);
+  box-shadow: 0 0 8px var(--vs-phosphor);
+}
+
+/* ---- layout */
+
+.vs-main {
+  flex: 1;
+  padding-top: 2.4rem;
+  padding-bottom: 3.5rem;
+}
+
+.vs-page-head {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1.8rem;
+}
+
+.vs-page-head > :first-child {
+  margin-right: auto;
+  min-width: 0;
+}
+
+.vs-page-head h1 {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* a file's name is shown as it is: capitals would change it */
+.vs-page-head h1.vs-filename {
+  text-transform: none;
+  letter-spacing: 0.01em;
+}
+
+.vs-kicker {
+  margin: 0 0 0.45rem;
+  color: var(--vs-brass);
+  font-family: var(--vs-mono);
+  font-size: 0.76rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.vs-kicker::before {
+  content: "\25B8\00a0";
+  opacity: 0.7;
+}
+
+.vs-lede {
+  max-width: 62ch;
+  color: var(--vs-mute);
+  margin: 0.6rem 0 0;
+}
+
+.vs-sub {
+  margin: 0.55rem 0 0;
+  color: var(--vs-mute);
+  font-size: 0.95rem;
+}
+
+.vs-sub strong {
+  color: var(--vs-cream);
+  font-weight: 500;
+}
+
+/* a plate bolted to the vault wall: four rivets in the corners */
+.vs-panel {
+  position: relative;
+  padding: 1.6rem;
+  border: 1px solid var(--vs-line);
+  border-radius: var(--vs-radius);
+  background: linear-gradient(180deg, rgba(22, 45, 76, 0.86), rgba(13, 29, 52, 0.92));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 24px 44px -28px rgba(0, 0, 0, 0.95);
+}
+
+.vs-panel::before {
+  content: "";
+  position: absolute;
+  inset: 9px;
+  pointer-events: none;
+  background:
+    radial-gradient(circle, var(--vs-rivet) 0 1.4px, transparent 2px) 0 0 / 6px 6px no-repeat,
+    radial-gradient(circle, var(--vs-rivet) 0 1.4px, transparent 2px) 100% 0 / 6px 6px no-repeat,
+    radial-gradient(circle, var(--vs-rivet) 0 1.4px, transparent 2px) 0 100% / 6px 6px no-repeat,
+    radial-gradient(circle, var(--vs-rivet) 0 1.4px, transparent 2px) 100% 100% / 6px 6px no-repeat;
+}
+
+.vs-panel + .vs-panel {
+  margin-top: 1.5rem;
+}
+
+.vs-panel > :last-child {
+  margin-bottom: 0;
+}
+
+.vs-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0 0 1.1rem;
+  font-size: 0.85rem;
+  letter-spacing: 0.18em;
+}
+
+.vs-panel-title .vs-count {
+  margin-left: auto;
+  color: var(--vs-mute);
+  font-family: var(--vs-mono);
+  font-weight: 400;
+  letter-spacing: 0.1em;
+}
+
+.vs-panel-danger {
+  border-color: rgba(255, 111, 94, 0.32);
+  --vs-rivet: rgba(255, 111, 94, 0.45);
+}
+
+.vs-note {
+  color: var(--vs-mute);
+  font-size: 0.9rem;
+}
+
+.vs-note strong {
+  color: var(--vs-cream);
+}
+
+/* ---- the gate: login, register, codes, unlock, errors */
+
+.vs-gate {
+  max-width: 440px;
+  margin: 1.5rem auto 0;
+}
+
+.vs-gate-emblem {
+  display: block;
+  width: 108px;
+  height: 108px;
+  margin: 0 auto 1.4rem;
+  color: var(--vs-brass);
+  filter: drop-shadow(0 0 18px rgba(242, 197, 61, 0.28));
+}
+
+.vs-gate-emblem .vs-emblem {
+  width: 100%;
+  height: 100%;
+}
+
+/* the door turns once as the page opens */
+.vs-gate-emblem .vs-emblem-cog {
+  transform-box: view-box;
+  transform-origin: 32px 32px;
+  animation: vs-turn 1.6s cubic-bezier(0.2, 0.75, 0.2, 1) both;
+}
+
+@keyframes vs-turn {
+  from { transform: rotate(-90deg); }
+  to { transform: rotate(0); }
+}
+
+.vs-gate h1 {
+  text-align: center;
+  margin-bottom: 0.4rem;
+}
+
+.vs-gate .vs-lede {
+  text-align: center;
+  margin: 0 auto 1.6rem;
+}
+
+.vs-gate form > .btn {
+  width: 100%;
+}
+
+.vs-gate-foot {
+  margin: 1.2rem 0 0;
+  text-align: center;
+  color: var(--vs-mute);
+  font-size: 0.92rem;
+}
+
+.vs-error-code {
+  display: block;
+  text-align: center;
+  font-family: var(--vs-display);
+  font-weight: 800;
+  font-stretch: condensed;
+  font-size: clamp(5rem, 16vw, 8.5rem);
+  line-height: 1;
+  letter-spacing: 0.04em;
+  color: transparent;
+  -webkit-text-stroke: 2px var(--vs-brass);
+  text-shadow: 0 0 26px rgba(242, 197, 61, 0.25);
+  margin-bottom: 0.6rem;
+}
+
+/* ---- buttons */
+
+.btn {
+  --bs-btn-padding-x: 1.15rem;
+  --bs-btn-padding-y: 0.64rem;
+  --bs-btn-font-size: 0.8rem;
+  --bs-btn-font-weight: 700;
+  --bs-btn-border-radius: 8px;
+  font-family: var(--vs-display);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.btn-primary {
+  --bs-btn-color: #1a1404;
+  --bs-btn-bg: var(--vs-brass);
+  --bs-btn-border-color: var(--vs-brass);
+  --bs-btn-hover-color: #1a1404;
+  --bs-btn-hover-bg: var(--vs-brass-hi);
+  --bs-btn-hover-border-color: var(--vs-brass-hi);
+  --bs-btn-active-color: #1a1404;
+  --bs-btn-active-bg: var(--vs-brass-lo);
+  --bs-btn-active-border-color: var(--vs-brass-lo);
+  --bs-btn-disabled-color: #1a1404;
+  --bs-btn-disabled-bg: var(--vs-brass-lo);
+  --bs-btn-focus-shadow-rgb: 242, 197, 61;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), inset 0 -2px 0 rgba(0, 0, 0, 0.2),
+    0 8px 20px -10px rgba(242, 197, 61, 0.7);
+}
+
+.btn-outline-primary,
+.btn-outline-secondary {
+  --bs-btn-color: var(--vs-cream);
+  --bs-btn-border-color: rgba(236, 227, 204, 0.24);
+  --bs-btn-hover-color: var(--vs-brass);
+  --bs-btn-hover-bg: rgba(242, 197, 61, 0.09);
+  --bs-btn-hover-border-color: var(--vs-brass);
+  --bs-btn-active-color: var(--vs-brass);
+  --bs-btn-active-bg: rgba(242, 197, 61, 0.16);
+  --bs-btn-active-border-color: var(--vs-brass);
+  --bs-btn-focus-shadow-rgb: 242, 197, 61;
+}
+
+.btn-outline-danger {
+  --bs-btn-color: var(--vs-alert);
+  --bs-btn-border-color: rgba(255, 111, 94, 0.5);
+  --bs-btn-hover-color: #ffc2ba;
+  --bs-btn-hover-bg: rgba(255, 111, 94, 0.14);
+  --bs-btn-hover-border-color: var(--vs-alert);
+  --bs-btn-active-color: #ffc2ba;
+  --bs-btn-active-bg: rgba(255, 111, 94, 0.22);
+  --bs-btn-active-border-color: var(--vs-alert);
+  --bs-btn-focus-shadow-rgb: 255, 111, 94;
+}
+
+.btn-sm {
+  --bs-btn-padding-x: 0.75rem;
+  --bs-btn-padding-y: 0.36rem;
+  --bs-btn-font-size: 0.72rem;
+}
+
+/* ---- forms */
+
+.form-label {
+  margin-bottom: 0.45rem;
+  color: var(--vs-mute);
+  font-family: var(--vs-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.form-control,
+.form-select {
+  padding: 0.66rem 0.85rem;
+  border: 1px solid rgba(236, 227, 204, 0.15);
+  border-radius: 8px;
+  background-color: var(--vs-well);
+  color: var(--vs-cream);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.form-control:focus,
+.form-select:focus {
+  border-color: var(--vs-brass);
+  background-color: rgba(5, 12, 24, 0.85);
+  color: var(--vs-bright);
+  box-shadow: 0 0 0 3px rgba(242, 197, 61, 0.18), inset 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+.form-control::placeholder {
+  color: rgba(143, 161, 186, 0.7);
+}
+
+.form-control::file-selector-button {
+  margin-right: 0.9rem;
+  border-right: 1px solid rgba(236, 227, 204, 0.15);
+  background-color: var(--vs-ink-3);
+  color: var(--vs-brass);
+  font-family: var(--vs-display);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.form-control:hover:not(:disabled):not([readonly])::file-selector-button {
+  background-color: #1d3a60;
+}
+
+.form-text {
+  margin-top: 0.4rem;
+  color: var(--vs-mute);
+  font-size: 0.83rem;
+}
+
+.form-check-input {
+  border-color: rgba(236, 227, 204, 0.32);
+  background-color: var(--vs-well);
+}
+
+.form-check-input:checked {
+  border-color: var(--vs-brass);
+  background-color: var(--vs-brass);
+}
+
+/* Bootstrap draws the dot and the tick with data: images, which the CSP
+   blocks; an inner ring of the page color does the same job */
+.form-check-input[type="radio"]:checked {
+  box-shadow: inset 0 0 0 3px var(--vs-ink-2);
+}
+
+.form-check-input[type="checkbox"]:checked {
+  box-shadow: inset 0 0 0 3px var(--vs-ink-2);
+}
+
+.form-check-input:focus {
+  border-color: var(--vs-brass);
+  box-shadow: 0 0 0 3px rgba(242, 197, 61, 0.2);
+}
+
+.input-group > .btn {
+  border-color: rgba(236, 227, 204, 0.15);
+  background-color: var(--vs-well);
+  color: var(--vs-mute);
+}
+
+.input-group > .btn:hover {
+  color: var(--vs-brass);
+}
+
+/* the access code field: big mono digits */
+.vs-code-input {
+  font-family: var(--vs-mono);
+  font-size: 1.6rem;
+  letter-spacing: 0.5em;
+  text-align: center;
+}
+
+.vs-search {
+  position: relative;
+  max-width: 420px;
+}
+
+.vs-search .form-control {
+  padding-left: 2.4rem;
+}
+
+.vs-search svg {
+  position: absolute;
+  left: 0.85rem;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  transform: translateY(-50%);
+  color: var(--vs-mute);
+  pointer-events: none;
+}
+
+/* ---- notices */
+
+.vs-flash {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin-bottom: 1.4rem;
+  padding: 0.85rem 1.1rem;
+  border: 1px solid var(--vs-line-soft);
+  border-left: 3px solid var(--vs-amber);
+  border-radius: 8px;
+  background: rgba(255, 181, 71, 0.08);
+  color: var(--vs-bright);
+}
+
+.vs-flash::before {
+  content: "!";
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 50%;
+  background: var(--vs-amber);
+  color: #1a1404;
+  font-family: var(--vs-mono);
+  font-size: 0.85rem;
+}
+
+.vs-flash-ok {
+  border-left-color: var(--vs-phosphor);
+  background: rgba(114, 231, 161, 0.08);
+}
+
+.vs-flash-ok::before {
+  content: "\2713";
+  background: var(--vs-phosphor);
+}
+
+/* ---- tables */
+
+.table {
+  --bs-table-bg: transparent;
+  --bs-table-color: var(--vs-cream);
+  --bs-table-border-color: var(--vs-line-soft);
+  --bs-table-hover-bg: rgba(242, 197, 61, 0.05);
+  --bs-table-hover-color: var(--vs-bright);
+  margin-bottom: 0;
+}
+
+.table > :not(caption) > * > * {
+  padding: 0.85rem 0.8rem;
+}
+
+.table thead th {
+  border-bottom-color: var(--vs-line);
+  color: var(--vs-mute);
+  font-family: var(--vs-mono);
+  font-size: 0.72rem;
+  font-weight: 400;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.table td {
+  vertical-align: middle;
+}
+
+.table-sm > :not(caption) > * > * {
+  padding: 0.5rem 0.6rem;
+}
+
+.vs-table-wrap {
+  overflow-x: auto;
+  margin: 0 -0.4rem;
+}
+
+.vs-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  color: var(--vs-bright);
+  font-weight: 500;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.vs-file:hover {
+  color: var(--vs-brass);
+}
+
+.vs-type {
+  flex: none;
+  min-width: 2.9rem;
+  padding: 0.18rem 0.35rem;
+  border: 1px solid var(--vs-line);
+  border-radius: 5px;
+  color: var(--vs-brass);
+  background: rgba(242, 197, 61, 0.06);
+  font-family: var(--vs-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-align: center;
+}
+
+.vs-meta {
+  color: var(--vs-mute);
+  font-family: var(--vs-mono);
+  font-size: 0.86rem;
+  white-space: nowrap;
+}
+
+.vs-empty {
+  padding: 2.2rem 1rem;
+  text-align: center;
+  color: var(--vs-mute);
+}
+
+.vs-empty .vs-emblem {
+  width: 54px;
+  height: 54px;
+  margin-bottom: 0.9rem;
+  color: rgba(242, 197, 61, 0.35);
+}
+
+.vs-empty p {
+  margin: 0 0 1rem;
+}
+
+/* ---- status chips and the verification seal */
+
+.vs-chip {
+  display: inline-block;
+  padding: 0.12rem 0.5rem;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-family: var(--vs-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.vs-chip-ok {
+  color: var(--vs-phosphor);
+}
+
+.vs-chip-bad {
+  color: var(--vs-alert);
+}
+
+.vs-chip-warn {
+  color: var(--vs-amber);
+}
+
+.vs-chip-neutral {
+  color: var(--vs-mute);
+}
+
+.vs-seal {
+  display: flex;
+  align-items: flex-start;
+  gap: 1.1rem;
+  padding: 1.25rem 1.35rem;
+  border: 1px solid rgba(114, 231, 161, 0.35);
+  border-radius: var(--vs-radius);
+  background:
+    radial-gradient(400px 140px at 0 0, rgba(114, 231, 161, 0.12), transparent 70%),
+    rgba(6, 22, 20, 0.55);
+  box-shadow: inset 0 0 0 1px rgba(114, 231, 161, 0.05), 0 0 30px -12px rgba(114, 231, 161, 0.35);
+}
+
+.vs-seal svg {
+  flex: none;
+  width: 46px;
+  height: 46px;
+  color: var(--vs-phosphor);
+  filter: drop-shadow(0 0 8px rgba(114, 231, 161, 0.6));
+}
+
+.vs-seal-label {
+  margin: 0 0 0.25rem;
+  color: var(--vs-phosphor);
+  font-family: var(--vs-mono);
+  font-size: 0.8rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  text-shadow: 0 0 10px rgba(114, 231, 161, 0.55);
+}
+
+.vs-seal p:last-child {
+  margin: 0;
+  color: var(--vs-cream);
+}
+
+.vs-seal-bad {
+  border-color: rgba(255, 111, 94, 0.45);
+  background:
+    radial-gradient(400px 140px at 0 0, rgba(255, 111, 94, 0.14), transparent 70%),
+    rgba(30, 10, 10, 0.5);
+  box-shadow: 0 0 30px -12px rgba(255, 111, 94, 0.4);
+}
+
+.vs-seal-bad svg,
+.vs-seal-bad .vs-seal-label {
+  color: var(--vs-alert);
+  filter: none;
+  text-shadow: none;
+}
+
+/* ---- the file record: a spec sheet */
+
+.vs-spec {
+  display: grid;
+  grid-template-columns: minmax(7rem, max-content) 1fr;
+  margin: 0;
+}
+
+.vs-spec dt,
+.vs-spec dd {
+  padding: 0.72rem 0;
+  border-bottom: 1px dashed var(--vs-line-soft);
+  margin: 0;
+}
+
+.vs-spec dt {
+  padding-right: 1.4rem;
+  color: var(--vs-mute);
+  font-family: var(--vs-mono);
+  font-size: 0.75rem;
+  font-weight: 400;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.vs-spec dd {
+  overflow-wrap: anywhere;
+}
+
+.vs-spec > :nth-last-child(-n + 2) {
+  border-bottom: 0;
+}
+
+.vs-hash {
+  font-family: var(--vs-mono);
+  font-size: 0.92rem;
+  letter-spacing: 0.06em;
+  color: var(--vs-phosphor);
+  word-break: break-all;
+}
+
+.vs-people {
+  list-style: none;
+  margin: 0 0 1.2rem;
+  padding: 0;
+}
+
+.vs-people li {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0;
+  border-bottom: 1px dashed var(--vs-line-soft);
+}
+
+.vs-people li:last-child {
+  border-bottom: 0;
+}
+
+.vs-avatar {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid var(--vs-line);
+  border-radius: 50%;
+  color: var(--vs-brass);
+  background: rgba(242, 197, 61, 0.07);
+  font-family: var(--vs-mono);
+  text-transform: uppercase;
+}
+
+.vs-people .vs-name {
+  margin-right: auto;
+  font-family: var(--vs-mono);
+}
+
+.vs-steps {
+  list-style: none;
+  counter-reset: vs-step;
+  margin: 0;
+  padding: 0;
+}
+
+.vs-steps li {
+  position: relative;
+  counter-increment: vs-step;
+  padding: 0 0 1.1rem 2.6rem;
+  color: var(--vs-mute);
+  font-size: 0.92rem;
+}
+
+.vs-steps li::before {
+  content: counter(vs-step, decimal-leading-zero);
+  position: absolute;
+  left: 0;
+  top: -0.05rem;
+  color: var(--vs-brass);
+  font-family: var(--vs-mono);
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+}
+
+.vs-steps li:last-child {
+  padding-bottom: 0;
+}
+
+.vs-steps strong {
+  display: block;
+  color: var(--vs-cream);
+  font-weight: 700;
+}
+
+.vs-qr {
+  display: inline-block;
+  padding: 0.75rem;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 0 0 1px var(--vs-line), 0 12px 30px -14px rgba(0, 0, 0, 0.9);
+}
+
+.vs-qr img {
+  display: block;
+}
+
+/* ---- footer */
+
+.vs-footer {
+  border-top: 1px solid var(--vs-line-soft);
+  background: rgba(5, 12, 24, 0.45);
+  color: var(--vs-mute);
+  font-family: var(--vs-mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.vs-footer .container {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem 1.5rem;
+  padding-top: 1.1rem;
+  padding-bottom: 1.1rem;
+}
+
+.vs-footer .vs-footer-brand {
+  color: var(--vs-brass);
+}
+
+/* ---- small screens and reduced motion */
+
+@media (max-width: 720px) {
+  .vs-wordmark {
+    font-size: 1.6rem;
+  }
+
+  .vs-nav {
+    margin-left: 0;
+    width: 100%;
+    padding-bottom: 0.6rem;
+  }
+
+  .vs-panel {
+    padding: 1.2rem;
+  }
+
+  .vs-spec {
+    grid-template-columns: 1fr;
+  }
+
+  .vs-spec dt {
+    padding-bottom: 0;
+    border-bottom: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

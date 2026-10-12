@@ -1,22 +1,43 @@
 {% extends "base.html" %}
 {% block title %}Upload{% endblock %}
 {% block content %}
-<h1 class="h3 mb-3">Upload a file</h1>
-<form method="post" enctype="multipart/form-data" class="col-md-6">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <div class="mb-3">
-    <label for="file" class="form-label">File</label>
-    <input type="file" name="file" id="file" class="form-control" accept=".pdf,.txt,.md,.cfg,.json,.png,.jpg,.jpeg,.docx,.xlsx" required>
+<div class="vs-page-head">
+  <div>
+    <p class="vs-kicker">Deposit</p>
+    <h1>Upload a file</h1>
   </div>
-  <div class="mb-3">
-    <label for="description" class="form-label">Description</label>
-    <textarea name="description" id="description" class="form-control" rows="2"></textarea>
+</div>
+
+<div class="row g-4">
+  <div class="col-lg-7">
+    <form method="post" enctype="multipart/form-data" class="vs-panel">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="mb-3">
+        <label for="file" class="form-label">File</label>
+        <input type="file" name="file" id="file" class="form-control" accept=".pdf,.txt,.md,.cfg,.json,.png,.jpg,.jpeg,.docx,.xlsx" required>
+        <div class="form-text">PDF, TXT, MD, CFG, JSON, PNG, JPG, DOCX or XLSX, up to 10 MB.</div>
+      </div>
+      <div class="mb-3">
+        <label for="description" class="form-label">Description</label>
+        <textarea name="description" id="description" class="form-control" rows="2"></textarea>
+      </div>
+      <div class="mb-4">
+        <label for="password" class="form-label">Your password</label>
+        <input type="password" name="password" id="password" class="form-control" autocomplete="current-password" required>
+        <div class="form-text">Unlocks your private key to sign the file. It is never stored.</div>
+      </div>
+      <button type="submit" class="btn btn-primary">Upload</button>
+    </form>
   </div>
-  <div class="mb-3">
-    <label for="password" class="form-label">Your password</label>
-    <input type="password" name="password" id="password" class="form-control" autocomplete="current-password" required>
-    <div class="form-text">Unlocks your private key to sign the file. It is never stored.</div>
+  <div class="col-lg-5">
+    <section class="vs-panel">
+      <h2 class="vs-panel-title">What happens</h2>
+      <ol class="vs-steps">
+        <li><strong>Checked</strong>Its real type, extension and size must be on the list.</li>
+        <li><strong>Signed</strong>Your private key signs its SHA-256, so anyone can tell it comes from you.</li>
+        <li><strong>Sealed</strong>A new AES-256-GCM key encrypts it. That key is kept only as a copy locked to your public key.</li>
+      </ol>
+    </section>
   </div>
-  <button type="submit" class="btn btn-primary">Upload</button>
-</form>
+</div>
 {% endblock %}

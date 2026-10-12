@@ -1,44 +1,56 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-bs-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}{% endblock %} - File sharing</title>
+  <meta name="color-scheme" content="dark">
+  <title>{% block title %}{% endblock %} · Vault-Share</title>
+  <link rel="icon" href="{{ url_for('static', filename='img/emblem.svg') }}" type="image/svg+xml">
   <link rel="stylesheet" href="{{ url_for('static', filename='bootstrap.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vault.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
   <script src="{{ url_for('static', filename='app.js') }}" defer></script>
 </head>
 <body>
-  <nav class="navbar navbar-expand bg-body-tertiary mb-4">
-    <div class="container">
-      <a class="navbar-brand" href="{{ url_for('files.index') }}">File sharing</a>
-      <ul class="navbar-nav ms-auto">
+  {% set here = request.endpoint %}
+  <header class="vs-header">
+    <div class="container vs-header-inner">
+      <a class="vs-brand" href="{{ url_for('files.index') }}">
+        {% include "partials/emblem.svg" %}
+        <span class="vs-wordmark">Vault-Share</span>
+      </a>
+      <nav class="vs-nav" aria-label="Main">
         {% if g.user %}
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('files.upload') }}">Upload</a></li>
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('totp.setup') }}">Two-factor</a></li>
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('settings.duress') }}">Duress</a></li>
+          <a href="{{ url_for('files.index') }}" {% if here == 'files.index' %}aria-current="page"{% endif %}>Files</a>
+          <a href="{{ url_for('files.upload') }}" {% if here == 'files.upload' %}aria-current="page"{% endif %}>Upload</a>
+          <a href="{{ url_for('totp.setup') }}" {% if here == 'totp.setup' %}aria-current="page"{% endif %}>Two-factor</a>
+          <a href="{{ url_for('settings.duress') }}" {% if here == 'settings.duress' %}aria-current="page"{% endif %}>Duress</a>
           {% if g.user['is_admin'] and not g.duress %}
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('admin.log') }}">Audit log</a></li>
+          <a href="{{ url_for('admin.log') }}" {% if here == 'admin.log' %}aria-current="page"{% endif %}>Audit log</a>
           {% endif %}
-          <li class="nav-item"><span class="navbar-text mx-3">{{ g.user['username'] }}</span></li>
-          <li class="nav-item">
-            <form method="post" action="{{ url_for('auth.logout') }}">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button type="submit" class="nav-link">Log out</button>
-            </form>
-          </li>
+          <span class="vs-user"><span class="vs-dot" aria-hidden="true"></span>{{ g.user['username'] }}</span>
+          <form method="post" action="{{ url_for('auth.logout') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit">Log out</button>
+          </form>
         {% else %}
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('auth.register') }}">Register</a></li>
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('auth.login') }}">Log in</a></li>
+          <a href="{{ url_for('auth.login') }}" {% if here == 'auth.login' %}aria-current="page"{% endif %}>Log in</a>
+          <a href="{{ url_for('auth.register') }}" {% if here == 'auth.register' %}aria-current="page"{% endif %}>Register</a>
         {% endif %}
-      </ul>
+      </nav>
     </div>
-  </nav>
-  <main class="container">
+  </header>
+  <main class="container vs-main">
     {% for category, message in get_flashed_messages(with_categories=true) %}
-      <div class="alert alert-{{ 'success' if category == 'success' else 'warning' }}">{{ message }}</div>
+      <div class="vs-flash{{ ' vs-flash-ok' if category == 'success' }}" role="status">{{ message }}</div>
     {% endfor %}
     {% block content %}{% endblock %}
   </main>
+  <footer class="vs-footer">
+    <div class="container">
+      <span class="vs-footer-brand">Vault-Share</span>
+      <span>AES-256-GCM · HPKE X25519 · ECDSA P-256 · Argon2id</span>
+    </div>
+  </footer>
 </body>
 </html>

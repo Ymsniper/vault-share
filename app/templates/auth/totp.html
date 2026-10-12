@@ -1,37 +1,65 @@
 {% extends "base.html" %}
 {% block title %}Two-factor login{% endblock %}
 {% block content %}
-<h1 class="h3 mb-3">Two-factor login</h1>
+<div class="vs-page-head">
+  <div>
+    <p class="vs-kicker">Protection</p>
+    <h1>Two-factor login</h1>
+  </div>
+</div>
 {% if enabled %}
-<p>Two-factor login is on: after your password, the app asks for the 6-digit code from your authenticator app.</p>
-<h2 class="h5 mt-4">Turn it off</h2>
-<form method="post" action="{{ url_for('totp.disable') }}" class="col-md-4">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <div class="mb-3">
-    <label for="password" class="form-label">Your password</label>
-    <input type="password" name="password" id="password" class="form-control" autocomplete="current-password" required>
+<div class="row g-4">
+  <div class="col-lg-6">
+    <section class="vs-panel">
+      <h2 class="vs-panel-title">Status <span class="vs-count"><span class="vs-chip vs-chip-ok">On</span></span></h2>
+      <p class="vs-note">Two-factor login is on: after your password, the app asks for the 6-digit code from your authenticator app.</p>
+    </section>
   </div>
-  <div class="mb-3">
-    <label for="code" class="form-label">Current code</label>
-    <input name="code" id="code" class="form-control" inputmode="numeric" autocomplete="one-time-code" required>
+  <div class="col-lg-6">
+    <section class="vs-panel">
+      <h2 class="vs-panel-title">Turn it off</h2>
+      <form method="post" action="{{ url_for('totp.disable') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="mb-3">
+          <label for="password" class="form-label">Your password</label>
+          <input type="password" name="password" id="password" class="form-control" autocomplete="current-password" required>
+        </div>
+        <div class="mb-4">
+          <label for="code" class="form-label">Current code</label>
+          <input name="code" id="code" class="form-control vs-code-input" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required>
+        </div>
+        <button type="submit" class="btn btn-outline-danger">Turn off</button>
+      </form>
+    </section>
   </div>
-  <button type="submit" class="btn btn-outline-danger">Turn off</button>
-</form>
+</div>
 {% else %}
-<p>Scan this QR code with an authenticator app (for example Aegis or FreeOTP), then type the code it shows to turn two-factor login on.</p>
-<img src="{{ url_for('totp.qr') }}" alt="QR code for your authenticator app" width="200" height="200" class="mb-3">
-<p class="text-body-secondary">No camera? Type this key in the app instead: <code>{{ secret }}</code></p>
-<form method="post" class="col-md-4">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <div class="mb-3">
-    <label for="password" class="form-label">Your password</label>
-    <input type="password" name="password" id="password" class="form-control" autocomplete="current-password" required>
+<div class="row g-4">
+  <div class="col-lg-6">
+    <section class="vs-panel">
+      <h2 class="vs-panel-title">1 · Scan</h2>
+      <p class="vs-note">Scan this QR code with an authenticator app (for example Aegis or FreeOTP), then type the code it shows to turn two-factor login on.</p>
+      <div class="vs-qr mb-3"><img src="{{ url_for('totp.qr') }}" alt="QR code for your authenticator app" width="200" height="200"></div>
+      <p class="vs-note mb-0">No camera? Type this key in the app instead: <code>{{ secret }}</code></p>
+    </section>
   </div>
-  <div class="mb-3">
-    <label for="code" class="form-label">Code from the app</label>
-    <input name="code" id="code" class="form-control" inputmode="numeric" autocomplete="one-time-code" required>
+  <div class="col-lg-6">
+    <section class="vs-panel">
+      <h2 class="vs-panel-title">2 · Confirm</h2>
+      <form method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="mb-3">
+          <label for="password" class="form-label">Your password</label>
+          <input type="password" name="password" id="password" class="form-control" autocomplete="current-password" required>
+        </div>
+        <div class="mb-4">
+          <label for="code" class="form-label">Code from the app</label>
+          <input name="code" id="code" class="form-control vs-code-input" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required>
+        </div>
+        <button type="submit" class="btn btn-primary">Turn on</button>
+      </form>
+    </section>
   </div>
-  <button type="submit" class="btn btn-primary">Turn on</button>
-</form>
+</div>
 {% endif %}
 {% endblock %}

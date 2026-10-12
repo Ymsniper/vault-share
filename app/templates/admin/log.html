@@ -1,24 +1,34 @@
 {% extends "base.html" %}
 {% block title %}Audit log{% endblock %}
 {% block content %}
-<h1 class="h3 mb-3">Audit log</h1>
-<p class="text-body-secondary">Latest 200 events, newest first. Times are UTC. Entries are kept {{ config['AUDIT_LOG_DAYS'] }} days, with only the network part of each address.</p>
-<table class="table table-sm">
-  <thead>
-    <tr><th>Time</th><th>User</th><th>Action</th><th>File</th><th>Outcome</th><th>Detail</th><th>Network</th></tr>
-  </thead>
-  <tbody>
-    {% for e in entries %}
-    <tr>
-      <td>{{ e['at'] }}</td>
-      <td>{{ e['username'] or '-' }}</td>
-      <td>{{ e['action'] }}</td>
-      <td>{{ e['file_id'] or '' }}</td>
-      <td>{{ e['outcome'] }}</td>
-      <td>{{ e['detail'] or '' }}</td>
-      <td>{{ e['ip'] or '' }}</td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+<div class="vs-page-head">
+  <div>
+    <p class="vs-kicker">Administration</p>
+    <h1>Audit log</h1>
+    <p class="vs-lede">Latest 200 events, newest first. Times are UTC. Entries are kept {{ config['AUDIT_LOG_DAYS'] }} days, with only the network part of each address.</p>
+  </div>
+</div>
+<section class="vs-panel">
+  <div class="vs-table-wrap">
+    <table class="table table-sm table-hover">
+      <thead>
+        <tr><th>Time</th><th>User</th><th>Action</th><th>File</th><th>Outcome</th><th>Detail</th><th>Network</th></tr>
+      </thead>
+      <tbody>
+        {% for e in entries %}
+        {% set o = e['outcome'] %}
+        <tr>
+          <td class="vs-meta">{{ e['at'] }}</td>
+          <td class="vs-mono">{{ e['username'] or '-' }}</td>
+          <td class="vs-mono">{{ e['action'] }}</td>
+          <td class="vs-meta">{{ e['file_id'] or '' }}</td>
+          <td><span class="vs-chip {{ 'vs-chip-ok' if o in ('ok', 'match') else 'vs-chip-bad' if o in ('failed', 'refused', 'denied', 'mismatch', 'locked') else 'vs-chip-warn' if o == 'used' else 'vs-chip-neutral' }}">{{ o }}</span></td>
+          <td>{{ e['detail'] or '' }}</td>
+          <td class="vs-meta">{{ e['ip'] or '' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 {% endblock %}
