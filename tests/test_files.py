@@ -547,3 +547,11 @@ def test_share_with_someone_who_has_no_encryption_key(app, alice, bob):
     r = share(alice, url, "bob", follow_redirects=True)
     assert b"bob cannot receive files until they log in again." in r.data
     assert b"contract.txt" not in shared_with_me(bob)
+
+
+def test_the_saved_login_stays_out_of_the_recipient_field(alice):
+    page = alice.get(new_file(alice)).data
+    form = page[page.index(b'/share"'):]
+    recipient = re.search(rb'<input[^>]*name="username"[^>]*>', form).group(0)
+    assert b'autocomplete="off"' in recipient
+    assert b'<input type="text" autocomplete="username" value="alice" hidden>' in form

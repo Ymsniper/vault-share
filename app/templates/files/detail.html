@@ -70,8 +70,12 @@
 
 <form method="post" action="{{ url_for('files.share', id=f['id']) }}" class="row g-2 mb-1">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  {# tells the browser whose password this is, so it puts the saved login
+     here instead of in the recipient's field; it has no name, so it is never sent #}
+  <input type="text" autocomplete="username" value="{{ g.user['username'] }}" hidden>
   <div class="col-auto">
-    <input name="username" class="form-control" placeholder="Username" required>
+    <input name="username" class="form-control" placeholder="Username" autocomplete="off"
+           data-lpignore="true" data-1p-ignore data-bwignore="true" required>
   </div>
   <div class="col-auto">
     <input type="password" name="password" class="form-control" placeholder="Your password" autocomplete="current-password" required>
