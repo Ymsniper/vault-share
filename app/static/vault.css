@@ -1087,6 +1087,64 @@ code {
     height: 40px;
   }
 
+  /* file lists as cards: the name gets the whole width, size and date go
+     on a line under it, instead of three columns squeezing the name */
+  .vs-files thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .vs-files,
+  .vs-files tbody,
+  .vs-files tr,
+  .vs-files td {
+    display: block;
+  }
+
+  .vs-files tr {
+    padding: 0.85rem 0.4rem;
+    border-bottom: 1px solid var(--vs-line-soft);
+  }
+
+  .vs-files tr:last-child {
+    border-bottom: 0;
+  }
+
+  .vs-files.table > :not(caption) > * > * {
+    padding: 0;
+    border-bottom: 0;
+  }
+
+  .vs-files td.vs-meta {
+    display: inline-block;
+    margin-top: 0.35rem;
+    font-size: 0.78rem;
+  }
+
+  /* lines up with the name, after the type tag */
+  .vs-files td:nth-child(2) {
+    margin-left: 3.6rem;
+  }
+
+  .vs-files td:nth-child(3)::before {
+    content: "\00b7";
+    /* the space between the cells already sits on the left */
+    margin: 0 0.45rem 0 0.15rem;
+  }
+
+  .vs-page-head .vs-search {
+    flex: 1 1 100%;
+    max-width: none;
+  }
+
+  .vs-files td[data-prefix]::before {
+    content: attr(data-prefix) "\00a0";
+  }
+
   .vs-nav {
     margin-left: 0;
     width: 100%;

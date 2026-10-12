@@ -21,7 +21,7 @@
   <h2 class="vs-panel-title">Stored by me <span class="vs-count">{{ files|length }}</span></h2>
   {% if files %}
   <div class="vs-table-wrap">
-    <table class="table table-hover">
+    <table class="table table-hover vs-files">
       <thead>
         <tr><th>Name</th><th>Size</th><th>Uploaded (UTC)</th></tr>
       </thead>
@@ -49,7 +49,7 @@
   <h2 class="vs-panel-title">Shared with me <span class="vs-count">{{ shared|length }}</span></h2>
   {% if shared %}
   <div class="vs-table-wrap">
-    <table class="table table-hover">
+    <table class="table table-hover vs-files">
       <thead>
         <tr><th>Name</th><th>Owner</th><th>Uploaded (UTC)</th></tr>
       </thead>
@@ -57,7 +57,7 @@
         {% for f in shared %}
         <tr>
           <td><a class="vs-file" href="{{ url_for('files.detail', id=f['id']) }}"><span class="vs-type">{{ file_type(f['filename']) }}</span>{{ f['filename'] }}</a></td>
-          <td class="vs-meta">{{ f['owner'] }}</td>
+          <td class="vs-meta" data-prefix="from">{{ f['owner'] }}</td>
           <td class="vs-meta">{{ f['uploaded_at'] }}</td>
         </tr>
         {% endfor %}
