@@ -1,9 +1,9 @@
 #!/bin/sh
 # One command for the server, from any terminal:
-#   fileshare                  open the console
-#   fileshare serve            run the server without the console
-#   fileshare keys status      any `flask --app app` command (keys, admin, init-db...)
-#   fileshare install          put this command on the PATH, in ~/.local/bin
+#   vault-share                  open the console
+#   vault-share serve            run the server without the console
+#   vault-share keys status      any `flask --app app` command (keys, admin, init-db...)
+#   vault-share install          put this command on the PATH, in ~/.local/bin
 set -e
 self=$(readlink -f "$0")
 root=$(dirname "$(dirname "$self")")
@@ -20,8 +20,8 @@ case "${1:-}" in
         ;;
     install)
         mkdir -p "$HOME/.local/bin"
-        ln -sf "$self" "$HOME/.local/bin/fileshare"
-        echo "installed: $HOME/.local/bin/fileshare"
+        ln -sf "$self" "$HOME/.local/bin/vault-share"
+        echo "installed: $HOME/.local/bin/vault-share"
         case ":$PATH:" in
             *":$HOME/.local/bin:"*) ;;
             *) echo "add $HOME/.local/bin to your PATH to use it from any terminal" ;;

@@ -16,6 +16,8 @@ from security.integrity import record_mac
 from security.keys import load_or_create_key, subkey
 from security.passwords import derive_key
 
+# named before the project was called Vault-Share; kept, so sticks made
+# earlier are still recognized
 USB_KEY_FILE = "fileshare-usb.key"
 
 
