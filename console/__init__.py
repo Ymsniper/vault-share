@@ -512,7 +512,7 @@ class Console(App):
         except OSError as e:
             if e.errno == errno.EADDRINUSE:
                 message = (f"Cannot start: port {self.server.port} is already in use. Is another "
-                           "console or 'fileshare serve' still running?")
+                           "console or 'vault-share serve' still running?")
             else:
                 message = f"Cannot start: {e}"
             self.notify(message, severity="error", timeout=12)
