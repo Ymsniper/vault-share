@@ -29,7 +29,8 @@ def public_bytes(key):
 
 def _info(file_id, user_id):
     # ties a copy to one file and one person: moved onto another row of the
-    # database, it no longer opens
+    # database, it no longer opens. The label is part of every stored copy,
+    # so it keeps the project's first name: changing it would lock them all
     return f"fileshare file key|{file_id}|{user_id}".encode()
 
 
