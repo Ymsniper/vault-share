@@ -215,3 +215,19 @@ def test_a_taken_port_is_reported_and_the_console_stays_open(app):
                 assert any("already in use" in n.message for n in console._notifications)
 
         run(scenario)
+
+
+def test_quitting_while_the_server_runs(app):
+    async def scenario():
+        console = Console(app, start_server=False)
+        console.server.port = 0
+        async with console.run_test(size=(120, 40)) as pilot:
+            await pilot.press("enter")
+            await pilot.pause()
+            await pilot.press("s")
+            assert console.server.running
+        # leaving the block quits the console with the server still on
+        return console
+
+    console = asyncio.run(scenario())
+    assert not console.server.running

@@ -325,7 +325,8 @@ class Console(App):
         self.push_screen(Splash(self.startup_checks))
 
     def on_unmount(self):
-        self.do_stop()
+        # the screens are already gone, so no "server stopped" line to show
+        self.server.stop()
         for logger in (self.flask_app.logger, logging.getLogger("werkzeug")):
             logger.removeHandler(self.handler)
 
@@ -442,7 +443,11 @@ class Console(App):
         if not self.ready:
             self.pending.append(line)
             return
-        self.get_screen("main").query_one("#log", RichLog).write(line)
+        try:
+            pane = self.get_screen("main").query_one("#log", RichLog)
+        except KeyError:  # a line from the server thread while the console closes
+            return
+        pane.write(line)
 
     def main_ready(self):
         self.ready = True
