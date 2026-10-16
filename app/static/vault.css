@@ -2,10 +2,9 @@
    Navy steel, brass and a little phosphor. Everything is served from this
    site, so the Content-Security-Policy (default-src 'self') still holds. */
 
-/* Futura: Book, Medium, Bold and Extra Bold, and Linotype's Condensed Extra
-   Bold for the wordmark and the big titles, the cut and weight of the
-   reference poster. "block": text waits for Futura rather than showing in
-   another font first. */
+/* Futura: Book, Medium and Bold, and Linotype's Condensed Bold for the
+   wordmark and the big titles. "block": text waits for Futura rather than
+   showing in another font first. */
 @font-face {
   font-family: "Futura";
   src: url("fonts/futura-book.woff2") format("woff2");
@@ -44,17 +43,8 @@
 
 @font-face {
   font-family: "Futura";
-  src: url("fonts/futura-extrabold.woff2") format("woff2");
-  font-weight: 800;
-  font-style: normal;
-  font-stretch: 100%;
-  font-display: block;
-}
-
-@font-face {
-  font-family: "Futura";
-  src: url("fonts/futura-extrabold-condensed.woff2") format("woff2");
-  font-weight: 800;
+  src: url("fonts/futura-bold-condensed.woff2") format("woff2");
+  font-weight: 700;
   font-style: normal;
   font-stretch: 75%;
   font-display: block;
@@ -121,6 +111,8 @@ html {
 }
 
 body {
+  /* only real Futura weights: the browser never thickens a face itself */
+  font-synthesis: none;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
@@ -170,10 +162,10 @@ h1, h2, h3, .h1, .h2, .h3, .h4, .h5 {
   color: var(--vs-bright);
 }
 
-/* titles in Futura Extra Bold Condensed, the weight of the old posters */
+/* titles in Futura Condensed Bold, like the old posters */
 h1, .h1 {
   font-size: clamp(1.9rem, 3.3vw, 2.65rem);
-  font-weight: 800;
+  font-weight: 700;
   font-stretch: condensed;
   letter-spacing: 0.035em;
   line-height: 1.05;
@@ -260,7 +252,7 @@ code {
 .vs-wordmark {
   display: inline-block;
   font-family: var(--vs-display);
-  font-weight: 800;
+  font-weight: 700;
   font-stretch: condensed;
   font-size: 1.95rem;
   line-height: 1;
@@ -513,7 +505,7 @@ code {
   display: block;
   text-align: center;
   font-family: var(--vs-display);
-  font-weight: 800;
+  font-weight: 700;
   font-stretch: condensed;
   font-size: clamp(5rem, 16vw, 8.5rem);
   line-height: 1;
