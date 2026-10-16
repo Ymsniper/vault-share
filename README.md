@@ -6,6 +6,23 @@ only as copies encrypted to the public key of each person allowed to open
 it, checked with SHA-256 and an HMAC, and signed with an ECDSA key certified
 by a local CA.
 
+## Features
+
+- Every file has its own AES-256-GCM key, stored only as copies encrypted
+  with HPKE (X25519) for its owner and each person it is shared with: the
+  server's own keys cannot open a stored file.
+- Files are signed with ECDSA P-256 keys certified by a local OpenSSL CA,
+  with revocation and a signature proof that can be checked offline.
+- The database is encrypted with SQLCipher, and every file record is
+  protected by an HMAC.
+- Argon2id passwords, server-side sessions, CSRF protection, rate limits,
+  security headers and optional two-factor login.
+- A duress password that opens an empty account, and can wipe it.
+- The master key can also require a USB stick and a passphrase; pulling the
+  stick locks the service.
+- A terminal console to run and manage the server.
+- A Fallout-inspired interface.
+
 ## Run
 
     python -m venv .venv
