@@ -2,9 +2,10 @@
    Navy steel, brass and a little phosphor. Everything is served from this
    site, so the Content-Security-Policy (default-src 'self') still holds. */
 
-/* Futura: Book, Medium, Bold and Extra Bold, and the condensed cuts for the
-   wordmark and the big titles. "block": text waits for Futura rather than
-   showing in another font first. */
+/* Futura: Book, Medium, Bold and Extra Bold, and Linotype's Condensed Extra
+   Bold for the wordmark and the big titles, the cut and weight of the
+   reference poster. "block": text waits for Futura rather than showing in
+   another font first. */
 @font-face {
   font-family: "Futura";
   src: url("fonts/futura-book.woff2") format("woff2");
@@ -47,15 +48,6 @@
   font-weight: 800;
   font-style: normal;
   font-stretch: 100%;
-  font-display: block;
-}
-
-@font-face {
-  font-family: "Futura";
-  src: url("fonts/futura-bold-condensed.woff2") format("woff2");
-  font-weight: 700;
-  font-style: normal;
-  font-stretch: 75%;
   font-display: block;
 }
 
@@ -272,9 +264,8 @@ code {
   font-stretch: condensed;
   font-size: 1.95rem;
   line-height: 1;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.055em;
   text-transform: uppercase;
-  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.55);
 }
 
 .vs-nav {
