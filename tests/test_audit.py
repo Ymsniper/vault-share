@@ -1,5 +1,6 @@
 import io
 
+from app import create_app
 from app.audit import network_of
 from app.db import get_db
 
@@ -81,6 +82,19 @@ def test_log_keeps_networks_not_addresses(app, alice):
     with app.app_context():
         ips = {r[0] for r in get_db().execute("SELECT ip FROM audit_log")}
     assert ips == {"127.0.0.0/24"}
+
+
+def test_forwarded_address_counts_only_behind_a_proxy(app):
+    proxied = create_app({**app.config, "BEHIND_PROXY": True})
+    # a client may send its own X-Forwarded-For; the proxy adds the real one last
+    forwarded = {"X-Forwarded-For": "198.51.100.7, 203.0.113.57"}
+    for a in (proxied, app):
+        a.test_client().post(
+            "/auth/login", data={"username": "nobody", "password": "wrong"}, headers=forwarded
+        )
+    with app.app_context():
+        ips = [r[0] for r in get_db().execute("SELECT ip FROM audit_log ORDER BY id")]
+    assert ips == ["203.0.113.0/24", "127.0.0.0/24"]
 
 
 def test_entries_older_than_90_days_are_deleted(app, alice):

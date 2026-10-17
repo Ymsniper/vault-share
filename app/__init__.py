@@ -6,6 +6,7 @@ from flask_limiter.util import get_remote_address
 from flask_talisman import Talisman
 from flask_wtf.csrf import CSRFProtect
 from werkzeug.exceptions import HTTPException
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from security.keys import load_or_create_key
 from security.uploads import MAX_SIZE
@@ -40,6 +41,9 @@ def create_app(test_config=None):
         # made by pki/create_server_cert.sh
         TLS_CERT=os.path.join(app.instance_path, "tls", "server.crt"),
         TLS_KEY=os.path.join(app.instance_path, "tls", "server.key"),
+        # BEHIND_PROXY=1 when a proxy on this machine (Tailscale Funnel)
+        # passes the requests on; see "A public link" in the README
+        BEHIND_PROXY=os.environ.get("BEHIND_PROXY") == "1",
     )
     if test_config is not None:
         app.config.update(test_config)
@@ -47,6 +51,11 @@ def create_app(test_config=None):
     app.config.setdefault(
         "HTTPS", os.path.exists(app.config["TLS_CERT"]) and os.path.exists(app.config["TLS_KEY"])
     )
+    if app.config["BEHIND_PROXY"]:
+        # every request then arrives from the proxy, so the rate limits and
+        # the audit log take the visitor's address from X-Forwarded-For;
+        # only the last address counts, the one the proxy itself added
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1)
 
     os.makedirs(app.instance_path, exist_ok=True)
     os.makedirs(app.config["STORAGE_FOLDER"], exist_ok=True)
