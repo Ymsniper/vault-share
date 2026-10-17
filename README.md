@@ -6,6 +6,9 @@ only as copies encrypted to the public key of each person allowed to open
 it, checked with SHA-256 and an HMAC, and signed with an ECDSA key certified
 by a local CA.
 
+<!-- The pictures live in docs/screenshots/; replace a file there to update it here. -->
+![The file list](docs/screenshots/web-files.png)
+
 ## Features
 
 - Every file has its own AES-256-GCM key, stored only as copies encrypted
@@ -33,6 +36,8 @@ by a local CA.
     vault-share init-db
     vault-share                    # the console; `vault-share serve` runs the server alone
 
+![Setting up and starting the server](docs/screenshots/setup-install.png)
+
 `read -s` asks for the CA passphrase without showing it and without saving
 it in the shell history, which `export CA_PASSPHRASE='...'` would do. The
 console asks for it itself at startup when it is not set, and keeps it in
@@ -44,10 +49,24 @@ Then open http://127.0.0.1:5000. `pki/create_ca.sh` creates the local CA in
 `instance/ca/` once; the app needs the same `CA_PASSPHRASE` every time it
 starts, to issue a certificate to each new user.
 
+## Using it
+
+![Logging in](docs/screenshots/web-login.png)
+
 Uploading asks for your password again: it unlocks your private key to sign
 the file. Each file page also offers a signature proof, a zip with the
 signature, the signer's certificate, the CA certificate and the OpenSSL
 commands that check the file without the app.
+
+![Uploading a file](docs/screenshots/web-upload.png)
+
+![A file's page: verified record, download, sharing](docs/screenshots/web-file-record.png)
+
+Every visit to a file's page checks its record and signature, and every
+download checks the file itself. A record changed behind the app's back
+shows up at once:
+
+![A record that fails its check](docs/screenshots/web-integrity-failed.png)
 
 Five wrong passwords for one username, at login or upload, block it for 15
 minutes, and twenty from one address block that address. The counters live
@@ -58,6 +77,8 @@ the QR code with an authenticator app such as Aegis or FreeOTP and confirm
 with a first code. Wrong codes count toward the same limit as wrong
 passwords, and each code works only once.
 
+![Turning on two-factor login](docs/screenshots/web-two-factor.png)
+
 A duress password, set from the "Duress" page, is the one to give if someone
 forces you to log in. It opens your account as if it were empty and writes a
 silent alert to the audit log; with the wipe option it first destroys your
@@ -65,6 +86,12 @@ files, every file key copy made for you and your private keys, which nobody
 can undo. Every account
 has a duress slot, used or not, and its mode is stored encrypted, so the
 database does not show who set one.
+
+![Setting a duress password](docs/screenshots/web-duress.png)
+
+The pages also work on a phone:
+
+<img src="docs/screenshots/web-mobile.png" alt="The file list on a phone" width="300">
 
 On first start the app creates two random keys in `instance/secrets/`:
 `secret_key` signs the cookies and CSRF tokens, and `master.key` protects
@@ -89,6 +116,8 @@ downloads nothing. Sharing opens your copy and encrypts the key again for
 the recipient; revoking deletes their copy, so bringing the share back in
 the database gives them nothing.
 
+![A file shared with you](docs/screenshots/web-shared-file.png)
+
 This is not end-to-end encryption. While a file is uploaded or downloaded
 the server sees it, which is what lets it check uploads; a compromised
 running server could keep what passes through it. The same library also
@@ -96,7 +125,7 @@ offers a post-quantum suite (`MLKEM768_X25519`) for a later upgrade.
 
 ## Server console
 
-    .venv/bin/python -m console
+    vault-share                    # or: .venv/bin/python -m console
 
 A terminal console (Textual) that runs the app and replaces most commands:
 start and stop the server and watch its log, unlock it, see users and make
@@ -104,6 +133,21 @@ one an admin or revoke a certificate, read the audit log as it fills, add or
 remove the USB stick and the passphrase, create the CA and the HTTPS
 certificate, and reset the database. It uses the terminal's own colors.
 Every action also stays available as a `flask --app app ...` command.
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/console-splash.png" alt="Startup checks"><br>Startup checks</td>
+    <td width="50%"><img src="docs/screenshots/console-ca-passphrase.png" alt="The CA passphrase prompt"><br>The CA passphrase, asked at startup and kept in memory</td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/console-server.png" alt="The server and its log"><br>The server and its log</td>
+    <td width="50%"><img src="docs/screenshots/console-users.png" alt="Users"><br>Users: make an admin, revoke a certificate</td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/console-audit.png" alt="The audit log"><br>The audit log as it fills</td>
+    <td width="50%"><img src="docs/screenshots/console-setup.png" alt="Setup"><br>Setup: the CA, its passphrase, the HTTPS certificate</td>
+  </tr>
+</table>
 
 ## USB stick and passphrase
 
@@ -127,10 +171,16 @@ every start; no page links there. Adding or removing a factor re-encrypts the da
 the record HMACs; file keys and the encrypted files are not touched, since
 the master key does not protect them.
 
+The console's Keys tab does the same without commands:
+
+![The master key's factors in the console](docs/screenshots/console-keys.png)
+
 ## HTTPS
 
     pki/create_server_cert.sh    # with CA_PASSPHRASE exported; again to renew
     .venv/bin/python run.py      # now https://localhost:5000
+
+![Creating the HTTPS certificate](docs/screenshots/setup-https.png)
 
 `run.py` serves HTTPS as soon as `instance/tls/server.crt` exists. The app
 then redirects plain HTTP to HTTPS and marks the cookies Secure, through
@@ -147,6 +197,8 @@ Authorities, Import). To look at the certificate chain from a terminal:
 To let a user read the audit log:
 
     .venv/bin/flask --app app admin grant <username>
+
+![The audit log](docs/screenshots/web-audit-log.png)
 
 To revoke a user's certificate, for example after their key leaked:
 
