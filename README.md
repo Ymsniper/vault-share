@@ -192,6 +192,28 @@ Authorities, Import). To look at the certificate chain from a terminal:
 
     openssl s_client -connect localhost:5000 -CAfile instance/ca/ca.crt
 
+## A public link
+
+The app only listens on localhost. Tailscale Funnel can give this machine a
+public HTTPS address with a real certificate; the visitor's encrypted
+connection still ends on this machine, Tailscale only relays it. With
+Tailscale installed and logged in:
+
+    tailscale funnel --bg https+insecure://127.0.0.1:5000
+    BEHIND_PROXY=1 vault-share
+
+`https+insecure` lets Tailscale accept the certificate from the local CA,
+fine for a connection that never leaves the machine. Behind the proxy every
+request comes from 127.0.0.1, so `BEHIND_PROXY=1` makes the app take the
+visitor's address from the X-Forwarded-For header Tailscale adds; the rate
+limits and the audit log need it. Leave it unset when nothing sits in front
+of the app, or clients could pick their own address. `tailscale funnel
+status` shows the address and `tailscale funnel reset` takes it down.
+
+Anyone with the address can register and upload, and certificates are
+published, so new addresses get found quickly: keep the link up only while
+it is needed.
+
 ## Admin
 
 To let a user read the audit log:
