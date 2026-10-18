@@ -1,6 +1,7 @@
 import asyncio
 import errno
 import os
+import re
 import socket
 
 import pytest
@@ -8,7 +9,7 @@ from textual.widgets import Button, DataTable, Static
 
 from app.db import get_db
 from app.serving import make_app_server
-from console import Console, Main, Splash
+from console import Console, Main, Show, Splash
 
 
 def run(scenario):
@@ -46,6 +47,36 @@ def test_make_admin_from_the_users_tab(app, alice):
     run(scenario)
     with app.app_context():
         assert get_db().execute("SELECT is_admin FROM users").fetchone()[0] == 1
+
+
+def test_new_and_cancelled_codes_from_the_invites_tab(app):
+    shown = []
+
+    async def scenario():
+        console = Console(app, start_server=False)
+        async with console.run_test(size=(120, 40)) as pilot:
+            await pilot.press("enter")
+            await pilot.pause()
+            console.screen.query_one("#tabs").active = "invites-tab"
+            await pilot.pause()
+            await pilot.click("#new-invite")
+            await console.workers.wait_for_complete()
+            await pilot.pause()
+            assert isinstance(console.screen, Show)
+            shown.append(console.screen.text)
+            await pilot.click("#close")
+            await pilot.pause()
+            assert console.screen.query_one("#invites", DataTable).row_count == 1
+            await pilot.click("#cancel-invite")
+            await console.workers.wait_for_complete()
+            await pilot.pause()
+
+    run(scenario)
+    code = re.search(r"[A-Z2-9]{5}(-[A-Z2-9]{5}){3}", shown[0]).group(0)
+    r = app.test_client().post("/auth/register", data={"code": code, "username": "alice"})
+    assert b"This invite code is not valid." in r.data
+    with app.app_context():
+        assert get_db().execute("SELECT cancelled_at FROM invites").fetchone()[0] is not None
 
 
 def test_start_and_stop_the_server(app):

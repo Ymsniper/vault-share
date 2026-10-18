@@ -6,6 +6,7 @@ import pytest
 
 from app import create_app, limiter
 from app.db import init_db
+from app.invites import create_invite
 
 CA_SCRIPT = Path(__file__).parent.parent / "pki" / "create_ca.sh"
 CA_PASSPHRASE = "test passphrase for the CA"
@@ -90,9 +91,17 @@ def client(app):
 PASSWORD = "contract-2026"
 
 
+def invite_code(app):
+    """A new invite code, made at the server as the console does."""
+    with app.app_context():
+        return create_invite()
+
+
 def register(client, name="alice", password=PASSWORD):
-    """Both steps of registering; returns the username the server made."""
-    r = client.post("/auth/register", data={"username": name})
+    """Both steps of registering, with a new invite code; returns the
+    username the server made."""
+    code = invite_code(client.application)
+    r = client.post("/auth/register", data={"code": code, "username": name})
     assert r.headers.get("Location") == "/auth/register/password", r.data
     with client.session_transaction() as s:
         handle = s["new_handle"]

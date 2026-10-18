@@ -7,6 +7,7 @@ from cryptography import x509
 
 from app import create_app
 from app.db import get_db, init_db
+from app.invites import create_invite
 from security.pki import common_name, load_certificate
 
 PKI = Path(__file__).parent.parent / "pki"
@@ -73,8 +74,10 @@ def test_registration_needs_the_ca(tmp_path, ca_dir):
     )
     with app.app_context():
         init_db()
+    with app.app_context():
+        code = create_invite()
     client = app.test_client()
-    client.post("/auth/register", data={"username": "alice"})
+    client.post("/auth/register", data={"code": code, "username": "alice"})
     r = client.post("/auth/register/password", data={"password": "contract-2026"})
     assert b"the certificate authority is not set up" in r.data
     with app.app_context():

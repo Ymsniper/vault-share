@@ -5,15 +5,16 @@ from flask import g
 from app.auth import new_handle, show_handle
 from app.db import get_db
 
-from .conftest import PASSWORD, register
+from .conftest import PASSWORD, invite_code, register
 
 
 def login(client, username, password=PASSWORD):
     return client.post("/auth/login", data={"username": username, "password": password})
 
 
-def pick_name(client, name="alice"):
-    return client.post("/auth/register", data={"username": name})
+def pick_name(client, name="alice", code=None):
+    code = code or invite_code(client.application)
+    return client.post("/auth/register", data={"code": code, "username": name})
 
 
 def pick_password(client, password=PASSWORD, **data):

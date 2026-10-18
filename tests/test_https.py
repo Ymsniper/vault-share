@@ -12,6 +12,7 @@ import pytest
 from cryptography import x509
 from app import create_app
 from app.serving import make_app_server
+from tests.conftest import invite_code
 from tests.test_csrf import token_from
 
 @pytest.fixture
@@ -50,7 +51,7 @@ def test_server_certificate_is_issued_by_the_ca(ca_dir, tls_dir):
     assert stat.S_IMODE(os.stat(tls_dir / "server.key").st_mode) == 0o600
 
 
-def register_and_log_in(conn, password="contract-2026"):
+def register_and_log_in(conn, code, password="contract-2026"):
     """Both registration steps, then login, carrying the session cookie as a
     browser does. Returns the login response."""
     cookie = ""
@@ -69,7 +70,7 @@ def register_and_log_in(conn, password="contract-2026"):
                 cookie = c.split(";")[0]
         return response, body
 
-    send("POST", "/auth/register", {"username": "alice"})
+    send("POST", "/auth/register", {"code": code, "username": "alice"})
     send("POST", "/auth/register/password", {"password": password})
     # the login page fills in the new username
     _, page = send("GET", "/auth/login")
@@ -78,11 +79,11 @@ def register_and_log_in(conn, password="contract-2026"):
     return response
 
 
-def test_browser_trusting_the_ca_gets_a_secure_cookie(ca_dir, https_port):
+def test_browser_trusting_the_ca_gets_a_secure_cookie(https_app, ca_dir, https_port):
     trusting = ssl.create_default_context(cafile=str(ca_dir / "ca.crt"))
     for host in ("localhost", "127.0.0.1"):
         conn = http.client.HTTPSConnection(host, https_port, context=trusting)
-        response = register_and_log_in(conn)
+        response = register_and_log_in(conn, invite_code(https_app))
         cookie = [c for c in response.headers.get_all("Set-Cookie") if c.startswith("sid=")][0]
         assert "Secure" in cookie and "HttpOnly" in cookie
         conn.close()
@@ -122,7 +123,7 @@ def csrf_on(https_app):
     https_app.config["WTF_CSRF_ENABLED"] = True
 
 
-def register_over_https(ca_dir, port, referer):
+def register_over_https(ca_dir, port, referer, code="not a code"):
     """Registers alice as a browser does: the form page first, then the form
     sent back with its token, the cookies and the given Referer."""
     trusting = ssl.create_default_context(cafile=str(ca_dir / "ca.crt"))
@@ -131,7 +132,7 @@ def register_over_https(ca_dir, port, referer):
         conn.request("GET", "/auth/register")
         page = conn.getresponse()
         cookies = "; ".join(c.split(";")[0] for c in page.headers.get_all("Set-Cookie", []))
-        form = {"username": "alice", "csrf_token": token_from(page.read())}
+        form = {"code": code, "username": "alice", "csrf_token": token_from(page.read())}
         headers = {"Content-Type": "application/x-www-form-urlencoded", "Cookie": cookies}
         if referer:
             headers["Referer"] = referer
@@ -152,9 +153,9 @@ def test_pages_send_the_referer_to_this_site_only(ca_dir, https_port):
     conn.close()
 
 
-def test_form_from_this_site_is_accepted_over_https(csrf_on, ca_dir, https_port):
+def test_form_from_this_site_is_accepted_over_https(https_app, csrf_on, ca_dir, https_port):
     status, _ = register_over_https(
-        ca_dir, https_port, f"https://localhost:{https_port}/auth/register"
+        ca_dir, https_port, f"https://localhost:{https_port}/auth/register", invite_code(https_app)
     )
     assert status == 302
 

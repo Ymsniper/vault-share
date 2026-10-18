@@ -22,8 +22,9 @@ from . import limiter
 from .audit import audit
 from .db import get_db
 from .duress import WIPE, empty_slot, mode_of, seal_login_flag, wipe_account
-from .forms import LoginForm, NameForm, NewPasswordForm, first_error
+from .forms import LoginForm, NewPasswordForm, RegisterForm, first_error
 from .identity import ensure_encryption_key, load_app_ca, new_encryption_key, new_identity
+from .invites import INVALID, usable_invite, use_invite
 
 bp = Blueprint("auth", __name__, url_prefix="/auth")
 
@@ -126,27 +127,38 @@ def new_handle(name):
     return f"{name}#{secrets.randbelow(1_000_000):06d}"
 
 
-# Registering takes two steps: the name first, then the password next to the
-# full username, so the browser saves the username with its tag.
+# Registering takes two steps: the invite code and a name first, then the
+# password next to the full username, so the browser saves the username with
+# its tag. Ten tries an hour per address for each step.
 
 
 @bp.route("/register", methods=("GET", "POST"))
+@limiter.limit("10 per hour", methods=["POST"])
 def register():
-    form = NameForm()
+    form = RegisterForm()
     if form.validate_on_submit():
-        # the tag comes from the server only; step two never reads a
-        # username from its form
-        session["new_handle"] = new_handle(form.username.data)
-        return redirect(url_for("auth.register_password"))
-    if form.is_submitted():
+        invite_id = usable_invite(form.code.data)
+        if invite_id is None:
+            # unknown, used, cancelled or expired: the same answer for all
+            audit("register", "refused", detail="invalid invite code", user_id=None)
+            flash(INVALID)
+        else:
+            session["invite_id"] = invite_id
+            # the tag comes from the server only; step two never reads a
+            # username from its form
+            session["new_handle"] = new_handle(form.username.data)
+            return redirect(url_for("auth.register_password"))
+    elif form.is_submitted():
         flash(first_error(form))
     return render_template("auth/register.html")
 
 
 @bp.route("/register/password", methods=("GET", "POST"))
+@limiter.limit("10 per hour", methods=["POST"])
 def register_password():
     handle = session.get("new_handle")
-    if handle is None:
+    invite_id = session.get("invite_id")
+    if handle is None or invite_id is None:
         return redirect(url_for("auth.register"))
     name = handle.partition("#")[0]
     form = NewPasswordForm(name)
@@ -161,15 +173,27 @@ def register_password():
 
         if error is None:
             db = get_db()
+            # in the same transaction as the account: someone else who
+            # registered with the same code in the meantime wins
+            if not use_invite(invite_id):
+                db.rollback()
+                session.pop("new_handle")
+                session.pop("invite_id")
+                audit("register", "refused", detail="invite code used meanwhile", user_id=None)
+                flash(INVALID)
+                return redirect(url_for("auth.register"))
             try:
                 duress_hash, duress_policy = empty_slot(handle)
                 cur = db.execute(
-                    "INSERT INTO users (username, password_hash, duress_hash, duress_policy)"
-                    " VALUES (?, ?, ?, ?)",
-                    (handle, hash_password(password), duress_hash, duress_policy),
+                    "INSERT INTO users"
+                    " (username, password_hash, duress_hash, duress_policy, invite_id)"
+                    " VALUES (?, ?, ?, ?, ?)",
+                    (handle, hash_password(password), duress_hash, duress_policy, invite_id),
                 )
             except db.IntegrityError:
-                # the same tag drawn twice for this name, about one in a million
+                # the same tag drawn twice for this name, about one in a million;
+                # the rollback also gives the invite back
+                db.rollback()
                 handle = session["new_handle"] = new_handle(name)
                 error = "That tag was just taken, so here is another one. Register with it."
             else:
@@ -177,8 +201,9 @@ def register_password():
                 new_identity(user_id, handle, password, ca)
                 new_encryption_key(user_id, handle, password)
                 db.commit()
-                audit("register", "ok", user_id=user_id)
+                audit("register", "ok", detail=f"invite code {invite_id}", user_id=user_id)
                 session.pop("new_handle")
+                session.pop("invite_id")
                 # filled in on the login page, never put in its URL
                 session["login_handle"] = handle
                 flash(f"Account created. Your username is {handle}.", "success")

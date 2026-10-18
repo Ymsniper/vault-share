@@ -8,7 +8,8 @@ from security.passwords import password_problem
 # Flask-WTF also checks the CSRF token of every form below.
 
 
-class NameForm(FlaskForm):
+class RegisterForm(FlaskForm):
+    code = StringField(validators=[DataRequired("Type your invite code."), Length(max=40)])
     # no "#": the server adds "#" and the tag after the name
     username = StringField(
         validators=[

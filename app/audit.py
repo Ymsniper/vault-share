@@ -1,6 +1,6 @@
 import ipaddress
 
-from flask import current_app, g, request
+from flask import current_app, g, has_request_context, request
 
 from .db import get_db
 
@@ -32,11 +32,14 @@ def audit(action, outcome, file_id=None, detail=None, user_id=_current_user):
     """
     if user_id is _current_user:
         user_id = g.user["id"] if g.get("user") is not None else None
+    # actions taken at the server, from the console or the command line,
+    # come with no address
+    address = request.remote_addr if has_request_context() else None
     db = get_db()
     db.execute(
         "INSERT INTO audit_log (user_id, action, file_id, outcome, detail, ip)"
         " VALUES (?, ?, ?, ?, ?, ?)",
-        (user_id, action, file_id, outcome, detail, network_of(request.remote_addr or "")),
+        (user_id, action, file_id, outcome, detail, network_of(address or "")),
     )
     db.execute(
         "DELETE FROM audit_log WHERE at < datetime('now', ?)",

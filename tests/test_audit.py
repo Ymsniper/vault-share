@@ -80,8 +80,10 @@ def test_addresses_are_cut_to_their_network():
 
 def test_log_keeps_networks_not_addresses(app, alice):
     with app.app_context():
-        ips = {r[0] for r in get_db().execute("SELECT ip FROM audit_log")}
-    assert ips == {"127.0.0.0/24"}
+        rows = get_db().execute("SELECT action, ip FROM audit_log").fetchall()
+    assert {ip for action, ip in rows if action != "invite"} == {"127.0.0.0/24"}
+    # alice's invite code was made at the server, which has no address
+    assert {ip for action, ip in rows if action == "invite"} == {None}
 
 
 def test_forwarded_address_counts_only_behind_a_proxy(app):

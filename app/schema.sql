@@ -7,6 +7,7 @@ DROP TABLE IF EXISTS encryption_keys;
 DROP TABLE IF EXISTS user_keys;
 DROP TABLE IF EXISTS sessions;
 DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS invites;
 
 CREATE TABLE users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -22,7 +23,22 @@ CREATE TABLE users (
     -- does not show who set a duress password or what it does
     duress_hash TEXT NOT NULL,
     duress_policy BLOB NOT NULL,
+    -- the invite code the account was created with
+    invite_id INTEGER NOT NULL REFERENCES invites (id),
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- one-time codes needed to register; only a SHA-256 of each code is kept,
+-- so a copy of the database gives nobody a code that still works
+CREATE TABLE invites (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code_hash TEXT NOT NULL UNIQUE,
+    -- the admin who made it, NULL when made at the server
+    created_by INTEGER REFERENCES users (id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    expires_at TEXT NOT NULL,
+    used_at TEXT,
+    cancelled_at TEXT
 );
 
 -- only the SHA-256 of each session token is stored, so a copy of the

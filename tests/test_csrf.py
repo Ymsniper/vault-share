@@ -3,6 +3,8 @@ import re
 
 import pytest
 
+from .conftest import invite_code
+
 
 # request this fixture after alice or bob, so they log in before the check is on
 @pytest.fixture
@@ -28,7 +30,8 @@ def test_form_without_token_is_refused(alice, csrf_app):
 
 def test_form_with_the_page_token_works(csrf_app, client):
     token = token_from(client.get("/auth/register").data)
-    r = client.post("/auth/register", data={"username": "alice", "csrf_token": token})
+    code = invite_code(client.application)
+    r = client.post("/auth/register", data={"code": code, "username": "alice", "csrf_token": token})
     assert r.headers["Location"] == "/auth/register/password"
     token = token_from(client.get("/auth/register/password").data)
     r = client.post(

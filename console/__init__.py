@@ -14,6 +14,7 @@ from pathlib import Path
 
 from flask.logging import default_handler
 from rich.text import Text
+from sqlcipher3.dbapi2 import DatabaseError
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -34,6 +35,7 @@ from textual.widgets import (
 
 from app.admin import grant_admin, revoke_certificate
 from app.db import get_db, init_db
+from app.invites import DAYS, cancel_invite, create_invite, list_invites, to_local
 from app.serving import make_app_server
 from app.unlock import (
     FactorError,
@@ -250,6 +252,11 @@ class Main(Screen):
                     yield Button("Make admin", id="grant", compact=True)
                     yield Button("Revoke certificate", id="revoke", variant="error", compact=True)
                 yield DataTable(id="users", cursor_type="row")
+            with TabPane("Invites", id="invites-tab"):
+                with Horizontal(classes="buttons"):
+                    yield Button("New code", id="new-invite", variant="primary", compact=True)
+                    yield Button("Cancel code", id="cancel-invite", compact=True)
+                yield DataTable(id="invites", cursor_type="row")
             with TabPane("Audit log", id="log-tab"):
                 yield DataTable(id="audit", cursor_type="row")
             with TabPane("Keys", id="keys-tab"):
@@ -273,6 +280,9 @@ class Main(Screen):
     def on_mount(self):
         self.query_one("#users", DataTable).add_columns(
             "User", "Admin", "Two-factor", "Certificate", "Files"
+        )
+        self.query_one("#invites", DataTable).add_columns(
+            "No.", "State", "Made by", "Made", "Expires", "Used by"
         )
         self.query_one("#audit", DataTable).add_columns(
             "Time (UTC)", "User", "Action", "File", "Outcome", "Detail", "Network"
@@ -410,6 +420,8 @@ class Console(App):
             ("#unlock", k.locked and k.needs_passphrase),
             ("#grant", not k.locked),
             ("#revoke", not k.locked),
+            ("#new-invite", not k.locked),
+            ("#cancel-invite", not k.locked),
             ("#add-usb", not k.needs_usb and not k.locked),
             ("#remove-usb", k.needs_usb),
             ("#set-passphrase", not k.needs_passphrase and not k.locked),
@@ -459,6 +471,7 @@ class Console(App):
     def refresh_all(self):
         self.show_status()
         self.load_users()
+        self.load_invites()
         self.load_audit()
 
     def load_users(self):
@@ -486,6 +499,27 @@ class Console(App):
                 key=r["username"],
             )
 
+    def load_invites(self):
+        table = self.get_screen("main").query_one("#invites", DataTable)
+        table.clear()
+        if self.keyring.locked:
+            return
+        try:
+            with self.flask_app.app_context():
+                rows = list_invites()
+        except DatabaseError:  # a database from before invite codes
+            return
+        for r in rows:
+            table.add_row(
+                str(r["id"]),
+                r["state"],
+                Text(r["made_by"] or "the server"),
+                to_local(r["created_at"]),
+                to_local(r["expires_at"]),
+                Text(r["used_by"] or ""),
+                key=str(r["id"]),
+            )
+
     def load_audit(self):
         table = self.get_screen("main").query_one("#audit", DataTable)
         if self.keyring.locked:
@@ -502,7 +536,10 @@ class Console(App):
             table.add_row(*(Text(str(v) if v is not None else "") for v in tuple(r)))
 
     def selected_user(self):
-        table = self.get_screen("main").query_one("#users", DataTable)
+        return self.selected_key("#users")
+
+    def selected_key(self, table_id):
+        table = self.get_screen("main").query_one(table_id, DataTable)
         if table.row_count == 0:
             return None
         return table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
@@ -615,6 +652,35 @@ class Console(App):
                 self.call_from_thread(self.do_start)
             self.call_from_thread(self.refresh_all)
         return result
+
+    # --- invites
+
+    @on(Button.Pressed, "#new-invite")
+    def new_invite_pressed(self):
+        self.make_invite()
+
+    @work(thread=True)
+    def make_invite(self):
+        code = self.task(create_invite)
+        if code:
+            self.call_from_thread(self.show_invite, code)
+
+    def show_invite(self, code):
+        # through the terminal (OSC 52); a few terminals ignore it
+        self.copy_to_clipboard(code)
+        self.push_screen(Show(
+            "New invite code",
+            f"Send it to the person who should register. It works once, for {DAYS} days,\n"
+            "and is shown only now. It is also on the clipboard.\n\n"
+            f"    {code}",
+            "Done",
+        ))
+
+    @on(Button.Pressed, "#cancel-invite")
+    def cancel_invite_pressed(self):
+        number = self.selected_key("#invites")
+        if number:
+            self.run_task(f"Invite {number} cancelled.", cancel_invite, int(number))
 
     # --- keys: the server is stopped while the master key changes
 

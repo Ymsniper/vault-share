@@ -78,7 +78,7 @@ def create_app(test_config=None):
         if keyring.locked and request.endpoint not in ("static", "unlock.unlock"):
             raise Locked(keyring.missing())
 
-    from . import admin, auth, db, files, settings, totp, unlock
+    from . import admin, auth, db, files, invites, settings, totp, unlock
 
     db.init_app(app)
     csrf.init_app(app)
@@ -89,6 +89,7 @@ def create_app(test_config=None):
     app.register_blueprint(settings.bp)
     app.register_blueprint(unlock.bp)
     app.cli.add_command(unlock.keys_cli)
+    app.cli.add_command(invites.invite_cli)
     app.add_template_filter(auth.show_handle, "handle")
     # after the blueprints, so the limits can already see who is logged in
     limiter.init_app(app)
