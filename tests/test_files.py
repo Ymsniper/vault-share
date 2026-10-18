@@ -201,15 +201,15 @@ def test_changed_hash_fails_verification(app, alice):
 
 def test_share_then_revoke(app, alice, bob):
     url = new_file(alice)
-    r = share(alice, url, "bob", follow_redirects=True)
-    assert b"Shared with bob." in r.data
+    r = share(alice, url, bob.handle, follow_redirects=True)
+    assert f"Shared with {bob.handle}.".encode() in r.data
     assert b"contract.txt" in shared_with_me(bob)
     assert download(bob, url).data == CONTRACT
 
-    alice.post(f"{url}/revoke", data={"recipient_id": user_id(app, "bob")})
+    alice.post(f"{url}/revoke", data={"recipient_id": user_id(app, bob.handle)})
     assert b"contract.txt" not in shared_with_me(bob)
 
-    share(alice, url, "bob")
+    share(alice, url, bob.handle)
     assert b"contract.txt" in shared_with_me(bob)
 
 
@@ -217,7 +217,7 @@ def test_share_rejects_unknown_user_and_owner(alice):
     url = new_file(alice)
     r = share(alice, url, "nobody", follow_redirects=True)
     assert b"Unknown user." in r.data
-    r = share(alice, url, "alice", follow_redirects=True)
+    r = share(alice, url, alice.handle, follow_redirects=True)
     assert b"The owner already has access." in r.data
 
 
@@ -231,7 +231,7 @@ def test_search_filters_my_files(alice):
 
 def test_delete_removes_file_and_shares(app, alice, bob):
     url = new_file(alice)
-    share(alice, url, "bob")
+    share(alice, url, bob.handle)
     alice.post(f"{url}/delete")
 
     assert not os.path.exists(stored_path(app, url))
@@ -245,7 +245,7 @@ def test_unknown_file_is_404(alice):
 
 
 def test_file_page_names_the_signer(alice):
-    assert b"Signature valid, signed by alice." in upload(alice).data
+    assert f"Signature valid, signed by {alice.handle}.".encode() in upload(alice).data
 
 
 def test_changed_signature_fails_verification(app, alice):
@@ -337,7 +337,7 @@ def test_other_users_get_403(app, alice, bob):
         content_type="multipart/form-data",
     )
     assert r.status_code == 403
-    assert share(bob, url, "bob").status_code == 403
+    assert share(bob, url, bob.handle).status_code == 403
     assert bob.post(f"{url}/revoke", data={"recipient_id": "1"}).status_code == 403
     assert bob.post(f"{url}/delete").status_code == 403
 
@@ -351,16 +351,16 @@ def test_other_users_get_403(app, alice, bob):
 
 def test_recipient_can_read_but_not_manage(alice, bob):
     url = new_file(alice)
-    share(alice, url, "bob")
+    share(alice, url, bob.handle)
     assert download(bob, url).data == CONTRACT
-    assert share(bob, url, "bob").status_code == 403
+    assert share(bob, url, bob.handle).status_code == 403
     assert bob.post(f"{url}/delete").status_code == 403
 
 
 def test_revoked_recipient_loses_access(app, alice, bob):
     url = new_file(alice)
-    share(alice, url, "bob")
-    alice.post(f"{url}/revoke", data={"recipient_id": user_id(app, "bob")})
+    share(alice, url, bob.handle)
+    alice.post(f"{url}/revoke", data={"recipient_id": user_id(app, bob.handle)})
     assert download(bob, url).status_code == 403
 
 
@@ -465,7 +465,7 @@ def copies_of(app, url):
 
 def test_only_the_password_opens_a_stored_file(app, alice):
     url = new_file(alice)
-    alice_id = user_id(app, "alice")
+    alice_id = user_id(app, alice.handle)
     # nothing in the files table, and nothing the master key derives,
     # opens the file: its key exists only as copies for its readers
     with app.app_context():
@@ -477,8 +477,8 @@ def test_only_the_password_opens_a_stored_file(app, alice):
     # with the whole server in hand, alice's copy still needs her password
     with app.app_context():
         with pytest.raises(InvalidTag):
-            unlock_encryption_key(alice_id, "alice", "a guess")
-        private_key = unlock_encryption_key(alice_id, "alice", PASSWORD)
+            unlock_encryption_key(alice_id, alice.handle, "a guess")
+        private_key = unlock_encryption_key(alice_id, alice.handle, PASSWORD)
     file_key = unwrap_file_key(private_key, copies[alice_id], file_id(url), alice_id)
     with open(stored_path(app, url), "rb") as f:
         assert decrypt(file_key, f.read(), file_id(url).encode()) == CONTRACT
@@ -497,30 +497,30 @@ def test_download_needs_the_right_password(alice):
 
 def test_share_needs_the_right_password(app, alice, bob):
     url = new_file(alice)
-    r = share(alice, url, "bob", password="a guess", follow_redirects=True)
+    r = share(alice, url, bob.handle, password="a guess", follow_redirects=True)
     assert b"Wrong password." in r.data
     assert b"contract.txt" not in shared_with_me(bob)
-    assert user_id(app, "bob") not in copies_of(app, url)
+    assert user_id(app, bob.handle) not in copies_of(app, url)
 
 
 def test_every_reader_has_their_own_copy(app, alice, bob):
     url = new_file(alice)
-    share(alice, url, "bob")
+    share(alice, url, bob.handle)
     copies = copies_of(app, url)
-    assert set(copies) == {user_id(app, "alice"), user_id(app, "bob")}
-    assert copies[user_id(app, "alice")] != copies[user_id(app, "bob")]
+    assert set(copies) == {user_id(app, alice.handle), user_id(app, bob.handle)}
+    assert copies[user_id(app, alice.handle)] != copies[user_id(app, bob.handle)]
     # each copy opens only with its own reader's key
     with app.app_context():
-        alice_key = unlock_encryption_key(user_id(app, "alice"), "alice", PASSWORD)
+        alice_key = unlock_encryption_key(user_id(app, alice.handle), alice.handle, PASSWORD)
     with pytest.raises(InvalidTag):
-        unwrap_file_key(alice_key, copies[user_id(app, "bob")], file_id(url), user_id(app, "bob"))
+        unwrap_file_key(alice_key, copies[user_id(app, bob.handle)], file_id(url), user_id(app, bob.handle))
 
 
 def test_a_revoked_share_stays_closed_even_if_the_row_comes_back(app, alice, bob):
     url = new_file(alice)
-    share(alice, url, "bob")
-    alice.post(f"{url}/revoke", data={"recipient_id": user_id(app, "bob")})
-    assert user_id(app, "bob") not in copies_of(app, url)
+    share(alice, url, bob.handle)
+    alice.post(f"{url}/revoke", data={"recipient_id": user_id(app, bob.handle)})
+    assert user_id(app, bob.handle) not in copies_of(app, url)
 
     # someone with write access to the database brings the share back
     with app.app_context():
@@ -534,7 +534,7 @@ def test_a_revoked_share_stays_closed_even_if_the_row_comes_back(app, alice, bob
 
 def test_revoking_the_owner_changes_nothing(app, alice):
     url = new_file(alice)
-    alice.post(f"{url}/revoke", data={"recipient_id": user_id(app, "alice")})
+    alice.post(f"{url}/revoke", data={"recipient_id": user_id(app, alice.handle)})
     assert download(alice, url).data == CONTRACT
 
 
@@ -542,10 +542,10 @@ def test_share_with_someone_who_has_no_encryption_key(app, alice, bob):
     url = new_file(alice)
     with app.app_context():
         db = get_db()
-        db.execute("DELETE FROM encryption_keys WHERE user_id = ?", (user_id(app, "bob"),))
+        db.execute("DELETE FROM encryption_keys WHERE user_id = ?", (user_id(app, bob.handle),))
         db.commit()
-    r = share(alice, url, "bob", follow_redirects=True)
-    assert b"bob cannot receive files until they log in again." in r.data
+    r = share(alice, url, bob.handle, follow_redirects=True)
+    assert f"{bob.handle} cannot receive files until they log in again.".encode() in r.data
     assert b"contract.txt" not in shared_with_me(bob)
 
 
@@ -554,4 +554,4 @@ def test_the_saved_login_stays_out_of_the_recipient_field(alice):
     form = page[page.index(b'/share"'):]
     recipient = re.search(rb'<input[^>]*name="username"[^>]*>', form).group(0)
     assert b'autocomplete="off"' in recipient
-    assert b'<input type="text" autocomplete="username" value="alice" hidden>' in form
+    assert f'<input type="text" autocomplete="username" value="{alice.handle}" hidden>'.encode() in form

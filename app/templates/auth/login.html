@@ -9,11 +9,12 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="mb-3">
       <label for="username" class="form-label">Username</label>
-      <input name="username" id="username" class="form-control" autocomplete="username" required autofocus>
+      <input name="username" id="username" class="form-control" autocomplete="username" value="{{ prefill }}" required {{ 'autofocus' if not prefill }}>
+      <div class="form-text">Your username includes its tag, like bob#516850.</div>
     </div>
     <div class="mb-4">
       <label for="password" class="form-label">Password</label>
-      <input type="password" name="password" id="password" class="form-control" autocomplete="current-password" required>
+      <input type="password" name="password" id="password" class="form-control" autocomplete="current-password" required {{ 'autofocus' if prefill }}>
     </div>
     <button type="submit" class="btn btn-primary">Log in</button>
   </form>

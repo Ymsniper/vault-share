@@ -28,9 +28,11 @@ def test_form_without_token_is_refused(alice, csrf_app):
 
 def test_form_with_the_page_token_works(csrf_app, client):
     token = token_from(client.get("/auth/register").data)
+    r = client.post("/auth/register", data={"username": "alice", "csrf_token": token})
+    assert r.headers["Location"] == "/auth/register/password"
+    token = token_from(client.get("/auth/register/password").data)
     r = client.post(
-        "/auth/register",
-        data={"username": "alice", "password": "contract-2026", "csrf_token": token},
+        "/auth/register/password", data={"password": "contract-2026", "csrf_token": token}
     )
     assert r.headers["Location"] == "/auth/login"
 

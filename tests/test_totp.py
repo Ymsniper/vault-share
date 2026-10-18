@@ -1,9 +1,11 @@
 import re
 import time
+from urllib.parse import urlparse
 
 import pyotp
 
 from app.db import get_db
+from security.totp import new_secret, provisioning_uri
 
 PASSWORD = "contract-2026"
 
@@ -23,9 +25,9 @@ def turn_on(client):
     return secret
 
 
-def log_out_and_in(client, username="alice"):
+def log_out_and_in(client):
     client.post("/auth/logout")
-    return client.post("/auth/login", data={"username": username, "password": PASSWORD})
+    return client.post("/auth/login", data={"username": client.handle, "password": PASSWORD})
 
 
 def test_setup_shows_a_qr_code_and_stores_the_secret_encrypted(app, alice):
@@ -101,3 +103,9 @@ def test_turning_it_off(alice):
     )
     assert b"Two-factor login is off." in r.data
     assert log_out_and_in(alice).headers["Location"] == "/"
+
+
+def test_the_tag_stays_in_the_authenticator_label():
+    uri = provisioning_uri(new_secret(), "alice#516850")
+    assert "alice%23516850" in uri
+    assert urlparse(uri).fragment == ""

@@ -1,5 +1,6 @@
 import http.client
 import os
+import re
 import socket
 import ssl
 import stat
@@ -49,19 +50,40 @@ def test_server_certificate_is_issued_by_the_ca(ca_dir, tls_dir):
     assert stat.S_IMODE(os.stat(tls_dir / "server.key").st_mode) == 0o600
 
 
+def register_and_log_in(conn, password="contract-2026"):
+    """Both registration steps, then login, carrying the session cookie as a
+    browser does. Returns the login response."""
+    cookie = ""
+
+    def send(method, path, form=None):
+        nonlocal cookie
+        headers = {"Cookie": cookie}
+        if form is not None:
+            headers["Content-Type"] = "application/x-www-form-urlencoded"
+            form = urlencode(form)
+        conn.request(method, path, form, headers)
+        response = conn.getresponse()
+        body = response.read()
+        for c in response.headers.get_all("Set-Cookie") or []:
+            if c.startswith("session="):
+                cookie = c.split(";")[0]
+        return response, body
+
+    send("POST", "/auth/register", {"username": "alice"})
+    send("POST", "/auth/register/password", {"password": password})
+    # the login page fills in the new username
+    _, page = send("GET", "/auth/login")
+    handle = re.search(rb'autocomplete="username" value="([^"]+)"', page).group(1).decode()
+    response, _ = send("POST", "/auth/login", {"username": handle, "password": password})
+    return response
+
+
 def test_browser_trusting_the_ca_gets_a_secure_cookie(ca_dir, https_port):
     trusting = ssl.create_default_context(cafile=str(ca_dir / "ca.crt"))
-    form = {"username": "alice", "password": "contract-2026"}
-    headers = {"Content-Type": "application/x-www-form-urlencoded"}
     for host in ("localhost", "127.0.0.1"):
         conn = http.client.HTTPSConnection(host, https_port, context=trusting)
-        conn.request("POST", "/auth/register", urlencode(form), headers)
-        conn.getresponse().read()
-        conn.request("POST", "/auth/login", urlencode(form), headers)
-        response = conn.getresponse()
-        response.read()
-        cookie = response.getheader("Set-Cookie")
-        assert cookie.startswith("sid=")
+        response = register_and_log_in(conn)
+        cookie = [c for c in response.headers.get_all("Set-Cookie") if c.startswith("sid=")][0]
         assert "Secure" in cookie and "HttpOnly" in cookie
         conn.close()
 
@@ -109,8 +131,7 @@ def register_over_https(ca_dir, port, referer):
         conn.request("GET", "/auth/register")
         page = conn.getresponse()
         cookies = "; ".join(c.split(";")[0] for c in page.headers.get_all("Set-Cookie", []))
-        form = {"username": "alice", "password": "contract-2026",
-                "csrf_token": token_from(page.read())}
+        form = {"username": "alice", "csrf_token": token_from(page.read())}
         headers = {"Content-Type": "application/x-www-form-urlencoded", "Cookie": cookies}
         if referer:
             headers["Referer"] = referer

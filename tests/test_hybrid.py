@@ -65,12 +65,13 @@ def test_every_user_gets_an_encryption_key(app, alice):
         row = get_db().execute(
             "SELECT e.public_key, e.kdf_salt, e.enc_private_key, k.enc_private_key AS signing"
             " FROM encryption_keys e JOIN user_keys k ON k.user_id = e.user_id"
-            " JOIN users u ON u.id = e.user_id WHERE u.username = 'alice'"
+            " JOIN users u ON u.id = e.user_id WHERE u.username = ?",
+            (alice.handle,),
         ).fetchone()
     assert len(row["public_key"]) == 32
     # a key of its own, not the signing key
     assert row["enc_private_key"] != row["signing"]
-    salt, locked, aad = row["kdf_salt"], row["enc_private_key"], encryption_aad("alice")
+    salt, locked, aad = row["kdf_salt"], row["enc_private_key"], encryption_aad(alice.handle)
     with pytest.raises(InvalidTag):
         unlock_private_key(salt, locked, "not the password", aad)
     key = unlock_private_key(salt, locked, "contract-2026", aad)

@@ -46,7 +46,7 @@ def test_registration_issues_a_certificate(app, ca_dir, tmp_path, alice):
     with app.app_context():
         pem = get_db().execute("SELECT pem FROM certificates").fetchone()["pem"]
     cert = load_certificate(pem)
-    assert common_name(cert) == "alice"
+    assert common_name(cert) == alice.handle
     assert (cert.not_valid_after_utc - cert.not_valid_before_utc).days == 365
     usage = cert.extensions.get_extension_for_class(x509.KeyUsage).value
     assert usage.digital_signature and not usage.key_cert_sign
@@ -73,9 +73,9 @@ def test_registration_needs_the_ca(tmp_path, ca_dir):
     )
     with app.app_context():
         init_db()
-    r = app.test_client().post(
-        "/auth/register", data={"username": "alice", "password": "contract-2026"}
-    )
+    client = app.test_client()
+    client.post("/auth/register", data={"username": "alice"})
+    r = client.post("/auth/register/password", data={"password": "contract-2026"})
     assert b"the certificate authority is not set up" in r.data
     with app.app_context():
         assert get_db().execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0

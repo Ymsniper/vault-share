@@ -26,28 +26,28 @@ def test_file_actions_are_logged(app, alice, bob):
     ).headers["Location"]
     file_id = url.rsplit("/", 1)[-1]
     alice.get(url)
-    share(alice, url, "bob")
+    share(alice, url, bob.handle)
     download(bob, url)
     alice.post(f"{url}/delete")
 
     rows = log_rows(app)
     for expected in (
-        ("alice", "upload", "ok", file_id),
-        ("alice", "verify", "ok", file_id),
-        ("alice", "share", "ok", file_id),
-        ("bob", "download", "ok", file_id),
-        ("alice", "delete", "ok", file_id),
+        (alice.handle, "upload", "ok", file_id),
+        (alice.handle, "verify", "ok", file_id),
+        (alice.handle, "share", "ok", file_id),
+        (bob.handle, "download", "ok", file_id),
+        (alice.handle, "delete", "ok", file_id),
     ):
         assert expected in rows
 
 
 def test_failed_login_is_not_blamed_on_the_current_user(app, alice):
-    alice.post("/auth/login", data={"username": "alice", "password": "wrong"})
+    alice.post("/auth/login", data={"username": alice.handle, "password": "wrong"})
     assert log_rows(app)[-1] == (None, "login", "failed", None)
 
 
 def test_log_never_contains_passwords(app, alice):
-    alice.post("/auth/login", data={"username": "alice", "password": "wrong guess 123"})
+    alice.post("/auth/login", data={"username": alice.handle, "password": "wrong guess 123"})
     with app.app_context():
         rows = [str(tuple(r)) for r in get_db().execute("SELECT * FROM audit_log")]
     assert rows
@@ -56,10 +56,10 @@ def test_log_never_contains_passwords(app, alice):
 
 def test_audit_log_is_for_admins_only(app, alice):
     assert alice.get("/admin/log").status_code == 403
-    assert ("alice", "read_log", "denied", None) in log_rows(app)
+    assert (alice.handle, "read_log", "denied", None) in log_rows(app)
 
-    r = app.test_cli_runner().invoke(args=["admin", "grant", "alice"])
-    assert "alice can now read the audit log." in r.output
+    r = app.test_cli_runner().invoke(args=["admin", "grant", alice.handle])
+    assert f"{alice.handle} can now read the audit log." in r.output
     r = alice.get("/admin/log")
     assert r.status_code == 200
     assert b"read_log" in r.data
@@ -107,7 +107,7 @@ def test_entries_older_than_90_days_are_deleted(app, alice):
             "INSERT INTO audit_log (at, action, outcome) VALUES (datetime('now', '-89 days'), 'recent', 'ok')"
         )
         db.commit()
-    alice.post("/auth/login", data={"username": "alice", "password": "wrong guess"})
+    alice.post("/auth/login", data={"username": alice.handle, "password": "wrong guess"})
     with app.app_context():
         actions = {r[0] for r in get_db().execute("SELECT action FROM audit_log")}
     assert "old" not in actions

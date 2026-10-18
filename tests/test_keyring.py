@@ -61,7 +61,7 @@ def test_by_default_only_the_machine_key_is_used(app):
 
 def test_adding_a_stick_keeps_everything_readable(app, alice, bob, stick):
     url = new_file(alice)
-    share(alice, url, "bob")
+    share(alice, url, bob.handle)
     secret = turn_on(alice)
     set_duress(alice)
 
@@ -76,10 +76,12 @@ def test_adding_a_stick_keeps_everything_readable(app, alice, bob, stick):
     assert b"Record verified" in alice.get(url).data
     assert download(bob, url).data == CONTRACT
     alice.post("/auth/logout")
-    alice.post("/auth/login", data={"username": "alice", "password": "contract-2026"})
+    alice.post("/auth/login", data={"username": alice.handle, "password": "contract-2026"})
     assert alice.post("/auth/login/code", data={"code": code(secret, 1)}).headers["Location"] == "/"
     with app.app_context():
-        user = get_db().execute("SELECT * FROM users WHERE username = 'alice'").fetchone()
+        user = get_db().execute(
+            "SELECT * FROM users WHERE username = ?", (alice.handle,)
+        ).fetchone()
         assert unseal(user["id"], user["totp_secret"]) == secret
         assert mode_of(user) == DECOY
 
@@ -106,7 +108,7 @@ def test_pulling_the_stick_locks_the_app(app, alice, stick):
     assert not keyring(app).locked
     # everyone was logged out when the stick went away
     assert alice.get(url).headers["Location"] == "/auth/login"
-    alice.post("/auth/login", data={"username": "alice", "password": "contract-2026"})
+    alice.post("/auth/login", data={"username": alice.handle, "password": "contract-2026"})
     assert download(alice, url).data == CONTRACT
 
 
@@ -128,7 +130,7 @@ def test_the_recovery_code_replaces_a_lost_stick(app, alice, stick):
     assert r.exit_code == 0, r.output
     assert not keyring(app).locked
     assert "USB stick: not used" in keys(app, "status").output
-    alice.post("/auth/login", data={"username": "alice", "password": "contract-2026"})
+    alice.post("/auth/login", data={"username": alice.handle, "password": "contract-2026"})
     assert download(alice, url).data == CONTRACT
 
 
@@ -148,7 +150,7 @@ def test_a_passphrase_is_asked_after_every_start(app, alice):
     assert b"Wrong passphrase" in r.data
     client.post("/unlock", data={"passphrase": PASSPHRASE})
     assert not started.extensions["keyring"].locked
-    client.post("/auth/login", data={"username": "alice", "password": "contract-2026"})
+    client.post("/auth/login", data={"username": alice.handle, "password": "contract-2026"})
     assert download(client, url).data == CONTRACT
 
 

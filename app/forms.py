@@ -8,7 +8,8 @@ from security.passwords import password_problem
 # Flask-WTF also checks the CSRF token of every form below.
 
 
-class RegisterForm(FlaskForm):
+class NameForm(FlaskForm):
+    # no "#": the server adds "#" and the tag after the name
     username = StringField(
         validators=[
             Regexp(
@@ -17,14 +18,21 @@ class RegisterForm(FlaskForm):
             )
         ]
     )
+
+
+class NewPasswordForm(FlaskForm):
     password = PasswordField(
         validators=[Length(12, 128, message="Password must be 12 to 128 characters long.")]
     )
 
+    def __init__(self, chosen_name, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.chosen_name = chosen_name
+
     def validate_password(self, field):
         if field.errors:  # already refused for its length
             return
-        problem = password_problem(self.username.data or "", field.data or "")
+        problem = password_problem(self.chosen_name, field.data or "")
         if problem is not None:
             raise ValidationError(problem)
 
@@ -86,7 +94,8 @@ class DownloadForm(FlaskForm):
 
 
 class ShareForm(FlaskForm):
-    username = StringField(validators=[DataRequired("Type a username."), Length(max=32)])
+    # a name, "#" and the 6-digit tag
+    username = StringField(validators=[DataRequired("Type a username."), Length(max=40)])
     password = PasswordField(validators=[DataRequired("Type your password to share the file.")])
 
 

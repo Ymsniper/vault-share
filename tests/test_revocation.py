@@ -18,9 +18,9 @@ def certificates(app):
 
 
 def test_revoke_marks_the_certificate_and_publishes_a_crl(app, ca_dir, tmp_path, alice):
-    r = revoke(app, "alice")
+    r = revoke(app, alice.handle)
     assert r.exit_code == 0, r.output
-    assert "Revoked alice's certificate." in r.output
+    assert f"Revoked {alice.handle}'s certificate." in r.output
     assert certificates(app)[0]["revoked_at"] is not None
 
     (tmp_path / "alice.crt").write_text(certificates(app)[0]["pem"])
@@ -36,19 +36,19 @@ def test_revoke_marks_the_certificate_and_publishes_a_crl(app, ca_dir, tmp_path,
 
 def test_revoke_needs_an_active_certificate(app, alice):
     assert "nobody has no certificate to revoke" in revoke(app, "nobody").output
-    revoke(app, "alice")
-    assert "alice has no certificate to revoke" in revoke(app, "alice").output
+    revoke(app, alice.handle)
+    assert f"{alice.handle} has no certificate to revoke" in revoke(app, alice.handle).output
 
 
 def test_files_signed_before_revocation_fail(app, alice):
     url = new_file(alice)
-    revoke(app, "alice")
+    revoke(app, alice.handle)
     assert b"the certificate was revoked" in alice.get(url).data
 
 
 def test_erasing_the_revocation_from_the_database_is_not_enough(app, alice):
     url = new_file(alice)
-    revoke(app, "alice")
+    revoke(app, alice.handle)
     with app.app_context():
         db = get_db()
         db.execute("UPDATE certificates SET revoked_at = NULL")
@@ -67,13 +67,13 @@ def test_crl_not_signed_by_the_ca_is_refused(app, alice):
 
 def test_next_upload_gets_a_new_certificate(app, alice):
     old = new_file(alice)
-    revoke(app, "alice")
+    revoke(app, alice.handle)
 
     new = new_file(alice, name="after-revocation.txt")
     certs = certificates(app)
     assert len(certs) == 2
     assert certs[0]["revoked_at"] is not None and certs[1]["revoked_at"] is None
-    assert b"Record verified. Signature valid, signed by alice." in alice.get(new).data
+    assert f"Record verified. Signature valid, signed by {alice.handle}.".encode() in alice.get(new).data
     assert b"the certificate was revoked" in alice.get(old).data
 
 
@@ -85,4 +85,4 @@ def test_expired_certificate_is_renewed_at_upload(app, alice, test_certs):
 
     url = new_file(alice)
     assert len(certificates(app)) == 2
-    assert b"Record verified. Signature valid, signed by alice." in alice.get(url).data
+    assert f"Record verified. Signature valid, signed by {alice.handle}.".encode() in alice.get(url).data

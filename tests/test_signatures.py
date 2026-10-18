@@ -42,7 +42,10 @@ def test_owner_changed_in_the_database(app, alice, bob):
     url = new_file(alice)
     with app.app_context():
         db = get_db()
-        db.execute("UPDATE files SET owner_id = (SELECT id FROM users WHERE username = 'bob')")
+        db.execute(
+            "UPDATE files SET owner_id = (SELECT id FROM users WHERE username = ?)",
+            (bob.handle,),
+        )
         db.commit()
     assert b"record of this file was changed in the database" in page(bob, url)
     assert CONTRACT not in download(bob, url, follow_redirects=True).data
@@ -50,7 +53,7 @@ def test_owner_changed_in_the_database(app, alice, bob):
 
 def test_signature_by_another_user_is_refused(app, alice, bob):
     url = new_file(alice)
-    resign(app, url, private_key_of(app, "bob"))
+    resign(app, url, private_key_of(app, bob.handle))
     assert b"the signature is not valid" in page(alice, url)
 
 
@@ -59,9 +62,10 @@ def test_certificate_of_another_user_is_refused(app, alice, bob):
     with app.app_context():
         bob_cert = get_db().execute(
             "SELECT c.pem FROM certificates c JOIN users u ON u.id = c.user_id"
-            " WHERE u.username = 'bob'"
+            " WHERE u.username = ?",
+            (bob.handle,),
         ).fetchone()[0]
-    resign(app, url, private_key_of(app, "bob"), bob_cert)
+    resign(app, url, private_key_of(app, bob.handle), bob_cert)
     assert b"the certificate belongs to someone else" in page(alice, url)
 
 
@@ -91,7 +95,7 @@ def test_revoked_certificate_is_refused(app, alice):
 
 def test_valid_file_still_passes(alice):
     url = new_file(alice)
-    assert b"Record verified. Signature valid, signed by alice." in page(alice, url)
+    assert f"Record verified. Signature valid, signed by {alice.handle}.".encode() in page(alice, url)
 
 
 def test_private_keys_are_stored_encrypted(app, alice):
@@ -100,8 +104,10 @@ def test_private_keys_are_stored_encrypted(app, alice):
     assert len(row["kdf_salt"]) == 16
     assert b"PRIVATE KEY" not in row["enc_private_key"]
     with pytest.raises(InvalidTag):
-        unlock_private_key(row["kdf_salt"], row["enc_private_key"], "wrong password!", b"alice")
-    assert unlock_private_key(row["kdf_salt"], row["enc_private_key"], "contract-2026", b"alice")
+        unlock_private_key(
+            row["kdf_salt"], row["enc_private_key"], "wrong password!", alice.handle.encode()
+        )
+    assert unlock_private_key(row["kdf_salt"], row["enc_private_key"], "contract-2026", alice.handle.encode())
 
 
 def upload_with_password(client, password):

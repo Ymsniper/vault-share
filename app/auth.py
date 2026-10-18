@@ -21,7 +21,7 @@ from . import limiter
 from .audit import audit
 from .db import get_db
 from .duress import WIPE, empty_slot, mode_of, seal_login_flag, wipe_account
-from .forms import LoginForm, RegisterForm, first_error
+from .forms import LoginForm, NameForm, NewPasswordForm, first_error
 from .identity import ensure_encryption_key, load_app_ca, new_encryption_key, new_identity
 
 bp = Blueprint("auth", __name__, url_prefix="/auth")
@@ -108,11 +108,40 @@ def password_limit(key_func):
     )
 
 
+def new_handle(name):
+    """The name plus a random 6-digit tag, such as bob#516850.
+
+    Names can repeat, so registering never says whether one is taken, and
+    knowing a name is not enough to aim at an account.
+    """
+    return f"{name}#{secrets.randbelow(1_000_000):06d}"
+
+
+# Registering takes two steps: the name first, then the password next to the
+# full username, so the browser saves the username with its tag.
+
+
 @bp.route("/register", methods=("GET", "POST"))
 def register():
-    form = RegisterForm()
+    form = NameForm()
     if form.validate_on_submit():
-        username = form.username.data
+        # the tag comes from the server only; step two never reads a
+        # username from its form
+        session["new_handle"] = new_handle(form.username.data)
+        return redirect(url_for("auth.register_password"))
+    if form.is_submitted():
+        flash(first_error(form))
+    return render_template("auth/register.html")
+
+
+@bp.route("/register/password", methods=("GET", "POST"))
+def register_password():
+    handle = session.get("new_handle")
+    if handle is None:
+        return redirect(url_for("auth.register"))
+    name = handle.partition("#")[0]
+    form = NewPasswordForm(name)
+    if form.validate_on_submit():
         password = form.password.data
         error = None
         try:
@@ -124,27 +153,33 @@ def register():
         if error is None:
             db = get_db()
             try:
-                duress_hash, duress_policy = empty_slot(username)
+                duress_hash, duress_policy = empty_slot(handle)
                 cur = db.execute(
                     "INSERT INTO users (username, password_hash, duress_hash, duress_policy)"
                     " VALUES (?, ?, ?, ?)",
-                    (username, hash_password(password), duress_hash, duress_policy),
+                    (handle, hash_password(password), duress_hash, duress_policy),
                 )
             except db.IntegrityError:
-                error = f"User {username} is already registered."
+                # the same tag drawn twice for this name, about one in a million
+                handle = session["new_handle"] = new_handle(name)
+                error = "That tag was just taken, so here is another one. Register with it."
             else:
                 user_id = cur.lastrowid
-                new_identity(user_id, username, password, ca)
-                new_encryption_key(user_id, username, password)
+                new_identity(user_id, handle, password, ca)
+                new_encryption_key(user_id, handle, password)
                 db.commit()
                 audit("register", "ok", user_id=user_id)
+                session.pop("new_handle")
+                # filled in on the login page, never put in its URL
+                session["login_handle"] = handle
+                flash(f"Account created. Your username is {handle}.", "success")
                 return redirect(url_for("auth.login"))
 
         flash(error)
     elif form.is_submitted():
         flash(first_error(form))
 
-    return render_template("auth/register.html")
+    return render_template("auth/register_password.html", handle=handle)
 
 
 @bp.route("/login", methods=("GET", "POST"))
@@ -198,7 +233,8 @@ def login():
     elif form.is_submitted():
         flash("Incorrect username or password.")
 
-    return render_template("auth/login.html")
+    prefill = session.pop("login_handle", None) or form.username.data or ""
+    return render_template("auth/login.html", prefill=prefill)
 
 
 @bp.route("/logout", methods=("POST",))

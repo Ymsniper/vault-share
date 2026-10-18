@@ -13,9 +13,16 @@ def new_secret():
     return pyotp.random_base32()
 
 
+def provisioning_uri(secret, username):
+    # pyotp percent-encodes the name, so the "#" before the tag stays in the
+    # account name instead of cutting the link short
+    return pyotp.TOTP(secret).provisioning_uri(name=username, issuer_name=ISSUER)
+
+
 def qr_svg(secret, username):
-    uri = pyotp.TOTP(secret).provisioning_uri(name=username, issuer_name=ISSUER)
-    img = qrcode.make(uri, image_factory=qrcode.image.svg.SvgPathImage)
+    img = qrcode.make(
+        provisioning_uri(secret, username), image_factory=qrcode.image.svg.SvgPathImage
+    )
     return img.to_string(encoding="unicode")
 
 

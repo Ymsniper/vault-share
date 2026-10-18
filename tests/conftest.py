@@ -87,10 +87,25 @@ def client(app):
     return app.test_client()
 
 
-def logged_in(app, username):
+PASSWORD = "contract-2026"
+
+
+def register(client, name="alice", password=PASSWORD):
+    """Both steps of registering; returns the username the server made."""
+    r = client.post("/auth/register", data={"username": name})
+    assert r.headers.get("Location") == "/auth/register/password", r.data
+    with client.session_transaction() as s:
+        handle = s["new_handle"]
+    r = client.post("/auth/register/password", data={"password": password})
+    assert r.headers.get("Location") == "/auth/login", r.data
+    return handle
+
+
+def logged_in(app, name):
+    """A client registered and logged in; its username is in .handle."""
     c = app.test_client()
-    c.post("/auth/register", data={"username": username, "password": "contract-2026"})
-    c.post("/auth/login", data={"username": username, "password": "contract-2026"})
+    c.handle = register(c, name)
+    c.post("/auth/login", data={"username": c.handle, "password": PASSWORD})
     return c
 
 
