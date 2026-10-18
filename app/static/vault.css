@@ -682,6 +682,16 @@ code {
   text-align: center;
 }
 
+/* a new invite code, shown once: big enough to read out, easy to select */
+.vs-invite-code {
+  margin: 0.25rem 0 0.75rem;
+  color: var(--vs-brass);
+  font-size: clamp(1.1rem, 4.5vw, 1.7rem);
+  letter-spacing: 0.08em;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
 .vs-search {
   position: relative;
   max-width: 420px;

@@ -18,6 +18,8 @@ from .db import get_db
 ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 DAYS = 7
 INVALID = "This invite code is not valid."
+# for admins on the website: a stolen admin login hands out only so many
+ADMIN_DAILY_LIMIT = 5
 
 # for "made by": anyone at all, as opposed to None, the server itself
 ANY = object()
@@ -50,6 +52,15 @@ def create_invite(created_by=None, days=DAYS):
     where = "" if created_by else ", at the server"
     audit("invite", "ok", detail=f"code {cur.lastrowid}{where}", user_id=created_by)
     return code
+
+
+def made_today(user_id):
+    """How many codes this admin made in the last 24 hours."""
+    return get_db().execute(
+        "SELECT COUNT(*) FROM invites WHERE created_by = ?"
+        " AND created_at > datetime('now', '-1 day')",
+        (user_id,),
+    ).fetchone()[0]
 
 
 def usable_invite(code):
