@@ -19,7 +19,7 @@
         {% set o = e['outcome'] %}
         <tr>
           <td class="vs-meta">{{ e['at'] }}</td>
-          <td class="vs-mono">{{ e['username'] or '-' }}</td>
+          <td class="vs-mono">{{ e['username']|handle if e['username'] else '-' }}</td>
           <td class="vs-mono">{{ e['action'] }}</td>
           <td class="vs-meta">{{ e['file_id'] or '' }}</td>
           <td><span class="vs-chip {{ 'vs-chip-ok' if o in ('ok', 'match') else 'vs-chip-bad' if o in ('failed', 'refused', 'denied', 'mismatch', 'locked') else 'vs-chip-warn' if o == 'used' else 'vs-chip-neutral' }}">{{ o }}</span></td>

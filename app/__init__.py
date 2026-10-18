@@ -89,6 +89,7 @@ def create_app(test_config=None):
     app.register_blueprint(settings.bp)
     app.register_blueprint(unlock.bp)
     app.cli.add_command(unlock.keys_cli)
+    app.add_template_filter(auth.show_handle, "handle")
     # after the blueprints, so the limits can already see who is logged in
     limiter.init_app(app)
 

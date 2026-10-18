@@ -28,7 +28,7 @@
           {% if g.user['is_admin'] and not g.duress %}
           <a href="{{ url_for('admin.log') }}" {% if here == 'admin.log' %}aria-current="page"{% endif %}>Audit log</a>
           {% endif %}
-          <span class="vs-user"><span class="vs-dot" aria-hidden="true"></span>{{ g.user['username'] }}</span>
+          <span class="vs-user"><span class="vs-dot" aria-hidden="true"></span>{{ g.user['username']|handle }}</span>
           <form method="post" action="{{ url_for('auth.logout') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit">Log out</button>

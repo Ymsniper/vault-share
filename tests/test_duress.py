@@ -172,7 +172,9 @@ def test_the_page_never_says_whether_one_is_set(alice, bob):
     set_duress(alice)
 
     def page(client, username):
-        html = client.get("/auth/duress").data.replace(username.encode(), b"USER")
+        html = client.get("/auth/duress").data
+        for shown in (str(auth.show_handle(username)), username):
+            html = html.replace(shown.encode(), b"USER")
         return re.sub(rb'name="csrf_token" value="[^"]*"', b"", html)
 
     assert page(alice, alice.handle) == page(bob, bob.handle)

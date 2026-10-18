@@ -6,7 +6,7 @@
   <div>
     <p class="vs-kicker">File record</p>
     <h1 class="vs-filename">{{ f['filename'] }}</h1>
-    <p class="vs-sub">{% if mine %}In your vault{% else %}Shared with you by <strong>{{ f['owner'] }}</strong>{% endif %} · uploaded {{ f['uploaded_at'] }} UTC</p>
+    <p class="vs-sub">{% if mine %}In your vault{% else %}Shared with you by <strong>{{ f['owner']|handle }}</strong>{% endif %} · uploaded {{ f['uploaded_at'] }} UTC</p>
   </div>
   <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('files.index') }}">All files</a>
 </div>
@@ -35,7 +35,7 @@
       <h2 class="vs-panel-title">Record</h2>
       <dl class="vs-spec">
         <dt>Owner</dt>
-        <dd>{{ f['owner'] }}</dd>
+        <dd>{{ f['owner']|handle }}</dd>
         <dt>Description</dt>
         <dd>{% if f['description'] %}{{ f['description'] }}{% else %}<span class="vs-meta">none</span>{% endif %}</dd>
         <dt>Size</dt>
@@ -89,7 +89,7 @@
         {% for s in shares %}
         <li>
           <span class="vs-avatar" aria-hidden="true">{{ s['username'][:1] }}</span>
-          <span class="vs-name">{{ s['username'] }}</span>
+          <span class="vs-name">{{ s['username']|handle }}</span>
           <form method="post" action="{{ url_for('files.revoke', id=f['id']) }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="recipient_id" value="{{ s['id'] }}">

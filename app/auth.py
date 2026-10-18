@@ -14,6 +14,7 @@ from flask import (
     session,
     url_for,
 )
+from markupsafe import Markup, escape
 
 from security.passwords import check_password, check_password_of_unknown_user, hash_password
 
@@ -106,6 +107,14 @@ def password_limit(key_func):
         error_message=LOCKED,
         on_breach=report_lock,
     )
+
+
+def show_handle(username):
+    """A username for a page: the name, then its tag dimmed. Both are escaped."""
+    name, sep, tag = str(username).partition("#")
+    if not sep:
+        return escape(name)
+    return Markup('{}<span class="vs-tag">#{}</span>').format(name, tag)
 
 
 def new_handle(name):

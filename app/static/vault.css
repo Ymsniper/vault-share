@@ -305,6 +305,12 @@ code {
   border-radius: 7px 7px 0 0;
 }
 
+/* the tag after a username: there, but quieter than the name */
+.vs-tag {
+  opacity: 0.6;
+  font-weight: 400;
+}
+
 .vs-user {
   display: inline-flex;
   align-items: center;

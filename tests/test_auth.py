@@ -2,7 +2,7 @@ import time
 
 from flask import g
 
-from app.auth import new_handle
+from app.auth import new_handle, show_handle
 from app.db import get_db
 
 from .conftest import PASSWORD, register
@@ -49,6 +49,17 @@ def test_the_same_name_twice_makes_two_accounts(client):
     assert b"already" not in pick_name(client).data
     assert login(client, first).headers["Location"] == "/"
     assert login(client, second).headers["Location"] == "/"
+
+
+def test_usernames_show_with_their_tag_dimmed(alice):
+    name, tag = alice.handle.split("#")
+    assert f'{name}<span class="vs-tag">#{tag}</span>'.encode() in alice.get("/").data
+
+
+def test_the_handle_filter_escapes_markup():
+    shown = str(show_handle("<b>x</b>#<i>1</i>"))
+    assert shown == '&lt;b&gt;x&lt;/b&gt;<span class="vs-tag">#&lt;i&gt;1&lt;/i&gt;</span>'
+    assert str(show_handle("<b>old</b>")) == "&lt;b&gt;old&lt;/b&gt;"
 
 
 def test_the_server_chooses_the_tag(app, client):
