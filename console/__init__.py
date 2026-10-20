@@ -33,7 +33,7 @@ from textual.widgets import (
     TabPane,
 )
 
-from app.admin import grant_admin, revoke_certificate
+from app.admin import ban_user, grant_admin, revoke_certificate, unban_user
 from app.db import get_db, init_db
 from app.invites import DAYS, cancel_invite, create_invite, list_invites, to_local
 from app.serving import make_app_server
@@ -251,6 +251,8 @@ class Main(Screen):
                 with Horizontal(classes="buttons"):
                     yield Button("Make admin", id="grant", compact=True)
                     yield Button("Revoke certificate", id="revoke", variant="error", compact=True)
+                    yield Button("Ban", id="ban", variant="error", compact=True)
+                    yield Button("Unban", id="unban", compact=True)
                 yield DataTable(id="users", cursor_type="row")
             with TabPane("Invites", id="invites-tab"):
                 with Horizontal(classes="buttons"):
@@ -279,7 +281,7 @@ class Main(Screen):
 
     def on_mount(self):
         self.query_one("#users", DataTable).add_columns(
-            "User", "Admin", "Two-factor", "Certificate", "Files"
+            "User", "Status", "Admin", "Two-factor", "Certificate", "Files", "Invited by"
         )
         self.query_one("#invites", DataTable).add_columns(
             "No.", "State", "Made by", "Made", "Expires", "Used by"
@@ -318,6 +320,7 @@ class Console(App):
         # log lines that arrive before the log pane exists, during the splash
         self.pending = []
         self.ready = False
+        self.warned_about_db = False
 
     def on_mount(self):
         self.install_screen(Main(), "main")
@@ -420,6 +423,8 @@ class Console(App):
             ("#unlock", k.locked and k.needs_passphrase),
             ("#grant", not k.locked),
             ("#revoke", not k.locked),
+            ("#ban", not k.locked),
+            ("#unban", not k.locked),
             ("#new-invite", not k.locked),
             ("#cancel-invite", not k.locked),
             ("#add-usb", not k.needs_usb and not k.locked),
@@ -479,23 +484,37 @@ class Console(App):
         table.clear()
         if self.keyring.locked:
             return
-        with self.flask_app.app_context():
-            rows = get_db().execute(
-                "SELECT u.username, u.is_admin, u.totp_secret IS NOT NULL AS totp,"
-                " (SELECT CASE WHEN c.revoked_at IS NOT NULL THEN 'revoked'"
-                "  ELSE 'until ' || substr(c.not_after, 1, 10) END"
-                "  FROM certificates c WHERE c.user_id = u.id ORDER BY c.id DESC LIMIT 1) AS cert,"
-                " (SELECT COUNT(*) FROM files f WHERE f.owner_id = u.id) AS files"
-                " FROM users u ORDER BY u.username"
-            ).fetchall()
+        try:
+            with self.flask_app.app_context():
+                rows = get_db().execute(
+                    "SELECT u.username, u.banned_at, u.is_admin, u.totp_secret IS NOT NULL AS totp,"
+                    " (SELECT CASE WHEN c.revoked_at IS NOT NULL THEN 'revoked'"
+                    "  ELSE 'until ' || substr(c.not_after, 1, 10) END"
+                    "  FROM certificates c WHERE c.user_id = u.id ORDER BY c.id DESC LIMIT 1)"
+                    "  AS cert,"
+                    " (SELECT COUNT(*) FROM files f WHERE f.owner_id = u.id) AS files,"
+                    " (SELECT COALESCE(m.username, 'the server') FROM invites i"
+                    "  LEFT JOIN users m ON m.id = i.created_by WHERE i.id = u.invite_id)"
+                    "  AS inviter"
+                    " FROM users u ORDER BY u.username"
+                ).fetchall()
+        except DatabaseError:
+            # no database yet, or one from before invite codes and bans
+            if not self.warned_about_db:
+                self.warned_about_db = True
+                self.notify("The database is missing or from an older version: "
+                            "reset it in the Setup tab.", severity="error", timeout=15)
+            return
         for r in rows:
             # plain Text, never markup: a name must not be able to style the screen
             table.add_row(
                 Text(r["username"]),
+                "banned" if r["banned_at"] else "",
                 "yes" if r["is_admin"] else "",
                 "on" if r["totp"] else "",
                 Text(r["cert"] or "none"),
                 str(r["files"]),
+                Text(r["inviter"] or ""),
                 key=r["username"],
             )
 
@@ -507,7 +526,7 @@ class Console(App):
         try:
             with self.flask_app.app_context():
                 rows = list_invites()
-        except DatabaseError:  # a database from before invite codes
+        except DatabaseError:  # see load_users
             return
         for r in rows:
             table.add_row(
@@ -626,6 +645,18 @@ class Console(App):
         user = self.selected_user()
         if user:
             self.run_task(f"Revoked {user}'s certificate.", revoke_certificate, user)
+
+    @on(Button.Pressed, "#ban")
+    def ban_pressed(self):
+        user = self.selected_user()
+        if user:
+            self.run_task(f"{user} is banned.", ban_user, user)
+
+    @on(Button.Pressed, "#unban")
+    def unban_pressed(self):
+        user = self.selected_user()
+        if user:
+            self.run_task(f"{user} can log in again.", unban_user, user)
 
     @work(thread=True)
     def run_task(self, done, action, *args, stop_server=False):

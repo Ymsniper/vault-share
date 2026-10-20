@@ -25,6 +25,9 @@ CREATE TABLE users (
     duress_policy BLOB NOT NULL,
     -- the invite code the account was created with
     invite_id INTEGER NOT NULL REFERENCES invites (id),
+    -- set while the account is banned: it cannot log in and its files are
+    -- hidden from everyone; nothing is deleted, so a ban can be lifted
+    banned_at TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

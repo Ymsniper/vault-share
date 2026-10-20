@@ -79,6 +79,30 @@ def test_new_and_cancelled_codes_from_the_invites_tab(app):
         assert get_db().execute("SELECT cancelled_at FROM invites").fetchone()[0] is not None
 
 
+def test_ban_and_unban_from_the_users_tab(app, alice):
+    def banned():
+        with app.app_context():
+            return get_db().execute("SELECT banned_at FROM users").fetchone()[0] is not None
+
+    states = []
+
+    async def scenario():
+        console = Console(app, start_server=False)
+        async with console.run_test(size=(140, 40)) as pilot:
+            await pilot.press("enter")
+            await pilot.pause()
+            console.screen.query_one("#tabs").active = "users-tab"
+            await pilot.pause()
+            for button in ("#ban", "#unban"):
+                await pilot.click(button)
+                await console.workers.wait_for_complete()
+                await pilot.pause()
+                states.append(banned())
+
+    run(scenario)
+    assert states == [True, False]
+
+
 def test_start_and_stop_the_server(app):
     async def scenario():
         console = Console(app, start_server=False)

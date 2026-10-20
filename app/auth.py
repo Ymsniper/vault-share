@@ -246,6 +246,10 @@ def login():
             g.wrong_password = True
             audit("login", "failed", user_id=None)
             flash("Incorrect username or password.")
+        elif user["banned_at"] is not None:
+            # after the password check, so only the owner learns of the ban
+            audit("login", "refused", user_id=user["id"], detail="banned")
+            flash("This account is disabled.")
         else:
             if real and not duress:
                 # only missing after a duress wipe; the password is at hand
@@ -296,7 +300,7 @@ def load_logged_in_user():
     g.user = db.execute(
         "SELECT u.*, s.duress AS session_duress"
         " FROM sessions s JOIN users u ON u.id = s.user_id"
-        " WHERE s.token_hash = ? AND s.expires_at > datetime('now')"
+        " WHERE s.token_hash = ? AND s.expires_at > datetime('now') AND u.banned_at IS NULL"
         " AND s.last_seen > datetime('now', '-30 minutes')",
         (token_hash(token),),
     ).fetchone()

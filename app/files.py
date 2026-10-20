@@ -70,7 +70,8 @@ def get_file(id, owner_only=False):
     id = str(id)
     db = get_db()
     f = db.execute(
-        "SELECT f.*, u.username AS owner, c.pem AS cert_pem, c.serial AS cert_serial,"
+        "SELECT f.*, u.username AS owner, u.banned_at AS owner_banned_at,"
+        " c.pem AS cert_pem, c.serial AS cert_serial,"
         " c.not_after AS cert_not_after, c.revoked_at AS cert_revoked_at"
         " FROM files f JOIN users u ON u.id = f.owner_id"
         " JOIN certificates c ON c.id = f.cert_id WHERE f.id = ?",
@@ -80,7 +81,8 @@ def get_file(id, owner_only=False):
         abort(404)
     if f["owner_id"] == g.user["id"]:
         return f
-    if not owner_only:
+    # the files of a banned owner are hidden from everyone they shared with
+    if not owner_only and f["owner_banned_at"] is None:
         share = db.execute(
             "SELECT 1 FROM shares"
             " WHERE file_id = ? AND recipient_id = ? AND revoked_at IS NULL",
@@ -208,7 +210,7 @@ def index():
         "SELECT f.*, u.username AS owner FROM files f"
         " JOIN shares s ON s.file_id = f.id"
         " JOIN users u ON u.id = f.owner_id"
-        " WHERE s.recipient_id = ? AND s.revoked_at IS NULL"
+        " WHERE s.recipient_id = ? AND s.revoked_at IS NULL AND u.banned_at IS NULL"
         " ORDER BY f.uploaded_at DESC",
         (g.user["id"],),
     ).fetchall()
@@ -465,7 +467,8 @@ def share(id):
     db = get_db()
     user = db.execute(
         "SELECT u.id, e.public_key FROM users u"
-        " LEFT JOIN encryption_keys e ON e.user_id = u.id WHERE u.username = ?",
+        " LEFT JOIN encryption_keys e ON e.user_id = u.id"
+        " WHERE u.username = ? AND u.banned_at IS NULL",
         (username,),
     ).fetchone()
     if user is None:

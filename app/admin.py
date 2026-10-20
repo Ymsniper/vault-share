@@ -97,13 +97,77 @@ def cancel_code(invite_id):
     return redirect(url_for("admin.invites"))
 
 
-def grant_admin(username):
-    """Let username read the audit log. Raises ValueError for an unknown user."""
-    db = get_db()
-    cur = db.execute("UPDATE users SET is_admin = 1 WHERE username = ?", (username,))
-    db.commit()
-    if cur.rowcount == 0:
+def user_by_handle(username):
+    """The user with exactly this username. Raises ValueError."""
+    user = get_db().execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+    if user is None:
         raise ValueError(f"No user named {username}.")
+    return user
+
+
+def grant_admin(username):
+    """Let username read the audit log and make invite codes. Raises
+    ValueError for an unknown or banned user."""
+    user = user_by_handle(username)
+    if user["banned_at"] is not None:
+        raise ValueError(f"{username} is banned: unban them first.")
+    db = get_db()
+    db.execute("UPDATE users SET is_admin = 1 WHERE id = ?", (user["id"],))
+    db.commit()
+
+
+def ban_accounts(user_ids):
+    """Lock these accounts out until unbanned. They cannot log in, their
+    sessions end, their files are hidden from everyone they shared with, and
+    they lose admin rights and their unused invite codes. Nothing is deleted.
+    Returns how many were banned."""
+    db = get_db()
+    banned = 0
+    for user_id in user_ids:
+        cur = db.execute(
+            "UPDATE users SET banned_at = datetime('now'), is_admin = 0"
+            " WHERE id = ? AND banned_at IS NULL",
+            (user_id,),
+        )
+        if cur.rowcount == 0:
+            continue
+        banned += 1
+        db.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+        db.execute(
+            "UPDATE invites SET cancelled_at = datetime('now')"
+            " WHERE created_by = ? AND used_at IS NULL AND cancelled_at IS NULL",
+            (user_id,),
+        )
+        audit("ban", "ok", user_id=user_id)
+    db.commit()
+    return banned
+
+
+def unban_accounts(user_ids):
+    """Let these accounts log in again. Admin rights and cancelled codes do
+    not come back. Returns how many were unbanned."""
+    db = get_db()
+    unbanned = 0
+    for user_id in user_ids:
+        cur = db.execute(
+            "UPDATE users SET banned_at = NULL WHERE id = ? AND banned_at IS NOT NULL",
+            (user_id,),
+        )
+        if cur.rowcount:
+            unbanned += 1
+            audit("unban", "ok", user_id=user_id)
+    db.commit()
+    return unbanned
+
+
+def ban_user(username):
+    if not ban_accounts([user_by_handle(username)["id"]]):
+        raise ValueError(f"{username} is already banned.")
+
+
+def unban_user(username):
+    if not unban_accounts([user_by_handle(username)["id"]]):
+        raise ValueError(f"{username} is not banned.")
 
 
 def revoke_certificate(username):
@@ -136,6 +200,33 @@ def grant_command(username):
     except ValueError as e:
         raise click.ClickException(str(e)) from None
     click.echo(f"{username} can now read the audit log.")
+
+
+@bp.cli.command("ban")
+@click.argument("username")
+def ban_command(username):
+    """Lock USERNAME out until unbanned.
+
+    They cannot log in, their sessions end, their files are hidden from
+    everyone, and their admin rights and unused invite codes go. Nothing is
+    deleted.
+    """
+    try:
+        ban_user(username)
+    except ValueError as e:
+        raise click.ClickException(str(e)) from None
+    click.echo(f"{username} is banned.")
+
+
+@bp.cli.command("unban")
+@click.argument("username")
+def unban_command(username):
+    """Let USERNAME log in again."""
+    try:
+        unban_user(username)
+    except ValueError as e:
+        raise click.ClickException(str(e)) from None
+    click.echo(f"{username} can log in again.")
 
 
 @bp.cli.command("revoke")
