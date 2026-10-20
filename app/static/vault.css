@@ -1144,6 +1144,54 @@ code {
     content: attr(data-prefix) "\00a0";
   }
 
+  /* invite codes the same way: one wrapped line per code, each value
+     labelled, the cancel button at the end */
+  .vs-invites thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .vs-invites,
+  .vs-invites tbody {
+    display: block;
+  }
+
+  .vs-invites tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem 0.9rem;
+    padding: 0.8rem 0.4rem;
+    border-bottom: 1px solid var(--vs-line-soft);
+  }
+
+  .vs-invites tr:last-child {
+    border-bottom: 0;
+  }
+
+  .vs-invites.table > :not(caption) > * > * {
+    padding: 0;
+    border-bottom: 0;
+    font-size: 0.8rem;
+  }
+
+  .vs-invites td:empty {
+    display: none;
+  }
+
+  .vs-invites td:last-child {
+    margin-left: auto;
+  }
+
+  .vs-invites td[data-prefix]::before {
+    content: attr(data-prefix) "\00a0";
+    color: var(--vs-mute);
+  }
+
   .vs-nav {
     margin-left: 0;
     width: 100%;

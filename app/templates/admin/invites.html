@@ -10,7 +10,7 @@
 </div>
 
 {% if new_code %}
-<section class="vs-panel">
+<section class="vs-panel mb-4">
   <h2 class="vs-panel-title">New code</h2>
   <p class="vs-invite-code vs-mono">{{ new_code }}</p>
   <p class="vs-note mb-0">Send it to the person who should register. It is shown only now: the server keeps just a fingerprint of it.</p>
@@ -49,7 +49,7 @@
       <h2 class="vs-panel-title">Your codes <span class="vs-count">{{ invites|length }}</span></h2>
       {% if invites %}
       <div class="vs-table-wrap">
-        <table class="table table-sm">
+        <table class="table table-sm vs-invites">
           <thead>
             <tr><th>No.</th><th>Made</th><th>Expires</th><th>State</th><th>Used by</th><th></th></tr>
           </thead>
@@ -57,11 +57,11 @@
             {% for i in invites %}
             {% set s = i['state'] %}
             <tr>
-              <td class="vs-mono">{{ i['id'] }}</td>
-              <td class="vs-meta">{{ i['created_at'] }}</td>
-              <td class="vs-meta">{{ i['expires_at'] }}</td>
+              <td class="vs-mono" data-prefix="no.">{{ i['id'] }}</td>
+              <td class="vs-meta" data-prefix="made">{{ i['created_at'][:16] }}</td>
+              <td class="vs-meta" data-prefix="expires">{{ i['expires_at'][:16] }}</td>
               <td><span class="vs-chip {{ 'vs-chip-ok' if s == 'open' else 'vs-chip-neutral' if s == 'used' else 'vs-chip-bad' }}">{{ s }}</span></td>
-              <td class="vs-mono">{{ i['used_by']|handle if i['used_by'] else '' }}</td>
+              <td class="vs-mono" data-prefix="by">{{ i['used_by']|handle if i['used_by'] else '' }}</td>
               <td>
                 {% if s == 'open' %}
                 <form method="post" action="{{ url_for('admin.cancel_code', invite_id=i['id']) }}">

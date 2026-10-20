@@ -130,8 +130,8 @@ def test_admins_see_and_cancel_only_their_own_codes(app, alice):
         }
     mine, servers = open_codes[user_id(app, alice.handle)], open_codes[None]
     page = alice.get("/admin/invites").data
-    assert f'<td class="vs-mono">{mine}</td>'.encode() in page
-    assert f'<td class="vs-mono">{servers}</td>'.encode() not in page
+    assert f'data-prefix="no.">{mine}</td>'.encode() in page
+    assert f'data-prefix="no.">{servers}</td>'.encode() not in page
 
     r = alice.post(f"/admin/invites/{servers}/cancel", follow_redirects=True)
     assert f"No unused invite numbered {servers}.".encode() in r.data
