@@ -351,12 +351,13 @@ def apply_revoke_admin(admin, accounts, codes, ban=False, revoke_cert=False):
 @bp.cli.command("grant")
 @click.argument("username")
 def grant_command(username):
-    """Let USERNAME read the audit log."""
+    """Make USERNAME an admin: they can read the audit log, and make invite
+    codes once their two-factor login is on."""
     try:
         grant_admin(username)
     except ValueError as e:
         raise click.ClickException(str(e)) from None
-    click.echo(f"{username} can now read the audit log.")
+    click.echo(f"{username} is now an admin: they can read the audit log and make invite codes.")
 
 
 @bp.cli.command("ban")

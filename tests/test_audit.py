@@ -59,7 +59,7 @@ def test_audit_log_is_for_admins_only(app, alice):
     assert (alice.handle, "read_log", "denied", None) in log_rows(app)
 
     r = app.test_cli_runner().invoke(args=["admin", "grant", alice.handle])
-    assert f"{alice.handle} can now read the audit log." in r.output
+    assert f"{alice.handle} is now an admin: they can read the audit log" in r.output
     r = alice.get("/admin/log")
     assert r.status_code == 200
     assert b"read_log" in r.data

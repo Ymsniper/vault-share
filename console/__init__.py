@@ -655,7 +655,11 @@ class Console(App):
     def grant_pressed(self):
         user = self.selected_user()
         if user:
-            self.run_task(f"{user} can now read the audit log.", grant_admin, user)
+            self.run_task(
+                f"{user} is now an admin: they can read the audit log and make invite codes.",
+                grant_admin,
+                user,
+            )
 
     @on(Button.Pressed, "#revoke")
     def revoke_pressed(self):
