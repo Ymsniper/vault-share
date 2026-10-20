@@ -1,5 +1,15 @@
 import click
-from flask import Blueprint, abort, flash, g, redirect, render_template, session, url_for
+from flask import (
+    Blueprint,
+    abort,
+    current_app,
+    flash,
+    g,
+    redirect,
+    render_template,
+    session,
+    url_for,
+)
 
 from .audit import audit
 from .auth import login_required, password_limit
@@ -8,11 +18,14 @@ from .forms import TotpForm, first_error
 from .identity import write_crl
 from .invites import (
     ADMIN_DAILY_LIMIT,
+    ANY,
     DAYS,
     cancel_invite,
     create_invite,
+    from_local,
     list_invites,
     made_today,
+    to_local,
 )
 from .totp import check_password_and_code, no_store, unseal
 
@@ -191,6 +204,150 @@ def revoke_certificate(username):
         raise ValueError(f"revoked in the database, but the CRL was not written: {e}") from None
 
 
+# After a stolen admin login: find what was done with their invite codes, in a
+# time window, and undo it in one go. Every action shows a preview first.
+
+FAR_PAST, FAR_FUTURE = "0000-01-01 00:00:00", "9999-12-31 23:59:59"
+# names listed in a preview; the rest are only counted
+SHOWN = 20
+
+
+def accounts_made(since=None, until=None, inviter=ANY, banned=False):
+    """Accounts created from since up to until (UTC texts, None for no limit)
+    with a code made by inviter: a user id, None for the server's own codes,
+    or ANY. banned=True picks the banned ones instead, to unban them."""
+    sql = (
+        "SELECT u.id, u.username, u.created_at, m.username AS inviter FROM users u"
+        " JOIN invites i ON i.id = u.invite_id LEFT JOIN users m ON m.id = i.created_by"
+        " WHERE u.created_at >= ? AND u.created_at < ?"
+    )
+    sql += " AND u.banned_at IS NOT NULL" if banned else " AND u.banned_at IS NULL"
+    params = [since or FAR_PAST, until or FAR_FUTURE]
+    if inviter is not ANY:
+        sql += " AND i.created_by IS ?"
+        params.append(inviter)
+    return get_db().execute(sql + " ORDER BY u.created_at", params).fetchall()
+
+
+def codes_made(since=None, until=None, inviter=ANY):
+    """Invite codes made from since up to until by inviter, still unused."""
+    sql = (
+        "SELECT i.id, i.created_at, m.username AS made_by FROM invites i"
+        " LEFT JOIN users m ON m.id = i.created_by"
+        " WHERE i.created_at >= ? AND i.created_at < ?"
+        " AND i.used_at IS NULL AND i.cancelled_at IS NULL"
+    )
+    params = [since or FAR_PAST, until or FAR_FUTURE]
+    if inviter is not ANY:
+        sql += " AND i.created_by IS ?"
+        params.append(inviter)
+    return get_db().execute(sql + " ORDER BY i.created_at", params).fetchall()
+
+
+def cancel_codes(codes):
+    cancelled = 0
+    for c in codes:
+        try:
+            cancel_invite(c["id"])
+            cancelled += 1
+        except ValueError:  # used or cancelled since the preview
+            pass
+    return cancelled
+
+
+def inviter_from(text):
+    """A cleanup's "codes from": empty for anyone, "server" for the server's
+    own codes, else a username. Raises ValueError."""
+    text = text.strip()
+    if not text:
+        return ANY
+    if text == "server":
+        return None
+    return user_by_handle(text)["id"]
+
+
+def plan_cleanup(since, until=None, inviter=ANY, unban=False):
+    """The accounts and codes a cleanup would touch, as (accounts, codes).
+    since and until are local times; until defaults to now."""
+    since, until = from_local(since), from_local(until) if until else None
+    accounts = accounts_made(since, until, inviter, banned=unban)
+    codes = [] if unban else codes_made(since, until, inviter)
+    return accounts, codes
+
+
+def apply_cleanup(accounts, codes, unban=False):
+    ids = [a["id"] for a in accounts]
+    if unban:
+        return f"{unban_accounts(ids)} accounts unbanned."
+    cancelled = cancel_codes(codes)
+    return f"{ban_accounts(ids)} accounts banned, {cancelled} unused codes cancelled."
+
+
+def describe(accounts, codes, unban=False, shown=SHOWN):
+    """A cleanup's preview, as lines of text."""
+    lines = [f"Accounts to {'unban' if unban else 'ban'}: {len(accounts)}"]
+    for a in accounts[:shown]:
+        lines.append(f"  {a['username']}, created {to_local(a['created_at'])},"
+                     f" code from {a['inviter'] or 'the server'}")
+    if len(accounts) > shown:
+        lines.append(f"  and {len(accounts) - shown} more")
+    if not unban:
+        lines.append(f"Unused invite codes to cancel: {len(codes)}")
+        for c in codes[:shown]:
+            lines.append(f"  no. {c['id']}, made {to_local(c['created_at'])}"
+                         f" by {c['made_by'] or 'the server'}")
+        if len(codes) > shown:
+            lines.append(f"  and {len(codes) - shown} more")
+    return lines
+
+
+def plan_revoke_admin(username, invited_since=None, all_invited=False):
+    """What revoking an admin would touch, as (admin, accounts, codes): the
+    accounts made with their codes since invited_since (local time), all of
+    them, or none, and their unused codes. Raises ValueError."""
+    admin = user_by_handle(username)
+    if not admin["is_admin"]:
+        raise ValueError(f"{username} is not an admin.")
+    if all_invited:
+        accounts = accounts_made(inviter=admin["id"])
+    elif invited_since:
+        accounts = accounts_made(from_local(invited_since), inviter=admin["id"])
+    else:
+        accounts = []
+    return admin, accounts, codes_made(inviter=admin["id"])
+
+
+def describe_revoke(admin, accounts, codes, ban=False, revoke_cert=False, shown=SHOWN):
+    lines = [f"{admin['username']} loses admin rights.", *describe(accounts, codes, shown=shown)]
+    if ban:
+        lines.append(f"{admin['username']} is banned too.")
+    if revoke_cert:
+        lines.append("Their certificate is revoked: files they signed stop passing verification.")
+    return lines
+
+
+def apply_revoke_admin(admin, accounts, codes, ban=False, revoke_cert=False):
+    db = get_db()
+    db.execute("UPDATE users SET is_admin = 0 WHERE id = ?", (admin["id"],))
+    db.commit()
+    audit("admin", "revoked", user_id=admin["id"])
+    done = [
+        f"{admin['username']} is no longer an admin",
+        f"{cancel_codes(codes)} unused codes cancelled",
+        f"{ban_accounts([a['id'] for a in accounts])} accounts banned",
+    ]
+    if ban and ban_accounts([admin["id"]]):
+        done.append(f"{admin['username']} banned")
+    if revoke_cert:
+        # last: the rest already holds if this fails
+        try:
+            revoke_certificate(admin["username"])
+            done.append("their certificate revoked")
+        except ValueError as e:
+            done.append(f"certificate not revoked: {e}")
+    return "; ".join(done) + "."
+
+
 @bp.cli.command("grant")
 @click.argument("username")
 def grant_command(username):
@@ -242,3 +399,67 @@ def revoke_command(username):
     except ValueError as e:
         raise click.ClickException(str(e)) from None
     click.echo(f"Revoked {username}'s certificate. Revocation list: {path}")
+
+
+TIME = "YYYY-MM-DD HH:MM, local time"
+
+
+def show_and_confirm(lines, yes):
+    for line in lines:
+        click.echo(line)
+    if not yes:
+        click.confirm("Go ahead?", abort=True)
+
+
+@bp.cli.command("revoke-admin")
+@click.argument("username")
+@click.option("--ban-invited-since", metavar="TIME",
+              help=f"Also ban the accounts made with their codes since TIME ({TIME}).")
+@click.option("--ban-all-invited", is_flag=True,
+              help="Also ban every account made with their codes.")
+@click.option("--ban", is_flag=True, help="Ban the admin too.")
+@click.option("--revoke-certificate", "revoke_cert", is_flag=True,
+              help="Revoke their certificate too: with their password, a thief could sign "
+                   "files as them. Needs CA_PASSPHRASE.")
+@click.option("--yes", is_flag=True, help="Do not ask before going ahead.")
+def revoke_admin_command(username, ban_invited_since, ban_all_invited, ban, revoke_cert, yes):
+    """Take admin rights from USERNAME and cancel their unused invite codes.
+
+    Shows what it will do first.
+    """
+    if ban_invited_since and ban_all_invited:
+        raise click.UsageError("Use --ban-invited-since or --ban-all-invited, not both.")
+    if revoke_cert and not current_app.config.get("CA_PASSPHRASE"):
+        raise click.ClickException("Revoking the certificate needs CA_PASSPHRASE.")
+    try:
+        admin, accounts, codes = plan_revoke_admin(username, ban_invited_since, ban_all_invited)
+    except ValueError as e:
+        raise click.ClickException(str(e)) from None
+    show_and_confirm(describe_revoke(admin, accounts, codes, ban, revoke_cert), yes)
+    click.echo(apply_revoke_admin(admin, accounts, codes, ban, revoke_cert))
+
+
+@bp.cli.command("cleanup")
+@click.option("--from", "since", required=True, metavar="TIME",
+              help=f"Start of the time window ({TIME}).")
+@click.option("--to", "until", metavar="TIME", help="End of the window; now when left out.")
+@click.option("--admin", "admin_name", metavar="USERNAME",
+              help="Only what came from this admin's invite codes.")
+@click.option("--server", is_flag=True, help="Only what came from the server's own codes.")
+@click.option("--unban", is_flag=True, help="Unban the accounts instead.")
+@click.option("--yes", is_flag=True, help="Do not ask before going ahead.")
+def cleanup_command(since, until, admin_name, server, unban, yes):
+    """Ban the accounts created in a time window and cancel the unused invite
+    codes made in it, or unban those accounts. Shows what it will do first."""
+    if admin_name and server:
+        raise click.UsageError("Use --admin or --server, not both.")
+    try:
+        inviter = inviter_from("server" if server else admin_name or "")
+        accounts, codes = plan_cleanup(since, until, inviter, unban)
+    except ValueError as e:
+        raise click.ClickException(str(e)) from None
+    if not accounts and not codes:
+        click.echo("Nothing in that window.")
+        return
+    show_and_confirm(describe(accounts, codes, unban), yes)
+    click.echo(apply_cleanup(accounts, codes, unban))

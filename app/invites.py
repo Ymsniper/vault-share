@@ -128,6 +128,18 @@ def to_local(utc_text):
     return t.astimezone().strftime("%Y-%m-%d %H:%M")
 
 
+def from_local(text):
+    """'YYYY-MM-DD HH:MM' or 'YYYY-MM-DD' in this machine's time zone, as the
+    UTC text the database compares with. Raises ValueError."""
+    for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%d"):
+        try:
+            t = datetime.strptime(text.strip(), fmt)
+        except ValueError:
+            continue
+        return t.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    raise ValueError(f"Not a date and time: {text!r}. Use YYYY-MM-DD HH:MM, in local time.")
+
+
 invite_cli = AppGroup("invite", help="Make, list and cancel invite codes.")
 
 

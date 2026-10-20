@@ -5,15 +5,34 @@ import re
 import socket
 
 import pytest
-from textual.widgets import Button, DataTable, Static
+from textual.widgets import Button, DataTable, Input, OptionList, Static
 
 from app.db import get_db
 from app.serving import make_app_server
-from console import Console, Main, Show, Splash
+from console import Ask, Choose, Console, Main, Show, Splash
 
 
 def run(scenario):
     asyncio.run(scenario())
+
+
+async def choose(pilot, console, index):
+    """Pick an option in the Choose dialog on screen."""
+    assert isinstance(console.screen, Choose)
+    options = console.screen.query_one(OptionList)
+    options.focus()
+    options.highlighted = index
+    await pilot.press("enter")
+    await pilot.pause()
+
+
+async def answer(pilot, console, *values):
+    """Fill in the Ask dialog on screen and press OK."""
+    assert isinstance(console.screen, Ask)
+    for field, value in zip(console.screen.query(Input), values):
+        field.value = value
+    await pilot.click("#ok")
+    await pilot.pause()
 
 
 def test_splash_then_main_screen(app, alice):
@@ -101,6 +120,62 @@ def test_ban_and_unban_from_the_users_tab(app, alice):
 
     run(scenario)
     assert states == [True, False]
+
+
+def test_clean_up_from_the_invites_tab(app, alice):
+    async def scenario():
+        console = Console(app, start_server=False)
+        async with console.run_test(size=(140, 45)) as pilot:
+            await pilot.press("enter")
+            await pilot.pause()
+            console.screen.query_one("#tabs").active = "invites-tab"
+            await pilot.pause()
+            await pilot.click("#cleanup")
+            await pilot.pause()
+            await choose(pilot, console, 0)  # ban
+            await answer(pilot, console, "2000-01-01 00:00", "", "")
+            assert alice.handle in console.screen.note
+            await answer(pilot, console, "ban")
+            await console.workers.wait_for_complete()
+            await pilot.pause()
+
+    run(scenario)
+    with app.app_context():
+        assert get_db().execute("SELECT banned_at FROM users").fetchone()[0] is not None
+
+
+def test_revoke_an_admin_from_the_users_tab(app, alice):
+    from .test_cleanup import code_from, join_with
+
+    app.test_cli_runner().invoke(args=["admin", "grant", alice.handle])
+    bob = join_with(app, code_from(app, alice), "bob")
+
+    async def scenario():
+        console = Console(app, start_server=False)
+        async with console.run_test(size=(140, 45)) as pilot:
+            await pilot.press("enter")
+            await pilot.pause()
+            console.screen.query_one("#tabs").active = "users-tab"
+            await pilot.pause()
+            # alice is the first row, where the cursor starts
+            await pilot.click("#revoke-admin")
+            await pilot.pause()
+            await choose(pilot, console, 1)  # ban every account made with her codes
+            await choose(pilot, console, 0)  # keep her own account
+            assert "loses admin rights" in console.screen.note
+            await answer(pilot, console, "revoke")
+            await console.workers.wait_for_complete()
+            await pilot.pause()
+
+    run(scenario)
+    with app.app_context():
+        db = get_db()
+        state = dict(db.execute("SELECT username, banned_at IS NOT NULL FROM users").fetchall())
+        is_admin = db.execute(
+            "SELECT is_admin FROM users WHERE username = ?", (alice.handle,)
+        ).fetchone()[0]
+    assert state == {alice.handle: 0, bob.handle: 1}
+    assert is_admin == 0
 
 
 def test_start_and_stop_the_server(app):

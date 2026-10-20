@@ -33,7 +33,20 @@ from textual.widgets import (
     TabPane,
 )
 
-from app.admin import ban_user, grant_admin, revoke_certificate, unban_user
+from app.admin import (
+    TIME,
+    apply_cleanup,
+    apply_revoke_admin,
+    ban_user,
+    describe,
+    describe_revoke,
+    grant_admin,
+    inviter_from,
+    plan_cleanup,
+    plan_revoke_admin,
+    revoke_certificate,
+    unban_user,
+)
 from app.db import get_db, init_db
 from app.invites import DAYS, cancel_invite, create_invite, list_invites, to_local
 from app.serving import make_app_server
@@ -253,11 +266,13 @@ class Main(Screen):
                     yield Button("Revoke certificate", id="revoke", variant="error", compact=True)
                     yield Button("Ban", id="ban", variant="error", compact=True)
                     yield Button("Unban", id="unban", compact=True)
+                    yield Button("Revoke admin...", id="revoke-admin", compact=True)
                 yield DataTable(id="users", cursor_type="row")
             with TabPane("Invites", id="invites-tab"):
                 with Horizontal(classes="buttons"):
                     yield Button("New code", id="new-invite", variant="primary", compact=True)
                     yield Button("Cancel code", id="cancel-invite", compact=True)
+                    yield Button("Clean up...", id="cleanup", variant="error", compact=True)
                 yield DataTable(id="invites", cursor_type="row")
             with TabPane("Audit log", id="log-tab"):
                 yield DataTable(id="audit", cursor_type="row")
@@ -425,8 +440,10 @@ class Console(App):
             ("#revoke", not k.locked),
             ("#ban", not k.locked),
             ("#unban", not k.locked),
+            ("#revoke-admin", not k.locked),
             ("#new-invite", not k.locked),
             ("#cancel-invite", not k.locked),
+            ("#cleanup", not k.locked),
             ("#add-usb", not k.needs_usb and not k.locked),
             ("#remove-usb", k.needs_usb),
             ("#set-passphrase", not k.needs_passphrase and not k.locked),
@@ -657,6 +674,97 @@ class Console(App):
         user = self.selected_user()
         if user:
             self.run_task(f"{user} can log in again.", unban_user, user)
+
+    # after a stolen admin login: each choice in its own dialog, then a
+    # preview to confirm
+
+    @on(Button.Pressed, "#revoke-admin")
+    def revoke_admin_pressed(self):
+        user = self.selected_user()
+        if user:
+            self.push_screen(
+                Choose(f"Accounts made with {user}'s invite codes",
+                       ["Leave them", "Ban all of them", "Ban those made since a date and time"]),
+                lambda choice: self.revoke_admin_accounts(user, choice),
+            )
+
+    def revoke_admin_accounts(self, user, choice):
+        if choice is None:
+            return
+        if choice.startswith("Ban those"):
+            self.push_screen(Ask("Made since", [(TIME, False)]),
+                             lambda v: v and self.revoke_admin_self(user, since=v[0]))
+        else:
+            self.revoke_admin_self(user, all_invited=choice == "Ban all of them")
+
+    def revoke_admin_self(self, user, since=None, all_invited=False):
+        self.push_screen(
+            Choose(f"And {user} themselves",
+                   ["Keep the account", "Ban it", "Ban it and revoke its certificate"]),
+            lambda choice: choice and self.revoke_admin_preview(user, since, all_invited, choice),
+        )
+
+    def revoke_admin_preview(self, user, since, all_invited, choice):
+        ban, revoke_cert = choice != "Keep the account", choice.endswith("certificate")
+        try:
+            with self.flask_app.app_context():
+                admin, accounts, codes = plan_revoke_admin(user, since, all_invited)
+        except ValueError as e:
+            self.notify(str(e), severity="error")
+            return
+        go = partial(self.run_and_report, apply_revoke_admin, admin, accounts, codes, ban,
+                     revoke_cert)
+        lines = describe_revoke(admin, accounts, codes, ban, revoke_cert, shown=8)
+        self.push_screen(
+            Ask(f"Revoke {user}", [("Type revoke to confirm", False)], "\n".join(lines)),
+            # the certificate's revocation list is signed with the CA key
+            lambda v: v and v[0] == "revoke" and (
+                self.with_ca_passphrase(go) if revoke_cert else go()),
+        )
+
+    @on(Button.Pressed, "#cleanup")
+    def cleanup_pressed(self):
+        self.push_screen(Choose("Clean up", ["Ban accounts", "Unban accounts"]),
+                         self.cleanup_window)
+
+    def cleanup_window(self, choice):
+        if choice is None:
+            return
+        unban = choice == "Unban accounts"
+        self.push_screen(
+            Ask("Which accounts", [
+                (f"From: {TIME}", False),
+                ("To: the same way, empty for now", False),
+                ("Codes from: a username, server, or empty for anyone", False),
+            ], "The accounts created in this window, and the unused codes made in it."),
+            lambda v: v and self.cleanup_preview(v, unban),
+        )
+
+    def cleanup_preview(self, values, unban):
+        since, until, source = values
+        try:
+            with self.flask_app.app_context():
+                accounts, codes = plan_cleanup(since, until or None, inviter_from(source), unban)
+        except ValueError as e:
+            self.notify(str(e), severity="error")
+            return
+        if not accounts and not codes:
+            self.notify("Nothing in that window.")
+            return
+        word = "unban" if unban else "ban"
+        self.push_screen(
+            Ask("Clean up", [(f"Type {word} to confirm", False)],
+                "\n".join(describe(accounts, codes, unban, shown=8))),
+            lambda v: v and v[0] == word and self.run_and_report(
+                apply_cleanup, accounts, codes, unban),
+        )
+
+    @work(thread=True)
+    def run_and_report(self, action, *args):
+        """Like run_task, but the message is what the action returns."""
+        summary = self.task(action, *args)
+        if summary:
+            self.call_from_thread(self.notify, summary, timeout=12)
 
     @work(thread=True)
     def run_task(self, done, action, *args, stop_server=False):
