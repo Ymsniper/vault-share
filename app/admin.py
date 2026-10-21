@@ -132,7 +132,7 @@ def grant_admin(username):
 def ban_accounts(user_ids):
     """Lock these accounts out until unbanned. They cannot log in, their
     sessions end, their files are hidden from everyone they shared with, and
-    they lose admin rights and their unused invite codes. Nothing is deleted.
+    they lose admin rights and their open invite codes. Nothing is deleted.
     Returns how many were banned."""
     db = get_db()
     banned = 0
@@ -148,7 +148,7 @@ def ban_accounts(user_ids):
         db.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
         db.execute(
             "UPDATE invites SET cancelled_at = datetime('now')"
-            " WHERE created_by = ? AND used_at IS NULL AND cancelled_at IS NULL",
+            " WHERE created_by = ? AND uses < max_uses AND cancelled_at IS NULL",
             (user_id,),
         )
         audit("ban", "ok", user_id=user_id)
@@ -230,12 +230,12 @@ def accounts_made(since=None, until=None, inviter=ANY, banned=False):
 
 
 def codes_made(since=None, until=None, inviter=ANY):
-    """Invite codes made from since up to until by inviter, still unused."""
+    """Invite codes made from since up to until by inviter, with places left."""
     sql = (
         "SELECT i.id, i.created_at, m.username AS made_by FROM invites i"
         " LEFT JOIN users m ON m.id = i.created_by"
         " WHERE i.created_at >= ? AND i.created_at < ?"
-        " AND i.used_at IS NULL AND i.cancelled_at IS NULL"
+        " AND i.uses < i.max_uses AND i.cancelled_at IS NULL"
     )
     params = [since or FAR_PAST, until or FAR_FUTURE]
     if inviter is not ANY:
@@ -280,7 +280,7 @@ def apply_cleanup(accounts, codes, unban=False):
     if unban:
         return f"{unban_accounts(ids)} accounts unbanned."
     cancelled = cancel_codes(codes)
-    return f"{ban_accounts(ids)} accounts banned, {cancelled} unused codes cancelled."
+    return f"{ban_accounts(ids)} accounts banned, {cancelled} open codes cancelled."
 
 
 def describe(accounts, codes, unban=False, shown=SHOWN):
@@ -292,7 +292,7 @@ def describe(accounts, codes, unban=False, shown=SHOWN):
     if len(accounts) > shown:
         lines.append(f"  and {len(accounts) - shown} more")
     if not unban:
-        lines.append(f"Unused invite codes to cancel: {len(codes)}")
+        lines.append(f"Open invite codes to cancel: {len(codes)}")
         for c in codes[:shown]:
             lines.append(f"  no. {c['id']}, made {to_local(c['created_at'])}"
                          f" by {c['made_by'] or 'the server'}")
@@ -304,7 +304,7 @@ def describe(accounts, codes, unban=False, shown=SHOWN):
 def plan_revoke_admin(username, invited_since=None, all_invited=False):
     """What revoking an admin would touch, as (admin, accounts, codes): the
     accounts made with their codes since invited_since (local time), all of
-    them, or none, and their unused codes. Raises ValueError."""
+    them, or none, and their open codes. Raises ValueError."""
     admin = user_by_handle(username)
     if not admin["is_admin"]:
         raise ValueError(f"{username} is not an admin.")
@@ -333,7 +333,7 @@ def apply_revoke_admin(admin, accounts, codes, ban=False, revoke_cert=False):
     audit("admin", "revoked", user_id=admin["id"])
     done = [
         f"{admin['username']} is no longer an admin",
-        f"{cancel_codes(codes)} unused codes cancelled",
+        f"{cancel_codes(codes)} open codes cancelled",
         f"{ban_accounts([a['id'] for a in accounts])} accounts banned",
     ]
     if ban and ban_accounts([admin["id"]]):
@@ -366,7 +366,7 @@ def ban_command(username):
     """Lock USERNAME out until unbanned.
 
     They cannot log in, their sessions end, their files are hidden from
-    everyone, and their admin rights and unused invite codes go. Nothing is
+    everyone, and their admin rights and open invite codes go. Nothing is
     deleted.
     """
     try:
@@ -424,7 +424,7 @@ def show_and_confirm(lines, yes):
                    "files as them. Needs CA_PASSPHRASE.")
 @click.option("--yes", is_flag=True, help="Do not ask before going ahead.")
 def revoke_admin_command(username, ban_invited_since, ban_all_invited, ban, revoke_cert, yes):
-    """Take admin rights from USERNAME and cancel their unused invite codes.
+    """Take admin rights from USERNAME and cancel their open invite codes.
 
     Shows what it will do first.
     """
@@ -450,7 +450,7 @@ def revoke_admin_command(username, ban_invited_since, ban_all_invited, ban, revo
 @click.option("--unban", is_flag=True, help="Unban the accounts instead.")
 @click.option("--yes", is_flag=True, help="Do not ask before going ahead.")
 def cleanup_command(since, until, admin_name, server, unban, yes):
-    """Ban the accounts created in a time window and cancel the unused invite
+    """Ban the accounts created in a time window and cancel the open invite
     codes made in it, or unban those accounts. Shows what it will do first."""
     if admin_name and server:
         raise click.UsageError("Use --admin or --server, not both.")

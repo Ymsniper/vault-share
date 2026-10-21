@@ -40,7 +40,9 @@ CREATE TABLE invites (
     created_by INTEGER REFERENCES users (id),
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     expires_at TEXT NOT NULL,
-    used_at TEXT,
+    -- how many accounts it may create, and how many it did
+    max_uses INTEGER NOT NULL CHECK (max_uses BETWEEN 1 AND 100),
+    uses INTEGER NOT NULL DEFAULT 0 CHECK (uses <= max_uses),
     cancelled_at TEXT
 );
 

@@ -1,4 +1,5 @@
-"""Invite codes: registering needs one, and each works once.
+"""Invite codes: registering needs one, and each lets a set number of
+people register, once each.
 
 Only a SHA-256 of each code is stored. The codes are random, 100 bits, so
 the hash cannot be turned back into a code that still works.
@@ -17,6 +18,7 @@ from .db import get_db
 # code is read out: 32 symbols, 5 bits each, 20 of them
 ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 DAYS = 7
+USES = 1
 INVALID = "This invite code is not valid."
 # for admins on the website: a stolen admin login hands out only so many
 ADMIN_DAILY_LIMIT = 5
@@ -36,7 +38,7 @@ def code_hash(code):
     return hashlib.sha256(plain.encode()).hexdigest()
 
 
-def create_invite(created_by=None, days=DAYS):
+def create_invite(created_by=None, days=DAYS, uses=USES):
     """Store a new invite and return its code, which is shown only this once.
 
     created_by is the admin who made it, or None when it is made at the server.
@@ -44,9 +46,9 @@ def create_invite(created_by=None, days=DAYS):
     code = new_code()
     db = get_db()
     cur = db.execute(
-        "INSERT INTO invites (code_hash, created_by, expires_at)"
-        " VALUES (?, ?, datetime('now', ?))",
-        (code_hash(code), created_by, f"+{int(days)} days"),
+        "INSERT INTO invites (code_hash, created_by, expires_at, max_uses)"
+        " VALUES (?, ?, datetime('now', ?), ?)",
+        (code_hash(code), created_by, f"+{int(days)} days", uses),
     )
     db.commit()
     where = "" if created_by else ", at the server"
@@ -66,7 +68,7 @@ def made_today(user_id):
 def usable_invite(code):
     """The id of the invite with this code if it can still be used, or None."""
     row = get_db().execute(
-        "SELECT id FROM invites WHERE code_hash = ? AND used_at IS NULL"
+        "SELECT id FROM invites WHERE code_hash = ? AND uses < max_uses"
         " AND cancelled_at IS NULL AND expires_at > datetime('now')",
         (code_hash(code),),
     ).fetchone()
@@ -74,11 +76,12 @@ def usable_invite(code):
 
 
 def use_invite(invite_id):
-    """Mark the invite used, in the caller's transaction. False when it was
-    used, cancelled or expired since it was checked."""
+    """Take one of the invite's places, in the caller's transaction. False
+    when the last one went, or it was cancelled or expired, since it was
+    checked: one statement, so two people cannot both take the last place."""
     cur = get_db().execute(
-        "UPDATE invites SET used_at = datetime('now')"
-        " WHERE id = ? AND used_at IS NULL AND cancelled_at IS NULL"
+        "UPDATE invites SET uses = uses + 1"
+        " WHERE id = ? AND uses < max_uses AND cancelled_at IS NULL"
         " AND expires_at > datetime('now')",
         (invite_id,),
     )
@@ -86,11 +89,12 @@ def use_invite(invite_id):
 
 
 def cancel_invite(invite_id, created_by=ANY):
-    """Cancel an invite nobody used yet. An admin passes their own id as
+    """Cancel an invite that still has places, so nobody else registers with
+    it; the accounts it made stay. An admin passes their own id as
     created_by, so they can only cancel their own. Raises ValueError."""
     sql = (
         "UPDATE invites SET cancelled_at = datetime('now')"
-        " WHERE id = ? AND used_at IS NULL AND cancelled_at IS NULL"
+        " WHERE id = ? AND uses < max_uses AND cancelled_at IS NULL"
     )
     params = [invite_id]
     if created_by is not ANY:
@@ -100,20 +104,22 @@ def cancel_invite(invite_id, created_by=ANY):
     cur = db.execute(sql, params)
     db.commit()
     if cur.rowcount == 0:
-        raise ValueError(f"No unused invite numbered {invite_id}.")
+        raise ValueError(f"No open invite numbered {invite_id}.")
     actor = None if created_by is ANY else created_by
     audit("invite", "cancelled", detail=f"code {invite_id}", user_id=actor)
 
 
 def list_invites(created_by=ANY):
-    """Invites, newest first, with their state and the account made with each."""
+    """Invites, newest first, with their state and the accounts made with
+    each, as "name#tag, name#tag" (usernames never hold a comma)."""
     sql = (
-        "SELECT i.id, i.created_at, i.expires_at, m.username AS made_by, u.username AS used_by,"
-        " CASE WHEN i.used_at IS NOT NULL THEN 'used'"
+        "SELECT i.id, i.created_at, i.expires_at, i.uses, i.max_uses, m.username AS made_by,"
+        " (SELECT GROUP_CONCAT(u.username, ', ') FROM users u WHERE u.invite_id = i.id)"
+        "  AS used_by,"
+        " CASE WHEN i.uses >= i.max_uses THEN 'used'"
         "  WHEN i.cancelled_at IS NOT NULL THEN 'cancelled'"
         "  WHEN i.expires_at <= datetime('now') THEN 'expired' ELSE 'open' END AS state"
         " FROM invites i LEFT JOIN users m ON m.id = i.created_by"
-        " LEFT JOIN users u ON u.invite_id = i.id"
     )
     params = []
     if created_by is not ANY:
@@ -155,8 +161,9 @@ def new_command(days):
 def list_command():
     """List the invite codes, newest first. Times are local."""
     for r in list_invites():
-        line = (f"{r['id']:>4}  {r['state']:<9}  made {to_local(r['created_at'])}"
-                f" by {r['made_by'] or 'the server'}, expires {to_local(r['expires_at'])}")
+        line = (f"{r['id']:>4}  {r['state']:<9}  {r['uses']} of {r['max_uses']} used,"
+                f" made {to_local(r['created_at'])} by {r['made_by'] or 'the server'},"
+                f" expires {to_local(r['expires_at'])}")
         if r["used_by"]:
             line += f", used by {r['used_by']}"
         click.echo(line)
@@ -165,7 +172,7 @@ def list_command():
 @invite_cli.command("cancel")
 @click.argument("number", type=int)
 def cancel_command(number):
-    """Cancel invite NUMBER (from "invite list") if nobody used it yet."""
+    """Cancel invite NUMBER (from "invite list") while it still has places."""
     try:
         cancel_invite(number)
     except ValueError as e:

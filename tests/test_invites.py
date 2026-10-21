@@ -118,7 +118,8 @@ def test_invite_commands(app, client):
     assert r.exit_code == 0
     code = r.output.strip()
     assert CODE_RE.match(code)
-    assert re.search(r"^\s+1  open\s+made .* by the server, expires ", invite(app, "list").output)
+    listed = invite(app, "list").output
+    assert re.search(r"^\s+1  open\s+0 of 1 used, made .* by the server, expires ", listed)
     assert step_one(client, code).headers["Location"] == "/auth/register/password"
 
 
@@ -128,4 +129,47 @@ def test_a_cancelled_code_stops_working(app, client):
     assert NOT_VALID in step_one(client, code).data
     r = invite(app, "cancel", "1")
     assert r.exit_code != 0
-    assert "No unused invite numbered 1." in r.output
+    assert "No open invite numbered 1." in r.output
+
+
+def join(app, code, name):
+    client = app.test_client()
+    assert step_one(client, code, name).headers["Location"] == "/auth/register/password"
+    assert step_two(client).headers["Location"] == "/auth/login"
+
+
+def test_a_code_can_let_several_people_in(app):
+    with app.app_context():
+        code = create_invite(uses=3)
+    for name in ("amina", "bilel", "chaima"):
+        join(app, code, name)
+    assert NOT_VALID in step_one(app.test_client(), code, "dali").data
+    with app.app_context():
+        [made] = list_invites()
+    assert (made["state"], made["uses"], made["max_uses"]) == ("used", 3, 3)
+    assert sorted(n.split("#")[0] for n in made["used_by"].split(", ")) == [
+        "amina", "bilel", "chaima"
+    ]
+
+
+def test_the_last_place_goes_to_one_person(app):
+    with app.app_context():
+        code = create_invite(uses=2)
+    join(app, code, "amina")
+    first, second = app.test_client(), app.test_client()
+    step_one(first, code, "bilel")
+    step_one(second, code, "chaima")
+    assert step_two(first).headers["Location"] == "/auth/login"
+    assert step_two(second).headers["Location"] == "/auth/register"
+    assert users(app) == 2
+
+
+def test_cancelling_a_partly_used_code_keeps_its_accounts(app):
+    with app.app_context():
+        code = create_invite(uses=3)
+    join(app, code, "amina")
+    assert invite(app, "cancel", "1").output == "Invite 1 cancelled.\n"
+    assert NOT_VALID in step_one(app.test_client(), code, "bilel").data
+    assert re.search(r"^\s+1  cancelled\s+1 of 3 used", invite(app, "list").output)
+    assert users(app) == 1
+

@@ -126,7 +126,7 @@ def test_admins_see_and_cancel_only_their_own_codes(app, alice):
         create_invite()  # one made at the server
         open_codes = {
             r["created_by"]: r["id"]
-            for r in get_db().execute("SELECT id, created_by FROM invites WHERE used_at IS NULL")
+            for r in get_db().execute("SELECT id, created_by FROM invites WHERE uses = 0")
         }
     mine, servers = open_codes[user_id(app, alice.handle)], open_codes[None]
     page = alice.get("/admin/invites").data
@@ -134,7 +134,7 @@ def test_admins_see_and_cancel_only_their_own_codes(app, alice):
     assert f'data-prefix="no.">{servers}</td>'.encode() not in page
 
     r = alice.post(f"/admin/invites/{servers}/cancel", follow_redirects=True)
-    assert f"No unused invite numbered {servers}.".encode() in r.data
+    assert f"No open invite numbered {servers}.".encode() in r.data
     r = alice.post(f"/admin/invites/{mine}/cancel", follow_redirects=True)
     assert f"Invite {mine} cancelled.".encode() in r.data
     assert NOT_VALID in step_one(app.test_client(), made, "bob").data

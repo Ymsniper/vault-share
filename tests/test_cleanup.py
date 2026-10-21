@@ -50,7 +50,7 @@ def code_states(app):
     with app.app_context():
         return dict(get_db().execute(
             "SELECT created_at, CASE WHEN cancelled_at IS NULL THEN 'open' ELSE 'cancelled' END"
-            " FROM invites WHERE used_at IS NULL"
+            " FROM invites WHERE uses < max_uses"
         ).fetchall())
 
 
@@ -78,7 +78,7 @@ WINDOW = ("--from", to_local("2026-03-01 09:00:00"), "--to", to_local("2026-03-0
 def test_cleanup_bans_the_window_and_cancels_its_codes(app, crowd):
     alice, bob, carol, dave = crowd
     r = admin(app, "cleanup", *WINDOW, "--yes")
-    assert "2 accounts banned, 1 unused codes cancelled." in r.output
+    assert "2 accounts banned, 1 open codes cancelled." in r.output
     assert [banned(app, c) for c in crowd] == [False, True, True, False]
     assert code_states(app) == {"2026-03-01 10:30:00": "cancelled", "2026-03-10 10:00:00": "open"}
 
@@ -101,7 +101,7 @@ def test_the_preview_comes_first(app, crowd):
     assert "Accounts to ban: 2" in r.output
     assert bob.handle in r.output and carol.handle in r.output
     assert dave.handle not in r.output
-    assert "Unused invite codes to cancel: 1" in r.output
+    assert "Open invite codes to cancel: 1" in r.output
     assert r.exit_code != 0  # aborted
     assert not any(banned(app, c) for c in crowd)
 
@@ -132,7 +132,7 @@ def test_revoke_admin_bans_what_their_codes_made_since(app, crowd):
     alice, bob, carol, dave = crowd
     since = to_local("2026-03-03 00:00:00")
     r = admin(app, "revoke-admin", alice.handle, "--ban-invited-since", since, "--yes")
-    assert "is no longer an admin; 2 unused codes cancelled; 1 accounts banned." in r.output
+    assert "is no longer an admin; 2 open codes cancelled; 1 accounts banned." in r.output
     assert [banned(app, c) for c in crowd] == [False, False, False, True]
     assert set(code_states(app).values()) == {"cancelled"}
     with app.app_context():

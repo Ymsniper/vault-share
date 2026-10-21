@@ -299,7 +299,7 @@ class Main(Screen):
             "User", "Status", "Admin", "Two-factor", "Certificate", "Files", "Invited by"
         )
         self.query_one("#invites", DataTable).add_columns(
-            "No.", "State", "Made by", "Made", "Expires", "Used by"
+            "No.", "State", "Used", "Made by", "Made", "Expires", "Used by"
         )
         self.query_one("#audit", DataTable).add_columns(
             "Time (UTC)", "User", "Action", "File", "Outcome", "Detail", "Network"
@@ -549,6 +549,7 @@ class Console(App):
             table.add_row(
                 str(r["id"]),
                 r["state"],
+                f"{r['uses']} of {r['max_uses']}",
                 Text(r["made_by"] or "the server"),
                 to_local(r["created_at"]),
                 to_local(r["expires_at"]),
@@ -740,7 +741,7 @@ class Console(App):
                 (f"From: {TIME}", False),
                 ("To: the same way, empty for now", False),
                 ("Codes from: a username, server, or empty for anyone", False),
-            ], "The accounts created in this window, and the unused codes made in it."),
+            ], "The accounts created in this window, and the open codes made in it."),
             lambda v: v and self.cleanup_preview(v, unban),
         )
 
