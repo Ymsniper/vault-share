@@ -73,7 +73,8 @@ def test_next_upload_gets_a_new_certificate(app, alice):
     certs = certificates(app)
     assert len(certs) == 2
     assert certs[0]["revoked_at"] is not None and certs[1]["revoked_at"] is None
-    assert f"Record verified. Signature valid, signed by {alice.handle}.".encode() in alice.get(new).data
+    verified = f"Record verified. Signature valid, signed by {alice.handle}."
+    assert verified.encode() in alice.get(new).data
     assert b"the certificate was revoked" in alice.get(old).data
 
 
@@ -85,4 +86,5 @@ def test_expired_certificate_is_renewed_at_upload(app, alice, test_certs):
 
     url = new_file(alice)
     assert len(certificates(app)) == 2
-    assert f"Record verified. Signature valid, signed by {alice.handle}.".encode() in alice.get(url).data
+    verified = f"Record verified. Signature valid, signed by {alice.handle}."
+    assert verified.encode() in alice.get(url).data

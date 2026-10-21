@@ -34,7 +34,8 @@ def test_codes_are_four_groups_of_five(app):
 
 
 def test_registering_needs_a_code(app, client):
-    assert b"Type your invite code." in client.post("/auth/register", data={"username": "alice"}).data
+    r = client.post("/auth/register", data={"username": "alice"})
+    assert b"Type your invite code." in r.data
     assert NOT_VALID in step_one(client, "AAAAA-BBBBB-CCCCC-DDDDD").data
     assert client.get("/auth/register/password").headers["Location"] == "/auth/register"
     assert users(app) == 0

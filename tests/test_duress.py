@@ -137,7 +137,8 @@ def test_after_a_wipe_the_real_password_starts_over(app, alice):
     # a new key pair at the first real login after the wipe
     assert encryption_key()["public_key"] != before
     url = new_file(real)
-    assert f"Record verified. Signature valid, signed by {alice.handle}.".encode() in real.get(url).data
+    verified = f"Record verified. Signature valid, signed by {alice.handle}."
+    assert verified.encode() in real.get(url).data
 
 
 def test_wipe_needs_confirmation(alice):

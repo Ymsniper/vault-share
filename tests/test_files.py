@@ -512,8 +512,9 @@ def test_every_reader_has_their_own_copy(app, alice, bob):
     # each copy opens only with its own reader's key
     with app.app_context():
         alice_key = unlock_encryption_key(user_id(app, alice.handle), alice.handle, PASSWORD)
+    bob_id = user_id(app, bob.handle)
     with pytest.raises(InvalidTag):
-        unwrap_file_key(alice_key, copies[user_id(app, bob.handle)], file_id(url), user_id(app, bob.handle))
+        unwrap_file_key(alice_key, copies[bob_id], file_id(url), bob_id)
 
 
 def test_a_revoked_share_stays_closed_even_if_the_row_comes_back(app, alice, bob):
@@ -554,4 +555,5 @@ def test_the_saved_login_stays_out_of_the_recipient_field(alice):
     form = page[page.index(b'/share"'):]
     recipient = re.search(rb'<input[^>]*name="username"[^>]*>', form).group(0)
     assert b'autocomplete="off"' in recipient
-    assert f'<input type="text" autocomplete="username" value="{alice.handle}" hidden>'.encode() in form
+    hint = f'<input type="text" autocomplete="username" value="{alice.handle}" hidden>'
+    assert hint.encode() in form

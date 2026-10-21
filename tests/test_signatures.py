@@ -95,7 +95,8 @@ def test_revoked_certificate_is_refused(app, alice):
 
 def test_valid_file_still_passes(alice):
     url = new_file(alice)
-    assert f"Record verified. Signature valid, signed by {alice.handle}.".encode() in page(alice, url)
+    verified = f"Record verified. Signature valid, signed by {alice.handle}."
+    assert verified.encode() in page(alice, url)
 
 
 def test_private_keys_are_stored_encrypted(app, alice):
@@ -107,7 +108,9 @@ def test_private_keys_are_stored_encrypted(app, alice):
         unlock_private_key(
             row["kdf_salt"], row["enc_private_key"], "wrong password!", alice.handle.encode()
         )
-    assert unlock_private_key(row["kdf_salt"], row["enc_private_key"], "contract-2026", alice.handle.encode())
+    assert unlock_private_key(
+        row["kdf_salt"], row["enc_private_key"], "contract-2026", alice.handle.encode()
+    )
 
 
 def upload_with_password(client, password):
