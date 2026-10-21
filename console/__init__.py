@@ -48,7 +48,19 @@ from app.admin import (
     unban_user,
 )
 from app.db import get_db, init_db
-from app.invites import DAYS, cancel_invite, create_invite, list_invites, to_local
+from app.invites import (
+    cancel_invite,
+    create_invite,
+    defaults,
+    describe_defaults,
+    list_invites,
+    parse_duration,
+    people,
+    set_defaults,
+    short_duration,
+    show_duration,
+    to_local,
+)
 from app.serving import make_app_server
 from app.unlock import (
     FactorError,
@@ -114,7 +126,12 @@ class ToLogPane(logging.Handler):
 
 
 class Ask(ModalScreen):
-    """A small form: one input per field, returns the values or None."""
+    """A small form: one input per field, returns the values or None.
+
+    A field is (label, secret), or (label, secret, starting value); a field
+    with a starting value shows its label above it, since the value hides
+    the placeholder.
+    """
 
     def __init__(self, title, fields, note=""):
         super().__init__()
@@ -125,8 +142,11 @@ class Ask(ModalScreen):
             yield Label(self.title_text, classes="dialog-title")
             if self.note:
                 yield Static(Text(self.note), classes="dialog-note")
-            for i, (label, secret) in enumerate(self.fields):
-                yield Input(placeholder=label, password=secret, id=f"field-{i}")
+            for i, (label, secret, *value) in enumerate(self.fields):
+                if value:
+                    yield Label(label)
+                yield Input(value=value[0] if value else "", placeholder=label,
+                            password=secret, id=f"field-{i}")
             with Horizontal(classes="dialog-buttons"):
                 yield Button("OK", variant="primary", id="ok", compact=True)
                 yield Button("Cancel", id="cancel", compact=True)
@@ -272,6 +292,7 @@ class Main(Screen):
                 with Horizontal(classes="buttons"):
                     yield Button("New code", id="new-invite", variant="primary", compact=True)
                     yield Button("Cancel code", id="cancel-invite", compact=True)
+                    yield Button("Defaults...", id="invite-defaults", compact=True)
                     yield Button("Clean up...", id="cleanup", variant="error", compact=True)
                 yield DataTable(id="invites", cursor_type="row")
             with TabPane("Audit log", id="log-tab"):
@@ -319,6 +340,17 @@ def certificate_state(path):
     if end < datetime.now(timezone.utc):
         return False, f"expired on {end:%Y-%m-%d}"
     return True, f"valid until {end:%Y-%m-%d}"
+
+
+def code_and_defaults():
+    """A new code with the current defaults, and those defaults, to say what
+    the code allows."""
+    return create_invite(), defaults()
+
+
+def change_defaults(uses, minutes, admin_per_day):
+    warning = set_defaults(uses, minutes, admin_per_day)
+    return warning or describe_defaults(defaults())
 
 
 class Console(App):
@@ -443,6 +475,7 @@ class Console(App):
             ("#revoke-admin", not k.locked),
             ("#new-invite", not k.locked),
             ("#cancel-invite", not k.locked),
+            ("#invite-defaults", not k.locked),
             ("#cleanup", not k.locked),
             ("#add-usb", not k.needs_usb and not k.locked),
             ("#remove-usb", k.needs_usb),
@@ -805,20 +838,48 @@ class Console(App):
 
     @work(thread=True)
     def make_invite(self):
-        code = self.task(create_invite)
-        if code:
-            self.call_from_thread(self.show_invite, code)
+        made = self.task(code_and_defaults)
+        if made:
+            code, d = made
+            self.call_from_thread(self.show_invite, code, d["uses"], d["valid_minutes"])
 
-    def show_invite(self, code):
+    def show_invite(self, code, uses, minutes):
         # through the terminal (OSC 52); a few terminals ignore it
         self.copy_to_clipboard(code)
         self.push_screen(Show(
             "New invite code",
-            f"Send it to the person who should register. It works once, for {DAYS} days,\n"
-            "and is shown only now. It is also on the clipboard.\n\n"
+            f"Send it to the people who should register. It lets {people(uses)} register,\n"
+            f"works for {show_duration(minutes)}, and is shown only now."
+            " It is also on the clipboard.\n\n"
             f"    {code}",
             "Done",
         ))
+
+    @on(Button.Pressed, "#invite-defaults")
+    def invite_defaults_pressed(self):
+        with self.flask_app.app_context():
+            d = defaults()
+        self.push_screen(
+            Ask("Invite defaults", [
+                ("People each code lets register, 1 to 100", False, str(d["uses"])),
+                ("Time limit: 30m, 12h or 7d", False, short_duration(d["valid_minutes"])),
+                ("Accounts an admin's codes may create a day, 0 stops them", False,
+                 str(d["admin_per_day"])),
+            ], "For codes made from now on: every code keeps the values it was made with."),
+            self.change_invite_defaults,
+        )
+
+    def change_invite_defaults(self, values):
+        if values is None:
+            return
+        try:
+            minutes = parse_duration(values[1])
+            uses, per_day = int(values[0]), int(values[2])
+        except ValueError as e:
+            whole = "Type whole numbers for people and accounts."
+            self.notify(str(e) if "time limit" in str(e) else whole, severity="error")
+            return
+        self.run_and_report(change_defaults, uses, minutes, per_day)
 
     @on(Button.Pressed, "#cancel-invite")
     def cancel_invite_pressed(self):

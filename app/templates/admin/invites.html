@@ -5,7 +5,7 @@
   <div>
     <p class="vs-kicker">Administration</p>
     <h1>Invite codes</h1>
-    <p class="vs-lede">Registering needs a code. Each one works once and expires after {{ days }} days. Admins can make {{ limit }} a day. Times are UTC.</p>
+    <p class="vs-lede">Registering needs a code. Each code lets {{ people }} register and expires after {{ valid }}. {% if defaults['admin_per_day'] %}Admins' codes can create {{ defaults['admin_per_day'] }} accounts a day.{% else %}Admins cannot make codes at the moment.{% endif %} Times are UTC.</p>
   </div>
 </div>
 
@@ -23,8 +23,10 @@
       <h2 class="vs-panel-title">Make a code</h2>
       {% if not g.user['totp_secret'] %}
       <p class="mb-0">Turn on <a href="{{ url_for('totp.setup') }}">two-factor login</a> first. Making a code asks for your password and a code from your phone, so a stolen password alone cannot let anyone in.</p>
-      {% elif left <= 0 %}
-      <p class="mb-0">You made {{ limit }} codes in the last 24 hours, the most allowed.</p>
+      {% elif not defaults['admin_per_day'] %}
+      <p class="mb-0">Making invite codes is switched off at the server.</p>
+      {% elif left < defaults['uses'] %}
+      <p class="mb-0">{{ over }}</p>
       {% else %}
       <form method="post" action="{{ url_for('admin.new_invite') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -40,7 +42,7 @@
         </div>
         <button type="submit" class="btn btn-primary">Make a code</button>
       </form>
-      <p class="vs-note mt-3 mb-0">{{ left }} left in the next 24 hours.</p>
+      <p class="vs-note mt-3 mb-0">Your codes may create {{ left }} more accounts in the next 24 hours.</p>
       {% endif %}
     </section>
   </div>

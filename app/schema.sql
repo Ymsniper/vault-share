@@ -8,6 +8,7 @@ DROP TABLE IF EXISTS user_keys;
 DROP TABLE IF EXISTS sessions;
 DROP TABLE IF EXISTS users;
 DROP TABLE IF EXISTS invites;
+DROP TABLE IF EXISTS invite_defaults;
 
 CREATE TABLE users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -45,6 +46,19 @@ CREATE TABLE invites (
     uses INTEGER NOT NULL DEFAULT 0 CHECK (uses <= max_uses),
     cancelled_at TEXT
 );
+
+-- what a new code gets unless the server asks for other values; changed
+-- only from the console or the command line, and only for codes made
+-- afterwards: every code keeps the values it was made with
+CREATE TABLE invite_defaults (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    uses INTEGER NOT NULL CHECK (uses BETWEEN 1 AND 100),
+    -- 10 minutes to 90 days
+    valid_minutes INTEGER NOT NULL CHECK (valid_minutes BETWEEN 10 AND 129600),
+    -- accounts an admin's codes may create in 24 hours; 0 stops admin codes
+    admin_per_day INTEGER NOT NULL CHECK (admin_per_day BETWEEN 0 AND 50)
+);
+INSERT INTO invite_defaults (id, uses, valid_minutes, admin_per_day) VALUES (1, 1, 10080, 5);
 
 -- only the SHA-256 of each session token is stored, so a copy of the
 -- database does not give anyone a working session

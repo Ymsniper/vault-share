@@ -1,8 +1,19 @@
 import hashlib
 import re
 
+import pytest
+from sqlcipher3.dbapi2 import IntegrityError
+
 from app.db import get_db
-from app.invites import ALPHABET, code_hash, create_invite, list_invites
+from app.invites import (
+    ALPHABET,
+    code_hash,
+    create_invite,
+    defaults,
+    list_invites,
+    parse_duration,
+    show_duration,
+)
 
 from .conftest import PASSWORD, invite_code
 
@@ -172,4 +183,81 @@ def test_cancelling_a_partly_used_code_keeps_its_accounts(app):
     assert NOT_VALID in step_one(app.test_client(), code, "bilel").data
     assert re.search(r"^\s+1  cancelled\s+1 of 3 used", invite(app, "list").output)
     assert users(app) == 1
+
+
+def lifetimes(app):
+    with app.app_context():
+        return [tuple(r) for r in get_db().execute(
+            "SELECT max_uses, round((julianday(expires_at) - julianday(created_at)) * 1440)"
+            " FROM invites ORDER BY id"
+        )]
+
+
+def test_the_defaults(app):
+    assert invite(app, "defaults").output == (
+        "New codes let 1 person register and work for 7 days."
+        " Admins' codes may create 5 accounts a day.\n"
+    )
+
+
+def test_new_defaults_only_touch_new_codes(app):
+    with app.app_context():
+        create_invite()
+    r = invite(app, "defaults", "--uses", "3", "--valid", "2d", "--admin-per-day", "9")
+    assert "New codes let 3 people register and work for 2 days." in r.output
+    with app.app_context():
+        create_invite()
+    assert lifetimes(app) == [(1, 10080.0), (3, 2880.0)]
+    with app.app_context():
+        row = get_db().execute(
+            "SELECT outcome, detail FROM audit_log WHERE action = 'invite' ORDER BY id"
+        ).fetchall()[1]
+    assert tuple(row) == (
+        "defaults", "uses 1 to 3; time limit 7 days to 2 days; admin accounts a day 5 to 9"
+    )
+
+
+def test_defaults_stay_within_their_limits(app):
+    for args, message in (
+        (["--uses", "0"], "1 to 100 people"),
+        (["--uses", "101"], "1 to 100 people"),
+        (["--valid", "5m"], "between 10 minutes and 90 days"),
+        (["--valid", "91d"], "between 10 minutes and 90 days"),
+        (["--valid", "soon"], "Not a time limit"),
+        (["--admin-per-day", "51"], "0 to 50 accounts"),
+        (["--admin-per-day", "-1"], "0 to 50 accounts"),
+    ):
+        r = invite(app, "defaults", *args)
+        assert r.exit_code != 0 and message in r.output, (args, r.output)
+    with app.app_context():
+        assert tuple(defaults()) == (1, 10080, 5)
+
+
+def test_the_database_holds_the_same_limits(app):
+    with app.app_context():
+        db = get_db()
+        for sql in (
+            "UPDATE invite_defaults SET uses = 0",
+            "UPDATE invite_defaults SET valid_minutes = 5",
+            "UPDATE invite_defaults SET admin_per_day = 51",
+            "INSERT INTO invite_defaults (id, uses, valid_minutes, admin_per_day)"
+            " VALUES (2, 1, 60, 5)",
+        ):
+            with pytest.raises(IntegrityError):
+                db.execute(sql)
+
+
+def test_a_warning_when_admins_can_no_longer_make_codes(app):
+    r = invite(app, "defaults", "--uses", "6")
+    assert "Admins cannot make codes now: a code lets 6 people register" in r.output
+
+
+def test_durations():
+    assert [parse_duration(t) for t in ("30m", "12h", "7d", " 2H ")] == [30, 720, 10080, 120]
+    for bad in ("", "7", "7w", "-1h", "1.5h", "0m", "9m"):
+        with pytest.raises(ValueError):
+            parse_duration(bad)
+    assert [show_duration(m) for m in (10080, 1440, 60, 720, 90)] == [
+        "7 days", "1 day", "1 hour", "12 hours", "90 minutes"
+    ]
 

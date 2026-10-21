@@ -17,14 +17,15 @@ from .db import get_db
 from .forms import TotpForm, first_error
 from .identity import write_crl
 from .invites import (
-    ADMIN_DAILY_LIMIT,
     ANY,
-    DAYS,
     cancel_invite,
-    create_invite,
+    create_admin_invite,
+    defaults,
     from_local,
     list_invites,
-    made_today,
+    people,
+    places_today,
+    show_duration,
     to_local,
 )
 from .totp import check_password_and_code, no_store, unseal
@@ -50,18 +51,32 @@ def log():
     return render_template("admin/log.html", entries=entries)
 
 
+def accounts_left():
+    """How many more accounts this admin's codes may create today."""
+    return max(0, defaults()["admin_per_day"] - places_today(g.user["id"]))
+
+
+def over_the_limit(d, left):
+    return (f"Not today: your codes may create {left} more accounts in the next 24 hours,"
+            f" and a code lets {people(d['uses'])} register.")
+
+
 @bp.route("/invites")
 @login_required
 def invites():
     admin_only("invite")
+    d = defaults()
+    left = accounts_left()
     page = render_template(
         "admin/invites.html",
         invites=list_invites(created_by=g.user["id"]),
         # shown on this one page only: just its hash is stored
         new_code=session.pop("new_invite_code", None),
-        left=ADMIN_DAILY_LIMIT - made_today(g.user["id"]),
-        limit=ADMIN_DAILY_LIMIT,
-        days=DAYS,
+        defaults=d,
+        people=people(d["uses"]),
+        valid=show_duration(d["valid_minutes"]),
+        left=left,
+        over=over_the_limit(d, left),
     )
     return no_store(page)
 
@@ -80,9 +95,14 @@ def new_invite():
     if not form.validate_on_submit():
         flash(first_error(form))
         return redirect(url_for("admin.invites"))
-    if made_today(g.user["id"]) >= ADMIN_DAILY_LIMIT:
-        audit("invite", "refused", detail=f"{ADMIN_DAILY_LIMIT} codes a day")
-        flash(f"You made {ADMIN_DAILY_LIMIT} codes in the last 24 hours, the most allowed.")
+    d = defaults()
+    if not d["admin_per_day"]:
+        audit("invite", "refused", detail="admin codes switched off")
+        flash("Making invite codes is switched off at the server.")
+        return redirect(url_for("admin.invites"))
+    if accounts_left() < d["uses"]:
+        audit("invite", "refused", detail="daily limit")
+        flash(over_the_limit(d, accounts_left()))
         return redirect(url_for("admin.invites"))
     secret = unseal(g.user["id"], g.user["totp_secret"])
     step = check_password_and_code(form, secret, g.user["totp_last_step"])
@@ -93,7 +113,11 @@ def new_invite():
     # this code from the phone cannot be used again
     db.execute("UPDATE users SET totp_last_step = ? WHERE id = ?", (step, g.user["id"]))
     db.commit()
-    session["new_invite_code"] = create_invite(created_by=g.user["id"])
+    code = create_admin_invite(g.user["id"])
+    if code is None:  # another request took the last of today's places
+        flash(over_the_limit(d, accounts_left()))
+    else:
+        session["new_invite_code"] = code
     return redirect(url_for("admin.invites"))
 
 

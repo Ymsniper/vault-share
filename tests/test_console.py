@@ -178,6 +178,29 @@ def test_revoke_an_admin_from_the_users_tab(app, alice):
     assert is_admin == 0
 
 
+def test_change_the_invite_defaults_from_the_invites_tab(app):
+    from app.invites import defaults
+
+    async def scenario():
+        console = Console(app, start_server=False)
+        async with console.run_test(size=(140, 45)) as pilot:
+            await pilot.press("enter")
+            await pilot.pause()
+            console.screen.query_one("#tabs").active = "invites-tab"
+            await pilot.pause()
+            await pilot.click("#invite-defaults")
+            await pilot.pause()
+            # filled in with the current values
+            assert [i.value for i in console.screen.query(Input)] == ["1", "7d", "5"]
+            await answer(pilot, console, "4", "3d", "8")
+            await console.workers.wait_for_complete()
+            await pilot.pause()
+
+    run(scenario)
+    with app.app_context():
+        assert tuple(defaults()) == (4, 3 * 1440, 8)
+
+
 def test_start_and_stop_the_server(app):
     async def scenario():
         console = Console(app, start_server=False)

@@ -1,7 +1,7 @@
 import re
 
 from app.db import get_db
-from app.invites import create_invite
+from app.invites import create_admin_invite, create_invite
 
 from .conftest import PASSWORD
 from .test_audit import log_rows
@@ -100,15 +100,15 @@ def test_a_phone_code_works_once(app, alice):
     assert made_by(app, alice) == 1
 
 
-def test_five_codes_a_day(app, alice):
+def test_five_accounts_a_day(app, alice):
     make_admin(app, alice)
     secret = turn_on(alice)
     with app.app_context():
         for _ in range(5):
             create_invite(created_by=user_id(app, alice.handle))
-    assert b"You made 5 codes in the last 24 hours" in alice.get("/admin/invites").data
+    assert b"Not today: your codes may create 0 more accounts" in alice.get("/admin/invites").data
     r = new_code(alice, secret)
-    assert b"the most allowed" in r.data
+    assert b"Not today" in r.data
     assert shown_code(r.data) is None
 
     # a day later the count starts over
@@ -146,3 +146,71 @@ def test_the_decoy_account_cannot_make_codes(app, alice):
     forced, _ = log_in(app, alice, DURESS)
     assert forced.get("/admin/invites").status_code == 403
     assert b">Invites</a>" not in forced.get("/").data
+
+
+def set_defaults(app, *args):
+    r = app.test_cli_runner().invoke(args=["invite", "defaults", *args])
+    assert r.exit_code == 0, r.output
+
+
+def codes_by(app, client):
+    with app.app_context():
+        return [tuple(r) for r in get_db().execute(
+            "SELECT max_uses, round((julianday(expires_at) - julianday(created_at)) * 1440)"
+            " FROM invites WHERE created_by = ? ORDER BY id", (user_id(app, client.handle),)
+        )]
+
+
+def test_admin_codes_follow_the_defaults(app, alice):
+    make_admin(app, alice)
+    secret = turn_on(alice)
+    set_defaults(app, "--uses", "2", "--valid", "1d")
+    r = new_code(alice, secret)
+    assert shown_code(r.data)
+    assert b"Each code lets 2 people register and expires after 1 day." in r.data
+    assert codes_by(app, alice) == [(2, 1440.0)]
+
+
+def test_the_daily_limit_counts_accounts(app, alice):
+    make_admin(app, alice)
+    secret = turn_on(alice)
+    set_defaults(app, "--uses", "3", "--admin-per-day", "6")
+    with app.app_context():
+        create_invite(created_by=user_id(app, alice.handle))
+    # 3 accounts already, 3 more fit in the 6
+    assert shown_code(new_code(alice, secret).data)
+    assert b"Not today: your codes may create 0 more accounts" in alice.get("/admin/invites").data
+
+
+def test_cancelled_codes_still_count(app, alice):
+    make_admin(app, alice)
+    secret = turn_on(alice)
+    set_defaults(app, "--uses", "3", "--admin-per-day", "6")
+    with app.app_context():
+        for _ in range(2):
+            create_invite(created_by=user_id(app, alice.handle))
+    alice.post("/admin/invites/2/cancel")
+    r = new_code(alice, secret)
+    assert b"Not today" in r.data
+    assert shown_code(r.data) is None
+
+
+def test_the_limit_is_checked_where_the_code_is_stored(app, alice):
+    make_admin(app, alice)
+    set_defaults(app, "--uses", "3", "--admin-per-day", "5")
+    with app.app_context():
+        assert create_admin_invite(user_id(app, alice.handle))
+        assert create_admin_invite(user_id(app, alice.handle)) is None
+    assert codes_by(app, alice) == [(3, 10080.0)]
+
+
+def test_a_limit_of_zero_stops_admin_codes(app, alice):
+    make_admin(app, alice)
+    secret = turn_on(alice)
+    set_defaults(app, "--admin-per-day", "0")
+    page = alice.get("/admin/invites").data
+    assert b"Admins cannot make codes at the moment." in page
+    assert b"switched off at the server" in page
+    assert b"switched off at the server" in new_code(alice, secret).data
+    assert codes_by(app, alice) == []
+
