@@ -42,12 +42,14 @@ by a local CA.
 it in the shell history, which `export CA_PASSPHRASE='...'` would do. The
 console asks for it itself at startup when it is not set, and keeps it in
 memory only. `vault-share` passes anything else to `flask --app app`, so
-`vault-share keys status` or `vault-share admin grant alice` work from any
-folder; `vault-share install` links the command into `~/.local/bin`.
+`vault-share keys status` or `vault-share admin grant 'bob#516850'` work
+from any folder; `vault-share install` links the command into
+`~/.local/bin`.
 
 Then open http://127.0.0.1:5000. `pki/create_ca.sh` creates the local CA in
 `instance/ca/` once; the app needs the same `CA_PASSPHRASE` every time it
-starts, to issue a certificate to each new user.
+starts, to issue a certificate to each new user. Registering needs an invite
+code: make the first one with `vault-share invite new` (see below).
 
 ## Using it
 
@@ -99,6 +101,65 @@ the database itself, which SQLCipher keeps fully encrypted, along with the
 file records' HMACs, the two-factor secrets and the duress settings. Back up
 `master.key` separately from the database: without it the database cannot
 be opened.
+
+## Accounts and invite codes
+
+Registering needs an invite code. Make them at the server, from the
+console's Invites tab or the command line:
+
+    vault-share invite new         # valid 7 days; --days changes that
+    vault-share invite list
+    vault-share invite cancel 3
+
+A code works once. Only its SHA-256 is stored, so a copy of the database
+gives nobody a code that works, and an unknown, used, expired or cancelled
+code all get the same answer. Each step of registering is limited to ten
+tries an hour per address.
+
+Usernames carry a tag: you pick a name and the server adds a random 6-digit
+tag, so `bob` becomes something like `bob#516850`, and you log in and share
+with all of it. Names can repeat, so the register page never says whether
+one is taken, and knowing a name is not enough to lock its owner out with
+wrong passwords. Registering takes two steps, the code and the name first,
+then the password next to the full username, so the browser's password
+manager saves the username with its tag. Quote it in a shell: `#` means
+something to some shells.
+
+Admins can make codes too, on the "Invites" page, once their two-factor
+login is on: each code asks for their password and a code from their phone,
+and an admin can make five a day. That limits what a stolen admin login can
+hand out.
+
+### Bans and cleanup
+
+A ban locks an account out until it is lifted: it cannot log in, its
+sessions end, its files disappear for everyone it shared them with, and it
+loses its admin rights and unused codes. Nothing is deleted, so an unban
+gives everything back except the admin rights and the codes. Only the
+server bans, from the console's Users tab or:
+
+    vault-share admin ban 'bob#516850'
+    vault-share admin unban 'bob#516850'
+
+After an admin login is stolen, two commands undo what was done with it.
+Both list what they will touch and ask before going ahead (`--yes` skips
+the question). Times are in local time:
+
+    # take the admin rights and cancel their unused codes; also ban the
+    # accounts their codes made since then, ban them, and revoke their certificate
+    vault-share admin revoke-admin 'bob#516850' --ban-invited-since '2026-10-02 17:00' \
+        --ban --revoke-certificate
+
+    # ban the accounts created in a window and cancel the codes made in it,
+    # from anyone's codes, one admin's (--admin) or the server's (--server)
+    vault-share admin cleanup --from '2026-10-02 17:00' --to '2026-10-04 01:00'
+    vault-share admin cleanup --from '2026-10-02 17:00' --to '2026-10-04 01:00' --unban
+
+The console does the same with "Revoke admin..." in the Users tab and
+"Clean up..." in the Invites tab. Revoking the certificate needs
+`CA_PASSPHRASE`, like `admin revoke` below; with the stolen password, the
+thief could sign files as the admin. The app has no password change, so the
+real person gets a new account.
 
 ## File keys
 
@@ -210,21 +271,21 @@ limits and the audit log need it. Leave it unset when nothing sits in front
 of the app, or clients could pick their own address. `tailscale funnel
 status` shows the address and `tailscale funnel reset` takes it down.
 
-Anyone with the address can register and upload, and certificates are
-published, so new addresses get found quickly: keep the link up only while
-it is needed.
+Registering needs an invite code, so strangers cannot sign up, but the
+login page is public and certificates are published, so new addresses get
+found quickly: keep the link up only while it is needed.
 
 ## Admin
 
-To let a user read the audit log:
+To make a user an admin, who can read the audit log and make invite codes:
 
-    .venv/bin/flask --app app admin grant <username>
+    .venv/bin/flask --app app admin grant '<username>'
 
 ![The audit log](docs/screenshots/web-audit-log.png)
 
 To revoke a user's certificate, for example after their key leaked:
 
-    .venv/bin/flask --app app admin revoke <username>
+    .venv/bin/flask --app app admin revoke '<username>'
 
 This needs `CA_PASSPHRASE`: it also writes `instance/ca/crl.pem`, a
 revocation list signed by the CA. Files signed with the revoked certificate
