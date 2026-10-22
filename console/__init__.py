@@ -291,6 +291,7 @@ class Main(Screen):
             with TabPane("Invites", id="invites-tab"):
                 with Horizontal(classes="buttons"):
                     yield Button("New code", id="new-invite", variant="primary", compact=True)
+                    yield Button("Special code...", id="special-invite", compact=True)
                     yield Button("Cancel code", id="cancel-invite", compact=True)
                     yield Button("Defaults...", id="invite-defaults", compact=True)
                     yield Button("Clean up...", id="cleanup", variant="error", compact=True)
@@ -342,10 +343,13 @@ def certificate_state(path):
     return True, f"valid until {end:%Y-%m-%d}"
 
 
-def code_and_defaults():
-    """A new code with the current defaults, and those defaults, to say what
-    the code allows."""
-    return create_invite(), defaults()
+def new_invite_code(uses=None, minutes=None):
+    """A new code and what it allows, as (code, uses, minutes); None means
+    the default, anything else makes a special code."""
+    d = defaults()
+    uses = d["uses"] if uses is None else uses
+    minutes = d["valid_minutes"] if minutes is None else minutes
+    return create_invite(uses=uses, minutes=minutes), uses, minutes
 
 
 def change_defaults(uses, minutes, admin_per_day):
@@ -474,6 +478,7 @@ class Console(App):
             ("#unban", not k.locked),
             ("#revoke-admin", not k.locked),
             ("#new-invite", not k.locked),
+            ("#special-invite", not k.locked),
             ("#cancel-invite", not k.locked),
             ("#invite-defaults", not k.locked),
             ("#cleanup", not k.locked),
@@ -837,11 +842,34 @@ class Console(App):
         self.make_invite()
 
     @work(thread=True)
-    def make_invite(self):
-        made = self.task(code_and_defaults)
+    def make_invite(self, uses=None, minutes=None):
+        made = self.task(new_invite_code, uses, minutes)
         if made:
-            code, d = made
-            self.call_from_thread(self.show_invite, code, d["uses"], d["valid_minutes"])
+            self.call_from_thread(self.show_invite, *made)
+
+    @on(Button.Pressed, "#special-invite")
+    def special_invite_pressed(self):
+        with self.flask_app.app_context():
+            d = defaults()
+        self.push_screen(
+            Ask("Special code", [
+                ("People it lets register, 1 to 100", False, str(d["uses"])),
+                ("Time limit: 30m, 12h or 7d", False, short_duration(d["valid_minutes"])),
+            ], "For this one code only: the defaults stay as they are."),
+            self.make_special_invite,
+        )
+
+    def make_special_invite(self, values):
+        if values is None:
+            return
+        try:
+            minutes = parse_duration(values[1])
+            uses = int(values[0])
+        except ValueError as e:
+            whole = "Type a whole number of people."
+            self.notify(str(e) if "time limit" in str(e) else whole, severity="error")
+            return
+        self.make_invite(uses, minutes)
 
     def show_invite(self, code, uses, minutes):
         # through the terminal (OSC 52); a few terminals ignore it

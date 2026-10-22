@@ -125,7 +125,7 @@ def test_registering_is_limited_per_address(client):
 
 
 def test_invite_commands(app, client):
-    r = invite(app, "new", "--days", "2")
+    r = invite(app, "new", "--valid", "2d")
     assert r.exit_code == 0
     code = r.output.strip()
     assert CODE_RE.match(code)
@@ -260,4 +260,31 @@ def test_durations():
     assert [show_duration(m) for m in (10080, 1440, 60, 720, 90)] == [
         "7 days", "1 day", "1 hour", "12 hours", "90 minutes"
     ]
+
+
+def test_special_codes_at_the_server(app):
+    r = invite(app, "new", "--uses", "3", "--valid", "30m")
+    code = r.output.strip()
+    assert lifetimes(app) == [(3, 30.0)]
+    for name in ("amina", "bilel", "chaima"):
+        join(app, code, name)
+    assert NOT_VALID in step_one(app.test_client(), code, "dali").data
+    # for that code only
+    with app.app_context():
+        assert tuple(defaults()) == (1, 10080, 5)
+        row = get_db().execute(
+            "SELECT detail FROM audit_log WHERE action = 'invite' AND outcome = 'ok'"
+        ).fetchone()
+    assert row["detail"] == "code 1 at the server, 3 people, 30 minutes"
+
+
+def test_special_codes_stay_within_the_limits(app):
+    for args, message in (
+        (["--uses", "101"], "1 to 100 people"),
+        (["--uses", "0"], "1 to 100 people"),
+        (["--valid", "91d"], "between 10 minutes and 90 days"),
+    ):
+        r = invite(app, "new", *args)
+        assert r.exit_code != 0 and message in r.output
+    assert lifetimes(app) == []
 

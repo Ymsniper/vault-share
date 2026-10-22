@@ -201,6 +201,34 @@ def test_change_the_invite_defaults_from_the_invites_tab(app):
         assert tuple(defaults()) == (4, 3 * 1440, 8)
 
 
+def test_a_special_code_from_the_invites_tab(app):
+    shown = []
+
+    async def scenario():
+        console = Console(app, start_server=False)
+        async with console.run_test(size=(140, 45)) as pilot:
+            await pilot.press("enter")
+            await pilot.pause()
+            console.screen.query_one("#tabs").active = "invites-tab"
+            await pilot.pause()
+            await pilot.click("#special-invite")
+            await pilot.pause()
+            await answer(pilot, console, "4", "2h")
+            await console.workers.wait_for_complete()
+            await pilot.pause()
+            assert isinstance(console.screen, Show)
+            shown.append(console.screen.text)
+
+    run(scenario)
+    assert "It lets 4 people register,\nworks for 2 hours" in shown[0]
+    with app.app_context():
+        row = get_db().execute(
+            "SELECT max_uses, round((julianday(expires_at) - julianday(created_at)) * 1440)"
+            " FROM invites"
+        ).fetchone()
+    assert tuple(row) == (4, 120.0)
+
+
 def test_start_and_stop_the_server(app):
     async def scenario():
         console = Console(app, start_server=False)

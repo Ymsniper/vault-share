@@ -277,10 +277,22 @@ invite_cli = AppGroup("invite", help="Make, list and cancel invite codes.")
 
 
 @invite_cli.command("new")
-@click.option("--days", type=click.IntRange(1, 90), help="Days before the code expires.")
-def new_command(days):
-    """Make an invite code. It is shown only now: send it to the person."""
-    click.echo(create_invite(minutes=days * 1440 if days else None))
+@click.option("--uses", type=int,
+              help=f"People this code lets register, 1 to {MAX_USES}, instead of the default.")
+@click.option("--valid", metavar="TIME",
+              help="How long this code works, 30m, 12h or 7d (10 minutes to 90 days),"
+                   " instead of the default.")
+def new_command(uses, valid):
+    """Make an invite code. It is shown only now: send it to the person.
+
+    Without options it gets the defaults (see "invite defaults"). The options
+    make a special code: they apply to this one code only.
+    """
+    try:
+        code = create_invite(uses=uses, minutes=parse_duration(valid) if valid else None)
+    except ValueError as e:
+        raise click.ClickException(str(e)) from None
+    click.echo(code)
 
 
 @invite_cli.command("defaults")
