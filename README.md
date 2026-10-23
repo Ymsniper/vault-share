@@ -107,14 +107,29 @@ be opened.
 Registering needs an invite code. Make them at the server, from the
 console's Invites tab or the command line:
 
-    vault-share invite new         # valid 7 days; --days changes that
+    vault-share invite new                         # with the defaults
+    vault-share invite new --uses 30 --valid 2h    # a special code, for this one only
     vault-share invite list
-    vault-share invite cancel 3
+    vault-share invite cancel 3                    # add --ban-accounts if it leaked
+    vault-share invite defaults                    # show the defaults
 
-A code works once. Only its SHA-256 is stored, so a copy of the database
-gives nobody a code that works, and an unknown, used, expired or cancelled
-code all get the same answer. Each step of registering is limited to ten
-tries an hour per address.
+By default a code lets one person register and works for 7 days. The
+defaults change only at the server, with "Defaults..." in the console's
+Invites tab or the command line, and only for codes made afterwards: every
+code keeps the values it was made with.
+
+    vault-share invite defaults --uses 2 --valid 3d --admin-per-day 6
+
+A code lets 1 to 100 people register and works for 10 minutes to 90 days
+(`30m`, `12h`, `7d`); the database refuses anything else, and every change
+goes to the audit log. Only its SHA-256 is stored, so a copy of the
+database gives nobody a code that works, and an unknown, used up, expired or
+cancelled code all get the same answer. Each step of registering is limited
+to ten tries an hour per address.
+
+If a code leaks, `vault-share invite cancel 3 --ban-accounts` cancels it and
+bans the accounts made with it, after listing them; "Cancel code" in the
+console offers the same.
 
 Usernames carry a tag: you pick a name and the server adds a random 6-digit
 tag, so `bob` becomes something like `bob#516850`, and you log in and share
@@ -126,15 +141,17 @@ manager saves the username with its tag. Quote it in a shell: `#` means
 something to some shells.
 
 Admins can make codes too, on the "Invites" page, once their two-factor
-login is on: each code asks for their password and a code from their phone,
-and an admin can make five a day. That limits what a stolen admin login can
-hand out.
+login is on: each code asks for their password and a code from their phone.
+Their codes get the defaults, and their daily limit counts the accounts
+their codes can create, five by default, cancelled codes included. So a
+stolen admin login can never let in more people than that, and
+`--admin-per-day 0` stops admin codes altogether.
 
 ### Bans and cleanup
 
 A ban locks an account out until it is lifted: it cannot log in, its
 sessions end, its files disappear for everyone it shared them with, and it
-loses its admin rights and unused codes. Nothing is deleted, so an unban
+loses its admin rights and open codes. Nothing is deleted, so an unban
 gives everything back except the admin rights and the codes. Only the
 server bans, from the console's Users tab or:
 
@@ -145,7 +162,7 @@ After an admin login is stolen, two commands undo what was done with it.
 Both list what they will touch and ask before going ahead (`--yes` skips
 the question). Times are in local time:
 
-    # take the admin rights and cancel their unused codes; also ban the
+    # take the admin rights and cancel their open codes; also ban the
     # accounts their codes made since then, ban them, and revoke their certificate
     vault-share admin revoke-admin 'bob#516850' --ban-invited-since '2026-10-02 17:00' \
         --ban --revoke-certificate
