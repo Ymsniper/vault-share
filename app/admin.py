@@ -22,6 +22,7 @@ from .invites import (
     create_admin_invite,
     defaults,
     from_local,
+    invite_cli,
     list_invites,
     people,
     places_today,
@@ -307,14 +308,19 @@ def apply_cleanup(accounts, codes, unban=False):
     return f"{ban_accounts(ids)} accounts banned, {cancelled} open codes cancelled."
 
 
-def describe(accounts, codes, unban=False, shown=SHOWN):
-    """A cleanup's preview, as lines of text."""
-    lines = [f"Accounts to {'unban' if unban else 'ban'}: {len(accounts)}"]
+def account_lines(accounts, verb, shown):
+    lines = [f"Accounts to {verb}: {len(accounts)}"]
     for a in accounts[:shown]:
         lines.append(f"  {a['username']}, created {to_local(a['created_at'])},"
                      f" code from {a['inviter'] or 'the server'}")
     if len(accounts) > shown:
         lines.append(f"  and {len(accounts) - shown} more")
+    return lines
+
+
+def describe(accounts, codes, unban=False, shown=SHOWN):
+    """A cleanup's preview, as lines of text."""
+    lines = account_lines(accounts, "unban" if unban else "ban", shown)
     if not unban:
         lines.append(f"Open invite codes to cancel: {len(codes)}")
         for c in codes[:shown]:
@@ -323,6 +329,37 @@ def describe(accounts, codes, unban=False, shown=SHOWN):
         if len(codes) > shown:
             lines.append(f"  and {len(codes) - shown} more")
     return lines
+
+
+def accounts_made_with(invite_id):
+    """The accounts, not banned, made with this invite code. Raises
+    ValueError when there is no such code."""
+    db = get_db()
+    if db.execute("SELECT 1 FROM invites WHERE id = ?", (invite_id,)).fetchone() is None:
+        raise ValueError(f"No invite numbered {invite_id}.")
+    return db.execute(
+        "SELECT u.id, u.username, u.created_at, m.username AS inviter FROM users u"
+        " JOIN invites i ON i.id = u.invite_id LEFT JOIN users m ON m.id = i.created_by"
+        " WHERE u.invite_id = ? AND u.banned_at IS NULL ORDER BY u.created_at",
+        (invite_id,),
+    ).fetchall()
+
+
+def describe_cancel(invite_id, accounts, shown=SHOWN):
+    return [f"Invite {invite_id} is cancelled if it still has places.",
+            *account_lines(accounts, "ban", shown)]
+
+
+def cancel_and_ban(invite_id, accounts):
+    """For a code that leaked: cancel it if it is still open, and ban the
+    accounts made with it."""
+    try:
+        cancel_invite(invite_id)
+        state = "cancelled"
+    except ValueError:  # no places left, expired or cancelled before
+        state = "already closed"
+    banned = ban_accounts([a["id"] for a in accounts])
+    return f"Invite {invite_id} {state}; {banned} accounts banned."
 
 
 def plan_revoke_admin(username, invited_since=None, all_invited=False):
@@ -488,3 +525,27 @@ def cleanup_command(since, until, admin_name, server, unban, yes):
         return
     show_and_confirm(describe(accounts, codes, unban), yes)
     click.echo(apply_cleanup(accounts, codes, unban))
+
+
+@invite_cli.command("cancel")
+@click.argument("number", type=int)
+@click.option("--ban-accounts", "ban_too", is_flag=True,
+              help="Also ban the accounts made with it, for a code that leaked.")
+@click.option("--yes", is_flag=True, help="Do not ask before banning.")
+def cancel_command(number, ban_too, yes):
+    """Cancel invite NUMBER (from "invite list") while it still has places.
+
+    With --ban-accounts, also ban the accounts made with it, even when the
+    code has no places left. Shows them first.
+    """
+    try:
+        if not ban_too:
+            cancel_invite(number)
+            click.echo(f"Invite {number} cancelled.")
+            return
+        accounts = accounts_made_with(number)
+    except ValueError as e:
+        raise click.ClickException(str(e)) from None
+    show_and_confirm(describe_cancel(number, accounts), yes)
+    click.echo(cancel_and_ban(number, accounts))
+

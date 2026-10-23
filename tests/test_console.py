@@ -229,6 +229,37 @@ def test_a_special_code_from_the_invites_tab(app):
     assert tuple(row) == (4, 120.0)
 
 
+def test_cancel_a_leaked_code_and_its_accounts(app):
+    from app.invites import create_invite
+
+    from .test_cleanup import join_with
+
+    with app.app_context():
+        code = create_invite(uses=2)
+    amina = join_with(app, code, "amina")
+
+    async def scenario():
+        console = Console(app, start_server=False)
+        async with console.run_test(size=(140, 45)) as pilot:
+            await pilot.press("enter")
+            await pilot.pause()
+            console.screen.query_one("#tabs").active = "invites-tab"
+            await pilot.pause()
+            await pilot.click("#cancel-invite")
+            await pilot.pause()
+            await choose(pilot, console, 1)  # cancel it and ban its accounts
+            assert amina.handle in console.screen.note
+            await answer(pilot, console, "ban")
+            await console.workers.wait_for_complete()
+            await pilot.pause()
+
+    run(scenario)
+    with app.app_context():
+        db = get_db()
+        assert db.execute("SELECT banned_at FROM users").fetchone()[0] is not None
+        assert db.execute("SELECT cancelled_at FROM invites").fetchone()[0] is not None
+
+
 def test_start_and_stop_the_server(app):
     async def scenario():
         console = Console(app, start_server=False)

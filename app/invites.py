@@ -329,12 +329,4 @@ def list_command():
         click.echo(line)
 
 
-@invite_cli.command("cancel")
-@click.argument("number", type=int)
-def cancel_command(number):
-    """Cancel invite NUMBER (from "invite list") while it still has places."""
-    try:
-        cancel_invite(number)
-    except ValueError as e:
-        raise click.ClickException(str(e)) from None
-    click.echo(f"Invite {number} cancelled.")
+# "invite cancel" is in admin.py, next to the bans it can also make

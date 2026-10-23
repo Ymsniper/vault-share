@@ -34,8 +34,8 @@ def users(app):
         return get_db().execute("SELECT COUNT(*) FROM users").fetchone()[0]
 
 
-def invite(app, *args):
-    return app.test_cli_runner().invoke(args=["invite", *args])
+def invite(app, *args, input=None):
+    return app.test_cli_runner().invoke(args=["invite", *args], input=input)
 
 
 def test_codes_are_four_groups_of_five(app):
@@ -287,4 +287,44 @@ def test_special_codes_stay_within_the_limits(app):
         r = invite(app, "new", *args)
         assert r.exit_code != 0 and message in r.output
     assert lifetimes(app) == []
+
+
+def banned(app):
+    with app.app_context():
+        return get_db().execute(
+            "SELECT COUNT(*) FROM users WHERE banned_at IS NOT NULL"
+        ).fetchone()[0]
+
+
+def test_a_leaked_code_takes_its_accounts_with_it(app):
+    with app.app_context():
+        code = create_invite(uses=3)
+    join(app, code, "amina")
+    join(app, code, "bilel")
+    r = invite(app, "cancel", "1", "--ban-accounts", input="n\n")
+    assert "Invite 1 is cancelled if it still has places." in r.output
+    assert "Accounts to ban: 2" in r.output
+    assert r.exit_code != 0
+    assert banned(app) == 0
+    assert step_one(app.test_client(), code, "chaima").headers["Location"].endswith("/password")
+
+    r = invite(app, "cancel", "1", "--ban-accounts", "--yes")
+    assert "Invite 1 cancelled; 2 accounts banned." in r.output
+    assert banned(app) == 2
+    assert NOT_VALID in step_one(app.test_client(), code, "dali").data
+
+
+def test_a_used_up_code_can_still_take_its_accounts(app):
+    with app.app_context():
+        code = create_invite()
+    join(app, code, "amina")
+    r = invite(app, "cancel", "1", "--ban-accounts", "--yes")
+    assert "Invite 1 already closed; 1 accounts banned." in r.output
+    assert banned(app) == 1
+
+
+def test_cancelling_needs_a_real_code(app):
+    r = invite(app, "cancel", "9", "--ban-accounts", "--yes")
+    assert r.exit_code != 0
+    assert "No invite numbered 9." in r.output
 

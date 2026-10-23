@@ -35,10 +35,13 @@ from textual.widgets import (
 
 from app.admin import (
     TIME,
+    accounts_made_with,
     apply_cleanup,
     apply_revoke_admin,
     ban_user,
+    cancel_and_ban,
     describe,
+    describe_cancel,
     describe_revoke,
     grant_admin,
     inviter_from,
@@ -912,8 +915,35 @@ class Console(App):
     @on(Button.Pressed, "#cancel-invite")
     def cancel_invite_pressed(self):
         number = self.selected_key("#invites")
-        if number:
-            self.run_task(f"Invite {number} cancelled.", cancel_invite, int(number))
+        if not number:
+            return
+        number = int(number)
+        with self.flask_app.app_context():
+            accounts = accounts_made_with(number)
+        if not accounts:
+            self.run_task(f"Invite {number} cancelled.", cancel_invite, number)
+            return
+        # a code that leaked: the accounts made with it may go too
+        self.push_screen(
+            Choose(f"Invite {number}", [
+                "Just cancel it",
+                f"Cancel it and ban the {len(accounts)} accounts made with it",
+            ]),
+            lambda choice: self.cancel_invite_choice(number, accounts, choice),
+        )
+
+    def cancel_invite_choice(self, number, accounts, choice):
+        if choice is None:
+            return
+        if choice == "Just cancel it":
+            self.run_task(f"Invite {number} cancelled.", cancel_invite, number)
+            return
+        self.push_screen(
+            Ask(f"Invite {number}", [("Type ban to confirm", False)],
+                "\n".join(describe_cancel(number, accounts, shown=8))),
+            lambda v: v and v[0] == "ban" and self.run_and_report(
+                cancel_and_ban, number, accounts),
+        )
 
     # --- keys: the server is stopped while the master key changes
 
