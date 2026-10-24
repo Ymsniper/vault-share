@@ -30,7 +30,14 @@ from security.pki import (
     load_certificate,
 )
 from security.signing import sign_digest, unlock_private_key, verify_digest
-from security.uploads import accept_list, check_upload, clean_name, type_groups
+from security.uploads import (
+    ARCHIVES,
+    MAX_SIZE,
+    accept_list,
+    check_upload,
+    clean_name,
+    type_groups,
+)
 
 from .audit import audit
 from .auth import login_required, password_limit
@@ -220,7 +227,13 @@ def index():
 
 
 def upload_page():
-    return render_template("files/upload.html", groups=type_groups(), accept=accept_list())
+    return render_template(
+        "files/upload.html",
+        groups=type_groups(),
+        archives=list(ARCHIVES),
+        accept=accept_list(),
+        limit_mb=MAX_SIZE // (1024 * 1024),
+    )
 
 
 @bp.route("/upload", methods=("GET", "POST"))

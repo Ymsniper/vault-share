@@ -15,7 +15,7 @@
       <div class="mb-3">
         <label for="file" class="form-label">File</label>
         <input type="file" name="file" id="file" class="form-control" accept="{{ accept }}" required>
-        <div class="form-text">{{ groups|join(', ') }}, or an archive, which is marked Not checked. Up to 10 MB.</div>
+        <div class="form-text">{{ groups|join(', ') }}, or an archive, which is marked Not checked. Up to {{ limit_mb }} MB.</div>
       </div>
       <div class="mb-3">
         <label for="description" class="form-label">Description</label>
@@ -32,11 +32,54 @@
   <div class="col-lg-5">
     <section class="vs-panel">
       <h2 class="vs-panel-title">What happens</h2>
-      <ol class="vs-steps">
-        <li><strong>Checked</strong>Its real type, extension and size must be on the list.</li>
-        <li><strong>Signed</strong>Your private key signs its SHA-256, so anyone can tell it comes from you.</li>
-        <li><strong>Sealed</strong>A new AES-256-GCM key encrypts it. That key is kept only as a copy locked to your public key.</li>
-      </ol>
+      <div class="vs-folds">
+        <details class="vs-fold">
+          <summary>
+            <span class="vs-fold-num">01</span>
+            <span class="vs-fold-head"><strong>Checked</strong><span>Its type is read from its content, not its name.</span></span>
+          </summary>
+          <div class="vs-fold-body">
+            <p>Before anything is stored:</p>
+            <ul>
+              <li>its extension must be on the list below;</li>
+              <li>its content must really be that type: its first bytes are read, so a program renamed <code>.pdf</code> is refused;</li>
+              <li>text must be UTF-8, and JSON and TOML must be valid;</li>
+              <li>it must be {{ limit_mb }} MB or less.</li>
+            </ul>
+            <dl class="vs-fold-types">
+              {% for group, exts in groups.items() %}
+              <dt>{{ group }}</dt>
+              <dd>{{ exts|map('upper')|join(', ') }}</dd>
+              {% endfor %}
+              <dt>Archives</dt>
+              <dd>{{ archives|map('upper')|join(', ') }}</dd>
+            </dl>
+            <p><strong>Archives are not checked.</strong> Their type is confirmed, but nothing looks inside them, so they are marked Not checked and everyone you share them with is warned.</p>
+            <p>A check tells what kind of file it is, not that it is harmless: a real PDF can still hold something malicious.</p>
+            <p class="mb-0">Left out on purpose: DOC, XLS, PPT and RTF can carry macros or embedded objects, and HTML, SVG, XML, scripts and programs run code when opened. Share them inside an archive if you must.</p>
+          </div>
+        </details>
+        <details class="vs-fold">
+          <summary>
+            <span class="vs-fold-num">02</span>
+            <span class="vs-fold-head"><strong>Signed</strong><span>Your private key signs it, so anyone can tell it comes from you.</span></span>
+          </summary>
+          <div class="vs-fold-body">
+            <p>Its SHA-256 is signed with your ECDSA P-256 private key, which your password unlocks for this upload only. Your key's certificate is issued by this server's certificate authority.</p>
+            <p class="mb-0">Every visit to the file's page checks the signature, the certificate and whether it was revoked. The signature proof on that page lets anyone check it with OpenSSL, without the app.</p>
+          </div>
+        </details>
+        <details class="vs-fold">
+          <summary>
+            <span class="vs-fold-num">03</span>
+            <span class="vs-fold-head"><strong>Sealed</strong><span>A key of its own encrypts it, locked to each reader.</span></span>
+          </summary>
+          <div class="vs-fold-body">
+            <p>A new random AES-256-GCM key encrypts the file. That key is stored only as copies encrypted to the public key of each person allowed to open it (HPKE, X25519): you now, and each person you share it with later.</p>
+            <p class="mb-0">The server's own keys cannot open it: a download needs your password, which unlocks your copy of the key for that one request.</p>
+          </div>
+        </details>
+      </div>
     </section>
   </div>
 </div>

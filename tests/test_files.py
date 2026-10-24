@@ -180,6 +180,18 @@ def test_renamed_content_is_refused(alice):
     assert b"No files found." in my_files(alice)
 
 
+def test_the_upload_page_explains_the_checks(alice):
+    page = alice.get("/upload").data.decode()
+    assert page.count('<details class="vs-fold">') == 3
+    for title in ("Checked", "Signed", "Sealed"):
+        assert f"<strong>{title}</strong>" in page
+    # the lists come from the same table as the checks
+    assert "PDF, DOCX, XLSX, PPTX, ODT, ODS, ODP" in page
+    assert "ZIP, 7Z, RAR, TAR, GZ, TGZ, BZ2, XZ" in page
+    assert "it must be 10 MB or less" in page
+    assert 'accept=".pdf,.docx,' in page and ".zip," in page
+
+
 def test_toml_must_parse(alice):
     assert b"is not valid TOML" in upload(alice, b"name = ", name="app.toml").data
 

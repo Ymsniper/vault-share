@@ -1017,40 +1017,115 @@ code {
   font-family: var(--vs-mono);
 }
 
-.vs-steps {
+/* the upload page's "What happens": three fold-outs of the same shape,
+   plain <details>, so no script is needed */
+.vs-folds {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.vs-fold {
+  border: 1px solid var(--vs-line-soft);
+  border-radius: 10px;
+  background: var(--vs-well);
+}
+
+.vs-fold[open] {
+  border-color: var(--vs-line);
+}
+
+.vs-fold summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.9rem;
+  padding: 0.8rem 1rem;
+  cursor: pointer;
   list-style: none;
-  counter-reset: vs-step;
-  margin: 0;
-  padding: 0;
 }
 
-.vs-steps li {
-  position: relative;
-  counter-increment: vs-step;
-  padding: 0 0 1.1rem 2.6rem;
-  color: var(--vs-mute);
-  font-size: 0.92rem;
+.vs-fold summary::-webkit-details-marker {
+  display: none;
 }
 
-.vs-steps li::before {
-  content: counter(vs-step, decimal-leading-zero);
-  position: absolute;
-  left: 0;
-  top: -0.05rem;
+/* a chevron that turns when the fold opens */
+.vs-fold summary::after {
+  content: "";
+  flex: none;
+  align-self: center;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin: 0 0.2rem 0 auto;
+  border-right: 2px solid var(--vs-brass);
+  border-bottom: 2px solid var(--vs-brass);
+  transform: rotate(45deg);
+  transition: transform 0.2s;
+}
+
+.vs-fold[open] summary::after {
+  transform: rotate(-135deg);
+}
+
+.vs-fold summary:focus-visible {
+  outline: 2px solid var(--vs-brass);
+  outline-offset: 2px;
+  border-radius: 10px;
+}
+
+.vs-fold-num {
+  padding-top: 0.1rem;
   color: var(--vs-brass);
   font-family: var(--vs-mono);
   font-size: 0.85rem;
   letter-spacing: 0.08em;
 }
 
-.vs-steps li:last-child {
-  padding-bottom: 0;
+.vs-fold-head {
+  color: var(--vs-mute);
+  font-size: 0.92rem;
 }
 
-.vs-steps strong {
+.vs-fold-head strong {
   display: block;
   color: var(--vs-cream);
   font-weight: 700;
+}
+
+.vs-fold-body {
+  padding: 0 1rem 1rem 3.1rem;
+  color: var(--vs-mute);
+  font-size: 0.9rem;
+}
+
+.vs-fold-body ul {
+  padding-left: 1.1rem;
+}
+
+.vs-fold-body strong {
+  color: var(--vs-cream);
+}
+
+.vs-fold-types {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 0.9rem;
+  margin: 0 0 1rem;
+}
+
+.vs-fold-types dt {
+  color: var(--vs-cream);
+  font-weight: 700;
+}
+
+.vs-fold-types dd {
+  margin: 0;
+  font-family: var(--vs-mono);
+  font-size: 0.82rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vs-fold summary::after {
+    transition: none;
+  }
 }
 
 .vs-qr {
@@ -1093,6 +1168,19 @@ code {
 /* ---- small screens and reduced motion */
 
 @media (max-width: 720px) {
+  /* the fold-outs' text uses the whole width, the type list stacks */
+  .vs-fold-body {
+    padding-left: 1rem;
+  }
+
+  .vs-fold-types {
+    grid-template-columns: 1fr;
+  }
+
+  .vs-fold-types dd {
+    margin-bottom: 0.4rem;
+  }
+
   .vs-wordmark {
     font-size: 1.6rem;
   }
