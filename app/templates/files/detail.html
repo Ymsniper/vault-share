@@ -52,7 +52,7 @@
         <dt>Description</dt>
         <dd>{% if f['description'] %}{{ f['description'] }}{% else %}<span class="vs-meta">none</span>{% endif %}</dd>
         <dt>Type</dt>
-        <dd>{{ f['filename'].rsplit('.', 1)[-1]|upper }}, {% if f['checked'] %}checked{% else %}<span class="vs-chip vs-chip-warn">not checked</span> archive{% endif %}</dd>
+        <dd>{{ f['filename'].rsplit('.', 1)[-1]|upper }}{% if f['checked'] %}, checked{% else %} archive, <span class="vs-chip vs-chip-warn">not checked</span>{% endif %}</dd>
         <dt>Size</dt>
         <dd>{{ f['size']|filesizeformat }} <span class="vs-meta">({{ f['size'] }} bytes)</span></dd>
         <dt>SHA-256</dt>
