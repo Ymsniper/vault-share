@@ -56,8 +56,24 @@ TYPES = {
     "log": ("Text", "text/plain; charset=utf-8", TEXT),
 }
 
+# Archives: their signature is checked, so a program renamed .zip is still
+# refused, but not what they hold, so they are marked Not checked.
+# extension: (MIME type sent back on download, what is accepted inside)
+ARCHIVES = {
+    # documents built on zip are zips too
+    "zip": ("application/zip", {"zip", "docx", "xlsx", "pptx", "odt", "ods", "odp", "epub"}),
+    "7z": ("application/x-7z-compressed", {"7z"}),
+    "rar": ("application/vnd.rar", {"rar"}),
+    "tar": ("application/x-tar", {"tar"}),
+    "gz": ("application/gzip", {"gz"}),
+    "tgz": ("application/gzip", {"gz"}),
+    "bz2": ("application/x-bzip2", {"bz2"}),
+    "xz": ("application/x-xz", {"xz"}),
+}
+
 # Left out on purpose: doc, xls, ppt and rtf can carry macros or embedded
 # objects, and html, svg, xml, scripts and programs run code when opened.
+# They can still be shared inside an archive, marked Not checked.
 
 
 def type_groups():
@@ -70,7 +86,7 @@ def type_groups():
 
 def accept_list():
     """The extensions for the file picker's accept attribute."""
-    return ",".join(f".{ext}" for ext in TYPES)
+    return ",".join(f".{ext}" for ext in [*TYPES, *ARCHIVES])
 
 
 def clean_name(name):
@@ -103,14 +119,26 @@ def check_text(ext, data):
             raise ValueError("This .toml file is not valid TOML.") from None
 
 
-def check_upload(name, data):
-    """Return the MIME type to store for this upload, or raise ValueError.
+def check_signature(ext, data, inside):
+    kind = filetype.guess(data)
+    if kind is None or kind.extension not in inside:
+        raise ValueError(f"The content of this file does not match the .{ext} extension.")
 
-    The extension must be on the list, and the content must really be that
-    type: filetype reads the file's first bytes, so a script renamed to
-    .pdf, or a zip renamed to .docx, is refused.
+
+def check_upload(name, data):
+    """Return (MIME type to store, whether the content was checked), or
+    raise ValueError.
+
+    The extension must be on one of the lists, and the content must really
+    be that type: filetype reads the file's first bytes, so a script renamed
+    to .pdf, or a program renamed to .zip, is refused. An archive passes that
+    check too, but what it holds is not looked at: it is not checked.
     """
     ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+    if ext in ARCHIVES:
+        mime, inside = ARCHIVES[ext]
+        check_signature(ext, data, inside)
+        return mime, False
     if ext not in TYPES:
         raise ValueError(
             "This file type is not allowed. The types that are, and why some are not,"
@@ -120,7 +148,5 @@ def check_upload(name, data):
     if inside == TEXT:
         check_text(ext, data)
     else:
-        kind = filetype.guess(data)
-        if kind is None or kind.extension not in inside:
-            raise ValueError(f"The content of this file does not match the .{ext} extension.")
-    return mime
+        check_signature(ext, data, inside)
+    return mime, True

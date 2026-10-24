@@ -30,6 +30,19 @@
       </div>
     </div>
     {% endif %}
+    {% if not f['checked'] %}
+    {% if mine %}
+    <p class="vs-note mt-3">Not checked: this is an archive, so Vault-Share confirmed its type but not what it holds. Everyone you share it with is warned.</p>
+    {% else %}
+    <div class="vs-seal vs-seal-warn mt-3" role="note">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M12 2.8 22 20.5H2z"/><path d="M12 9.5v5" stroke-linecap="round"/><circle cx="12" cy="17.4" r=".6" fill="currentColor"/></svg>
+      <div>
+        <p class="vs-seal-label">Not checked</p>
+        <p>Vault-Share confirmed this is a {{ f['filename'].rsplit('.', 1)[-1]|upper }} archive, but did not look inside. It may hold anything, programs included. Only open it if you trust {{ f['owner']|handle }}.</p>
+      </div>
+    </div>
+    {% endif %}
+    {% endif %}
 
     <section class="vs-panel mt-4">
       <h2 class="vs-panel-title">Record</h2>
@@ -38,6 +51,8 @@
         <dd>{{ f['owner']|handle }}</dd>
         <dt>Description</dt>
         <dd>{% if f['description'] %}{{ f['description'] }}{% else %}<span class="vs-meta">none</span>{% endif %}</dd>
+        <dt>Type</dt>
+        <dd>{{ f['filename'].rsplit('.', 1)[-1]|upper }}, {% if f['checked'] %}checked{% else %}<span class="vs-chip vs-chip-warn">not checked</span> archive{% endif %}</dd>
         <dt>Size</dt>
         <dd>{{ f['size']|filesizeformat }} <span class="vs-meta">({{ f['size'] }} bytes)</span></dd>
         <dt>SHA-256</dt>
@@ -75,6 +90,12 @@
           <input type="password" name="password" id="download-password" class="form-control" autocomplete="current-password" required>
           <div class="form-text">Your password opens your own copy of this file's key. It is never stored.</div>
         </div>
+        {% if not f['checked'] and not mine %}
+        <div class="form-check mb-3">
+          <input class="form-check-input" type="checkbox" name="understood" id="understood" value="y" required>
+          <label class="form-check-label" for="understood">I understand this archive was not checked</label>
+        </div>
+        {% endif %}
         <button type="submit" class="btn btn-primary w-100">Download</button>
       </form>
       <a class="btn btn-outline-secondary w-100 mt-2" href="{{ url_for('files.proof', id=f['id']) }}">Signature proof</a>
@@ -117,6 +138,9 @@
           <input type="password" name="password" id="share-password" class="form-control" autocomplete="current-password" required>
           <div class="form-text">Your password opens your copy of the file's key, which is then encrypted again for the recipient.</div>
         </div>
+        {% if not f['checked'] %}
+        <p class="vs-note">This archive was not checked: the people you share it with will see a warning.</p>
+        {% endif %}
         <button type="submit" class="btn btn-outline-primary w-100">Share</button>
       </form>
     </section>

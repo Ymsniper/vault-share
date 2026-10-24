@@ -92,6 +92,8 @@ class SearchForm(FlaskForm):
 
 class DownloadForm(FlaskForm):
     password = PasswordField(validators=[DataRequired("Type your password to open the file.")])
+    # asked of recipients of an archive, which was not checked
+    understood = BooleanField()
 
 
 class ShareForm(FlaskForm):

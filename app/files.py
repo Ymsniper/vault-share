@@ -56,7 +56,9 @@ def mac_key():
 
 
 def mac_of(f):
-    return record_mac(mac_key(), f["id"], f["owner_id"], f["sha256"], f["size"])
+    return record_mac(
+        mac_key(), f["id"], f["owner_id"], f["sha256"], f["size"], f["mime"], f["checked"]
+    )
 
 
 def get_file(id, owner_only=False):
@@ -201,7 +203,7 @@ def index():
         return render_template("files/index.html", files=[], shared=[], q=q)
     # instr() rather than LIKE, so % and _ in the search are plain characters
     files = db.execute(
-        "SELECT id, filename, size, uploaded_at FROM files"
+        "SELECT id, filename, size, uploaded_at, checked FROM files"
         " WHERE owner_id = ? AND instr(lower(filename), lower(?)) > 0"
         " ORDER BY uploaded_at DESC",
         (g.user["id"], q),
@@ -232,7 +234,7 @@ def upload():
         name = clean_name(file.filename)
         data = file.read()
         try:
-            mime = check_upload(name, data)
+            mime, checked = check_upload(name, data)
         except ValueError as e:
             audit("upload", "refused", detail=str(e))
             flash(str(e))
@@ -307,19 +309,20 @@ def upload():
         with open(storage_path(file_id), "wb") as out:
             out.write(encrypt(file_key, data, file_id.encode()))
         owner_public_key = ensure_encryption_key(g.user["id"], username, password)
-        mac = record_mac(mac_key(), file_id, g.user["id"], digest.hex(), len(data))
+        mac = record_mac(mac_key(), file_id, g.user["id"], digest.hex(), len(data), mime, checked)
 
         db.execute(
             "INSERT INTO files"
-            " (id, owner_id, filename, description, mime, size, sha256, record_mac,"
+            " (id, owner_id, filename, description, mime, checked, size, sha256, record_mac,"
             " signature, cert_id)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 file_id,
                 g.user["id"],
                 name,
                 form.description.data or "",
                 mime,
+                int(checked),
                 len(data),
                 digest.hex(),
                 mac,
@@ -336,7 +339,7 @@ def upload():
             ),
         )
         db.commit()
-        audit("upload", "ok", file_id=file_id)
+        audit("upload", "ok", file_id=file_id, detail=None if checked else "archive, not checked")
         flash(f"Uploaded {name}.", "success")
         return redirect(url_for("files.detail", id=file_id))
     elif form.is_submitted():
@@ -371,6 +374,12 @@ def download(id):
         return redirect(url_for("files.detail", id=f["id"]))
     # the password unlocks this user's private key for this request only,
     # so a stolen session cookie alone cannot download anything
+    if not f["checked"] and f["owner_id"] != g.user["id"] and not form.understood.data:
+        # nothing about an archive's content was checked: the recipient says
+        # they know before getting it
+        audit("download", "refused", file_id=f["id"], detail="not checked, not confirmed")
+        flash("Tick the box to confirm you know this archive was not checked.")
+        return redirect(url_for("files.detail", id=f["id"]))
     file_key, error = my_file_key(f, form.password.data)
     if error is None:
         data, error = open_file(f, file_key)

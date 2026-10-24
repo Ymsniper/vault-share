@@ -12,6 +12,7 @@ from app.duress import DECOY, mode_of
 from app.keyring import USB_KEY_FILE, connect
 from app.totp import unseal
 
+from .samples import ARCHIVES
 from .test_duress import set_duress
 from .test_files import CONTRACT, download, file_id, new_file, share
 from .test_totp import code, turn_on
@@ -62,6 +63,8 @@ def test_by_default_only_the_machine_key_is_used(app):
 def test_adding_a_stick_keeps_everything_readable(app, alice, bob, stick):
     url = new_file(alice)
     share(alice, url, bob.handle)
+    # an archive's record carries its "not checked" mark in the HMAC too
+    archive = new_file(alice, ARCHIVES["bundle.zip"], name="bundle.zip")
     secret = turn_on(alice)
     set_duress(alice)
 
@@ -74,6 +77,7 @@ def test_adding_a_stick_keeps_everything_readable(app, alice, bob, stick):
 
     # files, shares, two-factor secrets and duress settings all moved over
     assert b"Record verified" in alice.get(url).data
+    assert b"Record verified" in alice.get(archive).data
     assert download(bob, url).data == CONTRACT
     alice.post("/auth/logout")
     alice.post("/auth/login", data={"username": alice.handle, "password": "contract-2026"})

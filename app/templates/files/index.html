@@ -28,7 +28,7 @@
       <tbody>
         {% for f in files %}
         <tr>
-          <td><a class="vs-file" href="{{ url_for('files.detail', id=f['id']) }}"><span class="vs-type">{{ file_type(f['filename']) }}</span>{{ f['filename'] }}</a></td>
+          <td><a class="vs-file" href="{{ url_for('files.detail', id=f['id']) }}"><span class="vs-type">{{ file_type(f['filename']) }}</span>{{ f['filename'] }}</a>{% if not f['checked'] %} <span class="vs-chip vs-chip-warn">not checked</span>{% endif %}</td>
           <td class="vs-meta">{{ f['size']|filesizeformat }}</td>
           <td class="vs-meta">{{ f['uploaded_at'] }}</td>
         </tr>
@@ -56,7 +56,7 @@
       <tbody>
         {% for f in shared %}
         <tr>
-          <td><a class="vs-file" href="{{ url_for('files.detail', id=f['id']) }}"><span class="vs-type">{{ file_type(f['filename']) }}</span>{{ f['filename'] }}</a></td>
+          <td><a class="vs-file" href="{{ url_for('files.detail', id=f['id']) }}"><span class="vs-type">{{ file_type(f['filename']) }}</span>{{ f['filename'] }}</a>{% if not f['checked'] %} <span class="vs-chip vs-chip-warn">not checked</span>{% endif %}</td>
           <td class="vs-meta" data-prefix="from">{{ f['owner']|handle }}</td>
           <td class="vs-meta">{{ f['uploaded_at'] }}</td>
         </tr>

@@ -106,9 +106,12 @@ CREATE TABLE files (
     filename TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
     mime TEXT NOT NULL,
+    -- 0 for an archive: its signature was checked, not what it holds
+    checked INTEGER NOT NULL CHECK (checked IN (0, 1)),
     size INTEGER NOT NULL,
     sha256 TEXT NOT NULL,
-    -- HMAC of id, owner_id, sha256 and size, so editing them is detected
+    -- HMAC of id, owner_id, sha256, size, mime and checked, so editing
+    -- them is detected
     record_mac BLOB NOT NULL,
     signature BLOB NOT NULL,
     cert_id INTEGER NOT NULL REFERENCES certificates (id),

@@ -916,6 +916,22 @@ code {
   box-shadow: 0 0 30px -12px rgba(255, 111, 94, 0.4);
 }
 
+/* an archive shared with you: its content was not checked */
+.vs-seal-warn {
+  border-color: rgba(255, 181, 71, 0.45);
+  background:
+    radial-gradient(400px 140px at 0 0, rgba(255, 181, 71, 0.13), transparent 70%),
+    rgba(30, 22, 8, 0.5);
+  box-shadow: 0 0 30px -12px rgba(255, 181, 71, 0.4);
+}
+
+.vs-seal-warn svg,
+.vs-seal-warn .vs-seal-label {
+  color: var(--vs-amber);
+  filter: none;
+  text-shadow: none;
+}
+
 .vs-seal-bad svg,
 .vs-seal-bad .vs-seal-label {
   color: var(--vs-alert);
