@@ -46,7 +46,8 @@ memory only. `vault-share` passes anything else to `flask --app app`, so
 from any folder; `vault-share install` links the command into
 `~/.local/bin`.
 
-Then open http://127.0.0.1:5000. `pki/create_ca.sh` creates the local CA in
+Then open http://127.0.0.1:5000 (the port can change, see "Server settings"
+below). `pki/create_ca.sh` creates the local CA in
 `instance/ca/` once; the app needs the same `CA_PASSPHRASE` every time it
 starts, to issue a certificate to each new user. Registering needs an invite
 code: make the first one with `vault-share invite new` (see below).
@@ -59,6 +60,27 @@ Uploading asks for your password again: it unlocks your private key to sign
 the file. Each file page also offers a signature proof, a zip with the
 signature, the signer's certificate, the CA certificate and the OpenSSL
 commands that check the file without the app.
+
+Every upload is checked before it is stored: its extension must be on the
+list, its content must really be that type (`filetype` reads the first
+bytes, so a program renamed `.pdf` is refused; text must be UTF-8, and JSON
+and TOML must be valid), and it must fit under the upload limit.
+
+- Documents: PDF, DOCX, XLSX, PPTX, ODT, ODS, ODP
+- Images: PNG, JPG, GIF, WEBP, BMP, TIFF, HEIC
+- Audio: MP3, WAV, OGG, FLAC, M4A
+- Video: MP4, MOV, WEBM, MKV, AVI
+- Text: TXT, MD, CSV, JSON, TOML, YAML, INI, CFG, LOG
+
+Archives (ZIP, 7Z, RAR, TAR, GZ, TGZ, BZ2, XZ) are accepted too: their
+signature is checked, so a program renamed `.zip` is refused, but not what
+they hold. They are marked Not checked, and the HMAC of the file's record
+covers that mark, so it cannot be dropped in the database. Everyone they are
+shared with sees a warning, and must tick "I understand" before downloading.
+DOC, XLS, PPT and RTF (macros, embedded objects), and HTML, SVG, XML,
+scripts and programs (they run code when opened) are left out; share them
+inside an archive. A check tells what kind of file it is, not that it is
+harmless. The upload page explains all of this under "What happens".
 
 ![Uploading a file](docs/screenshots/web-upload.png)
 
@@ -277,7 +299,7 @@ public HTTPS address with a real certificate; the visitor's encrypted
 connection still ends on this machine, Tailscale only relays it. With
 Tailscale installed and logged in:
 
-    tailscale funnel --bg https+insecure://127.0.0.1:5000
+    tailscale funnel --bg https+insecure://127.0.0.1:5000    # or your port
     BEHIND_PROXY=1 vault-share
 
 `https+insecure` lets Tailscale accept the certificate from the local CA,
@@ -291,6 +313,24 @@ status` shows the address and `tailscale funnel reset` takes it down.
 Registering needs an invite code, so strangers cannot sign up, but the
 login page is public and certificates are published, so new addresses get
 found quickly: keep the link up only while it is needed.
+
+## Server settings
+
+The port and the upload limit are set at the server, in
+`instance/server.toml`, from "Server settings..." in the console's Setup
+tab or the command line:
+
+    vault-share server-settings                              # show them
+    vault-share server-settings --port 5101 --max-upload-mb 50
+
+The port goes from 1024 to 65535 (5000 by default) and the upload limit
+from 1 to 100 MB (10 by default): a file is held in memory while it is
+hashed, encrypted and signed, so a higher ceiling would let a few uploads
+use up the memory. A file with wrong values is ignored, with a warning, and
+the defaults are used. The server always listens on 127.0.0.1, which is not
+a setting: from elsewhere it is reached through a proxy. The console uses a
+new port at once; `vault-share serve` when it starts again. After a port
+change, point Tailscale Funnel at it too.
 
 ## Admin
 
