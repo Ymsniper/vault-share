@@ -64,6 +64,7 @@ from app.invites import (
     show_duration,
     to_local,
 )
+from app import server_settings
 from app.serving import make_app_server
 from app.unlock import (
     FactorError,
@@ -315,6 +316,7 @@ class Main(Screen):
                     yield Button("Create the CA", id="create-ca", compact=True)
                     yield Button("Enter CA passphrase", id="ca-passphrase", compact=True)
                     yield Button("New HTTPS certificate", id="server-cert", compact=True)
+                    yield Button("Server settings...", id="server-settings", compact=True)
                 with Horizontal(classes="buttons"):
                     yield Button("Reset database", id="reset-db", variant="error", compact=True)
         yield Footer()
@@ -369,7 +371,7 @@ class Console(App):
         super().__init__(ansi_color=True)
         self.flask_app = flask_app
         self.keyring = flask_app.extensions["keyring"]
-        self.server = Server(flask_app)
+        self.server = Server(flask_app, port=flask_app.config["PORT"])
         self.start_server = start_server
         # log lines that arrive before the log pane exists, during the splash
         self.pending = []
@@ -415,7 +417,15 @@ class Console(App):
             ("HTTPS", "on" if cfg["HTTPS"] else "off (plain HTTP on localhost)", True),
             ("server", self.server.url if self.server.running else "stopped", self.server.running),
             ("lock", "unlocked" if not k.locked else k.missing(), not k.locked),
+            ("settings", cfg["SETTINGS_PROBLEM"] or self.settings_text(),
+             not cfg["SETTINGS_PROBLEM"]),
         ]
+
+    def settings_text(self):
+        cfg = self.flask_app.config
+        return server_settings.describe(
+            {"port": cfg["PORT"], "max_upload_mb": cfg["MAX_UPLOAD_MB"]}
+        )
 
     def setup_state(self):
         """What the Setup tab shows: the CA, its passphrase and the HTTPS
@@ -437,6 +447,7 @@ class Console(App):
         else:
             https = "none (optional): plain HTTP on localhost"
         rows.append(("HTTPS certificate", https))
+        rows.append(("Server settings", self.settings_text()))
         text = Text()
         for label, value in rows:
             text.append(f"{label:<20}", style="bold")
@@ -1127,6 +1138,51 @@ class Console(App):
         else:
             self.call_from_thread(self.notify, "Failed, see the Server tab.", severity="error")
         self.call_from_thread(self.refresh_all)
+
+    @on(Button.Pressed, "#server-settings")
+    def server_settings_pressed(self):
+        cfg = self.flask_app.config
+        self.push_screen(
+            Ask("Server settings", [
+                ("Port, 1024 to 65535", False, str(cfg["PORT"])),
+                ("Largest upload in MB, 1 to 100", False, str(cfg["MAX_UPLOAD_MB"])),
+            ], "The server always listens on 127.0.0.1; a proxy such as Tailscale reaches it."),
+            self.change_server_settings,
+        )
+
+    def change_server_settings(self, values):
+        if values is None:
+            return
+        cfg = self.flask_app.config
+        try:
+            port, max_upload_mb = int(values[0]), int(values[1])
+            new = server_settings.save(cfg["SETTINGS_FILE"], port, max_upload_mb)
+        except ValueError as e:
+            whole = "Type whole numbers for the port and the upload limit."
+            self.notify(whole if "literal" in str(e) else str(e), severity="error")
+            return
+        old = {"port": cfg["PORT"], "max_upload_mb": cfg["MAX_UPLOAD_MB"]}
+        server_settings.apply(self.flask_app, new)
+        cfg["SETTINGS_PROBLEM"] = None
+        if new["port"] != old["port"]:
+            cfg["PORT"] = new["port"]
+            if self.server.running:
+                self.do_stop()
+                self.server.port = new["port"]
+                self.do_start()
+            else:
+                self.server.port = new["port"]
+            self.notify(
+                f"Now on port {new['port']}. If Tailscale Funnel points at the old one:"
+                f" tailscale funnel --bg https+insecure://127.0.0.1:{new['port']}",
+                timeout=20,
+            )
+        else:
+            self.notify(f"Saved: {server_settings.describe(new)}.")
+        if not self.keyring.locked:
+            with self.flask_app.app_context():
+                server_settings.log_change(old, new)
+        self.show_status()
 
     @on(Button.Pressed, "#reset-db")
     def reset_pressed(self):

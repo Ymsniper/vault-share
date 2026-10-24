@@ -74,6 +74,8 @@ def app(tmp_path, ca_dir):
             # never the real instance/tls, which may hold a certificate
             "TLS_CERT": str(tmp_path / "tls" / "server.crt"),
             "TLS_KEY": str(tmp_path / "tls" / "server.key"),
+            # nor the real port and upload limit
+            "SETTINGS_FILE": str(tmp_path / "server.toml"),
         }
     )
     with app.app_context():

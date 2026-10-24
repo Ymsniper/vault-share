@@ -6,10 +6,11 @@ app = create_app()
 if __name__ == "__main__":
     # locks the app within a second of the key USB stick being pulled out
     app.extensions["keyring"].watch(app)
+    port = app.config["PORT"]
     try:
-        server = make_app_server(app)
+        server = make_app_server(app, port=port)
     except OSError as e:
-        raise SystemExit(f"cannot start on port 5000: {e.strerror}") from None
+        raise SystemExit(f"cannot start on port {port}: {e.strerror}") from None
     scheme = "https" if app.config["HTTPS"] else "http"
     print(f"serving on {scheme}://localhost:{server.port}")
     server.serve_forever()

@@ -260,6 +260,43 @@ def test_cancel_a_leaked_code_and_its_accounts(app):
         assert db.execute("SELECT cancelled_at FROM invites").fetchone()[0] is not None
 
 
+def test_server_settings_from_the_setup_tab(app):
+    from app import server_settings
+
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        new_port = probe.getsockname()[1]
+    seen = []
+
+    async def scenario():
+        console = Console(app, start_server=False)
+        console.server.port = 0  # any free port to begin with
+        async with console.run_test(size=(140, 45)) as pilot:
+            await pilot.press("enter")
+            await pilot.pause()
+            await pilot.press("s")
+            assert console.server.running
+            console.screen.query_one("#tabs").active = "setup-tab"
+            await pilot.pause()
+            await pilot.click("#server-settings")
+            await pilot.pause()
+            assert [i.value for i in console.screen.query(Input)] == ["5000", "10"]
+            await answer(pilot, console, str(new_port), "3")
+            await pilot.pause()
+            seen.append((console.server.running, console.server.port))
+            with socket.create_connection(("127.0.0.1", new_port), timeout=2):
+                pass
+            await pilot.press("s")
+
+    run(scenario)
+    assert seen == [(True, new_port)]
+    assert app.config["MAX_UPLOAD_MB"] == 3
+    assert app.config["MAX_CONTENT_LENGTH"] == 3 * 1024 * 1024 + 64 * 1024
+    assert server_settings.load(app.config["SETTINGS_FILE"])[0] == {
+        "port": new_port, "max_upload_mb": 3
+    }
+
+
 def test_start_and_stop_the_server(app):
     async def scenario():
         console = Console(app, start_server=False)

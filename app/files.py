@@ -32,7 +32,6 @@ from security.pki import (
 from security.signing import sign_digest, unlock_private_key, verify_digest
 from security.uploads import (
     ARCHIVES,
-    MAX_SIZE,
     accept_list,
     check_upload,
     clean_name,
@@ -232,7 +231,7 @@ def upload_page():
         groups=type_groups(),
         archives=list(ARCHIVES),
         accept=accept_list(),
-        limit_mb=MAX_SIZE // (1024 * 1024),
+        limit_mb=current_app.config["MAX_UPLOAD_MB"],
     )
 
 
@@ -243,11 +242,12 @@ def upload():
     form = UploadForm()
     if form.validate_on_submit():
         file = form.file.data
-        # files over MAX_CONTENT_LENGTH never get here, Flask answers 413
+        # requests over MAX_CONTENT_LENGTH never get here, Flask answers 413
         name = clean_name(file.filename)
         data = file.read()
         try:
-            mime, checked = check_upload(name, data)
+            max_bytes = current_app.config["MAX_UPLOAD_MB"] * 1024 * 1024
+            mime, checked = check_upload(name, data, max_bytes)
         except ValueError as e:
             audit("upload", "refused", detail=str(e))
             flash(str(e))

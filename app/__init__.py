@@ -9,8 +9,8 @@ from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from security.keys import load_or_create_key
-from security.uploads import MAX_SIZE
 
+from . import server_settings
 from .keyring import Keyring, Locked
 
 csrf = CSRFProtect()
@@ -27,7 +27,6 @@ def create_app(test_config=None):
         # outside the app's static folder, so files are only reachable
         # through the routes that check access
         STORAGE_FOLDER=os.path.join(app.instance_path, "storage"),
-        MAX_CONTENT_LENGTH=MAX_SIZE,
         # how long the audit log keeps an entry
         AUDIT_LOG_DAYS=90,
         # where USB sticks are mounted on Linux
@@ -47,6 +46,15 @@ def create_app(test_config=None):
     )
     if test_config is not None:
         app.config.update(test_config)
+    # the port and the largest upload, set at the server; see server_settings.py
+    app.config.setdefault("SETTINGS_FILE", os.path.join(app.instance_path, "server.toml"))
+    settings, problem = server_settings.load(app.config["SETTINGS_FILE"])
+    app.config.setdefault("PORT", settings["port"])
+    app.config.setdefault("MAX_UPLOAD_MB", settings["max_upload_mb"])
+    app.config["MAX_CONTENT_LENGTH"] = server_settings.upload_limit(app.config["MAX_UPLOAD_MB"])
+    app.config["SETTINGS_PROBLEM"] = problem
+    if problem:
+        app.logger.warning(problem)
     # HTTPS as soon as the server certificate exists; run.py then serves TLS
     app.config.setdefault(
         "HTTPS", os.path.exists(app.config["TLS_CERT"]) and os.path.exists(app.config["TLS_KEY"])
@@ -90,6 +98,7 @@ def create_app(test_config=None):
     app.register_blueprint(unlock.bp)
     app.cli.add_command(unlock.keys_cli)
     app.cli.add_command(invites.invite_cli)
+    app.cli.add_command(server_settings.settings_command)
     app.add_template_filter(auth.show_handle, "handle")
     # after the blueprints, so the limits can already see who is logged in
     limiter.init_app(app)

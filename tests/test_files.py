@@ -211,6 +211,9 @@ def test_upload_refuses_content_that_does_not_match(alice):
 
 def test_upload_over_10_mb_is_refused(alice):
     r = upload(alice, b"a" * (10 * 1024 * 1024 + 1), name="big.txt")
+    assert b"This file is over the 10 MB limit." in r.data
+    # far over it, Flask refuses the request before the app reads it
+    r = upload(alice, b"a" * (11 * 1024 * 1024), name="big.txt")
     assert r.status_code == 413
 
 

@@ -4,8 +4,6 @@ import unicodedata
 
 import filetype
 
-MAX_SIZE = 10 * 1024 * 1024
-
 # what filetype may find in a file of that extension, or TEXT for formats
 # with no signature, checked by decoding them instead
 TEXT = "text"
@@ -125,7 +123,7 @@ def check_signature(ext, data, inside):
         raise ValueError(f"The content of this file does not match the .{ext} extension.")
 
 
-def check_upload(name, data):
+def check_upload(name, data, max_bytes):
     """Return (MIME type to store, whether the content was checked), or
     raise ValueError.
 
@@ -134,6 +132,8 @@ def check_upload(name, data):
     to .pdf, or a program renamed to .zip, is refused. An archive passes that
     check too, but what it holds is not looked at: it is not checked.
     """
+    if len(data) > max_bytes:
+        raise ValueError(f"This file is over the {max_bytes // (1024 * 1024)} MB limit.")
     ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
     if ext in ARCHIVES:
         mime, inside = ARCHIVES[ext]
