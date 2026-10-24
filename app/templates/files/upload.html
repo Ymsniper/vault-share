@@ -14,8 +14,8 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="mb-3">
         <label for="file" class="form-label">File</label>
-        <input type="file" name="file" id="file" class="form-control" accept=".pdf,.txt,.md,.cfg,.json,.png,.jpg,.jpeg,.docx,.xlsx" required>
-        <div class="form-text">PDF, TXT, MD, CFG, JSON, PNG, JPG, DOCX or XLSX, up to 10 MB.</div>
+        <input type="file" name="file" id="file" class="form-control" accept="{{ accept }}" required>
+        <div class="form-text">{{ groups|join(', ') }}, up to 10 MB.</div>
       </div>
       <div class="mb-3">
         <label for="description" class="form-label">Description</label>

@@ -30,7 +30,7 @@ from security.pki import (
     load_certificate,
 )
 from security.signing import sign_digest, unlock_private_key, verify_digest
-from security.uploads import check_upload, clean_name
+from security.uploads import accept_list, check_upload, clean_name, type_groups
 
 from .audit import audit
 from .auth import login_required, password_limit
@@ -217,6 +217,10 @@ def index():
     return render_template("files/index.html", files=files, shared=shared, q=q)
 
 
+def upload_page():
+    return render_template("files/upload.html", groups=type_groups(), accept=accept_list())
+
+
 @bp.route("/upload", methods=("GET", "POST"))
 @login_required
 @password_limit(lambda: g.user["username"] if g.user else "")
@@ -232,13 +236,13 @@ def upload():
         except ValueError as e:
             audit("upload", "refused", detail=str(e))
             flash(str(e))
-            return render_template("files/upload.html")
+            return upload_page()
 
         if g.duress:
             # the decoy account accepts nothing, and says nothing about why
             audit("upload", "refused", detail="duress session")
             flash("The upload failed. Try again later.")
-            return render_template("files/upload.html")
+            return upload_page()
 
         # the password unlocks the signing key, so a wrong one counts
         # toward the same lockout as a failed login
@@ -269,7 +273,7 @@ def upload():
             g.wrong_password = True
             audit("upload", "refused", detail="wrong password")
             flash("Wrong password: your signing key stays locked and nothing was uploaded.")
-            return render_template("files/upload.html")
+            return upload_page()
 
         if signer is None:
             renew = True
@@ -290,7 +294,7 @@ def upload():
                 flash(
                     "Your certificate needs renewing, but the certificate authority is not set up."
                 )
-                return render_template("files/upload.html")
+                return upload_page()
             audit("renew_certificate", "ok")
 
         file_id = str(uuid.uuid4())
@@ -338,7 +342,7 @@ def upload():
     elif form.is_submitted():
         flash(first_error(form))
 
-    return render_template("files/upload.html")
+    return upload_page()
 
 
 @bp.route("/files/<uuid:id>")

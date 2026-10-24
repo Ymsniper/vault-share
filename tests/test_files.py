@@ -19,6 +19,8 @@ from security.crypto import decrypt
 from security.hybrid import unwrap_file_key
 from security.pki import load_certificate
 
+from .samples import CHECKED, ELF, EXE, zipped
+
 PASSWORD = "contract-2026"
 CONTRACT = b"Supply contract: 1,200 units at 40 EUR, delivery in March."
 PDF = b"%PDF-1.7\n1 0 obj << /Type /Catalog >> endobj\n%%EOF\n"
@@ -151,6 +153,40 @@ def test_upload_refuses_types_not_on_the_list(alice):
         r = upload(alice, b"<html><script>alert(1)</script></html>", name=name)
         assert b"This file type is not allowed." in r.data
     assert b"No files found." in my_files(alice)
+
+
+@pytest.mark.parametrize("name", sorted(CHECKED))
+def test_common_types_are_checked_and_accepted(alice, name):
+    assert f"Uploaded {name}.".encode() in upload(alice, CHECKED[name], name=name).data
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["letter.doc", "budget.xls", "slides.ppt", "letter.rtf", "page.htm", "feed.xml",
+     "app.js", "setup.exe", "setup.msi"],
+)
+def test_types_left_out_are_refused(alice, name):
+    assert b"This file type is not allowed." in upload(alice, b"anything", name=name).data
+
+
+def test_renamed_content_is_refused(alice):
+    for data, name in (
+        (ELF, "photo.png"),
+        (EXE, "clip.mp4"),
+        (zipped([("a.txt", "x")]), "report.pdf"),
+        (CHECKED["photo.jpg"], "chart.png"),
+    ):
+        assert b"does not match the ." in upload(alice, data, name=name).data, name
+    assert b"No files found." in my_files(alice)
+
+
+def test_toml_must_parse(alice):
+    assert b"is not valid TOML" in upload(alice, b"name = ", name="app.toml").data
+
+
+def test_downloads_keep_the_type_from_the_list(alice):
+    url = new_file(alice, CHECKED["clip.mov"], name="clip.mov")
+    assert download(alice, url).mimetype == "video/quicktime"
 
 
 def test_upload_refuses_content_that_does_not_match(alice):
