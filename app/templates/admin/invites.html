@@ -53,7 +53,7 @@
       <div class="vs-table-wrap">
         <table class="table table-sm vs-invites">
           <thead>
-            <tr><th>No.</th><th>Made</th><th>Expires</th><th>Used</th><th>State</th><th>Used by</th><th></th></tr>
+            <tr><th>No.</th><th>Made</th><th>Expires</th><th>State</th><th>Used by</th><th></th></tr>
           </thead>
           <tbody>
             {% for i in invites %}
@@ -62,8 +62,7 @@
               <td class="vs-mono" data-prefix="no.">{{ i['id'] }}</td>
               <td class="vs-meta" data-prefix="made">{{ i['created_at'][:16] }}</td>
               <td class="vs-meta" data-prefix="expires">{{ i['expires_at'][:16] }}</td>
-              <td class="vs-meta" data-prefix="used">{{ i['uses'] }} of {{ i['max_uses'] }}</td>
-              <td><span class="vs-chip {{ 'vs-chip-ok' if s == 'open' else 'vs-chip-neutral' if s == 'used' else 'vs-chip-bad' }}">{{ s }}</span></td>
+              <td class="text-nowrap"><span class="vs-chip {{ 'vs-chip-ok' if s == 'open' else 'vs-chip-neutral' if s == 'used' else 'vs-chip-bad' }}">{{ s }}</span> <span class="vs-meta">{{ i['uses'] }} of {{ i['max_uses'] }}</span></td>
               <td class="vs-mono" data-prefix="by">{% if i['used_by'] %}{% for name in i['used_by'].split(', ') %}{{ name|handle }}{{ ', ' if not loop.last }}{% endfor %}{% endif %}</td>
               <td>
                 {% if s == 'open' %}
