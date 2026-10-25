@@ -14,6 +14,7 @@ import click
 from flask import current_app
 from flask.cli import with_appcontext
 
+from . import public_link
 from .audit import audit
 from .keyring import Locked
 
@@ -119,11 +120,28 @@ def log_change(old, new):
     return True
 
 
+def offer_link_move(old_port, new_port, https, yes):
+    """After a port change: if a Tailscale link pointed at the old port, ask
+    whether to move it (yes skips the question)."""
+    found = public_link.rules_for(public_link.status(), old_port)
+    if not found:
+        return
+    links = ", ".join(public_link.url_of(r) for r in found)
+    question = f"{links} still points at port {old_port}. Move it to {new_port}?"
+    if yes or click.confirm(question, default=False):
+        click.echo(public_link.move(old_port, new_port, https))
+    else:
+        click.echo("Left as it is. To move it later: "
+                   + public_link.by_hand(found, new_port, https))
+
+
 @click.command("server-settings")
 @click.option("--port", type=int, help="The port the server listens on, 1024 to 65535.")
 @click.option("--max-upload-mb", type=int, help="The largest upload, 1 to 100 MB.")
+@click.option("--yes", is_flag=True,
+              help="Move a Tailscale link that pointed at the old port without asking.")
 @with_appcontext
-def settings_command(port, max_upload_mb):
+def settings_command(port, max_upload_mb, yes):
     """Show the server's port and upload limit, or change them.
 
     The server only ever listens on 127.0.0.1; reach it from elsewhere
@@ -143,3 +161,5 @@ def settings_command(port, max_upload_mb):
     click.echo(f"Saved: {describe(new)}. Start the server again to use them.")
     if not log_change(old, new):
         click.echo("Not in the audit log: the database is locked.")
+    if new["port"] != old["port"]:
+        offer_link_move(old["port"], new["port"], current_app.config["HTTPS"], yes)

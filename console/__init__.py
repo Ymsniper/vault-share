@@ -64,7 +64,7 @@ from app.invites import (
     show_duration,
     to_local,
 )
-from app import server_settings
+from app import public_link, server_settings
 from app.serving import make_app_server
 from app.unlock import (
     FactorError,
@@ -377,6 +377,9 @@ class Console(App):
         self.pending = []
         self.ready = False
         self.warned_about_db = False
+        # where the Tailscale link points, read in the background: asking
+        # tailscale every second for the status line would be wasteful
+        self.link = ("checking...", True)
 
     def on_mount(self):
         self.install_screen(Main(), "main")
@@ -391,6 +394,7 @@ class Console(App):
         self.keyring.watch(self.flask_app)
         if self.start_server:
             self.do_start()
+        self.check_link()
         self.push_screen(Splash(self.startup_checks))
 
     def on_unmount(self):
@@ -419,6 +423,7 @@ class Console(App):
             ("lock", "unlocked" if not k.locked else k.missing(), not k.locked),
             ("settings", cfg["SETTINGS_PROBLEM"] or self.settings_text(),
              not cfg["SETTINGS_PROBLEM"]),
+            ("link", *self.link),
         ]
 
     def settings_text(self):
@@ -448,6 +453,7 @@ class Console(App):
             https = "none (optional): plain HTTP on localhost"
         rows.append(("HTTPS certificate", https))
         rows.append(("Server settings", self.settings_text()))
+        rows.append(("Tailscale link", self.link[0]))
         text = Text()
         for label, value in rows:
             text.append(f"{label:<20}", style="bold")
@@ -674,6 +680,17 @@ class Console(App):
 
     def action_refresh(self):
         self.refresh_all()
+        self.check_link()
+
+    @work(thread=True)
+    def check_link(self):
+        found = public_link.describe(public_link.status(), self.flask_app.config["PORT"])
+        self.call_from_thread(self.set_link, found)
+
+    def set_link(self, found):
+        self.link = found
+        if self.ready:
+            self.show_status()
 
     async def action_quit(self):
         self.do_stop()
@@ -1172,17 +1189,46 @@ class Console(App):
                 self.do_start()
             else:
                 self.server.port = new["port"]
-            self.notify(
-                f"Now on port {new['port']}. If Tailscale Funnel points at the old one:"
-                f" tailscale funnel --bg https+insecure://127.0.0.1:{new['port']}",
-                timeout=20,
-            )
+            self.offer_link_move(old["port"], new["port"])
         else:
             self.notify(f"Saved: {server_settings.describe(new)}.")
         if not self.keyring.locked:
             with self.flask_app.app_context():
                 server_settings.log_change(old, new)
         self.show_status()
+
+    # Funnel decides what the internet can reach: the console never changes
+    # it without asking, and only moves rules that pointed at the old port
+
+    @work(thread=True)
+    def offer_link_move(self, old_port, new_port):
+        found = public_link.rules_for(public_link.status(), old_port)
+        if not found:
+            self.call_from_thread(self.notify, f"Now on port {new_port}.")
+            self.call_from_thread(self.check_link)
+            return
+        links = ", ".join(public_link.url_of(r) for r in found)
+        self.call_from_thread(
+            self.push_screen,
+            Choose(f"Now on port {new_port}. {links} still points at port {old_port}."
+                   f" Move it to {new_port}?", ["Move it", "Leave it"]),
+            lambda choice: self.link_choice(choice, found, old_port, new_port),
+        )
+
+    def link_choice(self, choice, found, old_port, new_port):
+        if choice == "Move it":
+            self.move_link(old_port, new_port)
+        else:
+            https = self.flask_app.config["HTTPS"]
+            self.notify("Left as it is. To move it later: "
+                        + public_link.by_hand(found, new_port, https), timeout=20)
+            self.check_link()
+
+    @work(thread=True)
+    def move_link(self, old_port, new_port):
+        message = public_link.move(old_port, new_port, self.flask_app.config["HTTPS"])
+        self.call_from_thread(self.notify, message, timeout=15)
+        self.call_from_thread(self.check_link)
 
     @on(Button.Pressed, "#reset-db")
     def reset_pressed(self):

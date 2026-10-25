@@ -4,12 +4,19 @@ from pathlib import Path
 
 import pytest
 
-from app import create_app, limiter
+from app import create_app, limiter, public_link
 from app.db import init_db
 from app.invites import create_invite
 
 CA_SCRIPT = Path(__file__).parent.parent / "pki" / "create_ca.sh"
 CA_PASSPHRASE = "test passphrase for the CA"
+
+
+@pytest.fixture(autouse=True)
+def no_tailscale(monkeypatch):
+    """Tests never ask this machine's real tailscale; test_public_link.py
+    puts a fake one in its place."""
+    monkeypatch.setattr(public_link, "run", lambda args, timeout=10: None)
 
 
 @pytest.fixture(scope="session")
