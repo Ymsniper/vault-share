@@ -19,6 +19,7 @@ from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Center, Horizontal, Vertical
+from textual.coordinate import Coordinate
 from textual.screen import ModalScreen, Screen
 from textual.widgets import (
     Button,
@@ -384,6 +385,8 @@ class Console(App):
         # where the Tailscale link points, read in the background: asking
         # tailscale every second for the status line would be wasteful
         self.link = ("checking...", True)
+        # what each table shows, to leave it alone when a refresh brings nothing new
+        self.shown = {}
 
     def on_mount(self):
         self.install_screen(Main(), "main")
@@ -558,10 +561,43 @@ class Console(App):
         self.load_invites()
         self.load_audit()
 
-    def load_users(self):
-        table = self.get_screen("main").query_one("#users", DataTable)
+    def fill(self, table_id, rows):
+        """Show rows, (key, cells) pairs, keeping the highlighted row and the
+        rows in view. A refresh with nothing new changes nothing at all, so
+        the audit log's 3-second check does not move anything."""
+        table = self.get_screen("main").query_one(table_id, DataTable)
+        plain = [(key, tuple(str(c) for c in cells)) for key, cells in rows]
+        if self.shown.get(table_id) == plain:
+            return
+        self.shown[table_id] = plain
+        cursor_row, cursor_key, top_key = 0, None, None
+        at_top = table.scroll_y == 0
+        if table.row_count:
+            cursor_row = table.cursor_coordinate.row
+            cursor_key = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
+            top = min(int(table.scroll_y), table.row_count - 1)
+            top_key = table.coordinate_to_cell_key(Coordinate(top, 0)).row_key.value
         table.clear()
+        for key, cells in rows:
+            table.add_row(*cells, key=key)
+        if not rows:
+            return
+        keys = [key for key, _ in rows]
+
+        def restore():
+            # the same row stays highlighted, and the same row stays at the
+            # top of the view, unless the view was at the very top: then new
+            # rows (the newest audit entries) show there
+            row = keys.index(cursor_key) if cursor_key in keys else min(cursor_row, len(keys) - 1)
+            table.move_cursor(row=row, scroll=False)
+            if not at_top and top_key in keys:
+                table.scroll_to(y=keys.index(top_key), animate=False)
+
+        self.call_after_refresh(restore)
+
+    def load_users(self):
         if self.keyring.locked:
+            self.fill("#users", [])
             return
         try:
             with self.flask_app.app_context():
@@ -583,10 +619,11 @@ class Console(App):
                 self.warned_about_db = True
                 self.notify("The database is missing or from an older version: "
                             "reset it in the Setup tab.", severity="error", timeout=15)
+            self.fill("#users", [])
             return
-        for r in rows:
-            # plain Text, never markup: a name must not be able to style the screen
-            table.add_row(
+        # plain Text, never markup: a name must not be able to style the screen
+        self.fill("#users", [
+            (r["username"], (
                 Text(r["username"]),
                 "banned" if r["banned_at"] else "",
                 "yes" if r["is_admin"] else "",
@@ -594,21 +631,22 @@ class Console(App):
                 Text(r["cert"] or "none"),
                 str(r["files"]),
                 Text(r["inviter"] or ""),
-                key=r["username"],
-            )
+            ))
+            for r in rows
+        ])
 
     def load_invites(self):
-        table = self.get_screen("main").query_one("#invites", DataTable)
-        table.clear()
         if self.keyring.locked:
+            self.fill("#invites", [])
             return
         try:
             with self.flask_app.app_context():
                 rows = list_invites()
         except DatabaseError:  # see load_users
+            self.fill("#invites", [])
             return
-        for r in rows:
-            table.add_row(
+        self.fill("#invites", [
+            (str(r["id"]), (
                 str(r["id"]),
                 r["state"],
                 f"{r['uses']} of {r['max_uses']}",
@@ -616,23 +654,24 @@ class Console(App):
                 to_local(r["created_at"]),
                 to_local(r["expires_at"]),
                 Text(r["used_by"] or ""),
-                key=str(r["id"]),
-            )
+            ))
+            for r in rows
+        ])
 
     def load_audit(self):
-        table = self.get_screen("main").query_one("#audit", DataTable)
         if self.keyring.locked:
-            table.clear()
+            self.fill("#audit", [])
             return
         with self.flask_app.app_context():
             rows = get_db().execute(
-                "SELECT a.at, u.username, a.action, a.file_id, a.outcome, a.detail, a.ip"
+                "SELECT a.id, a.at, u.username, a.action, a.file_id, a.outcome, a.detail, a.ip"
                 " FROM audit_log a LEFT JOIN users u ON u.id = a.user_id"
                 " ORDER BY a.id DESC LIMIT 200"
             ).fetchall()
-        table.clear()
-        for r in rows:
-            table.add_row(*(Text(str(v) if v is not None else "") for v in tuple(r)))
+        self.fill("#audit", [
+            (str(r["id"]), tuple(Text(str(v) if v is not None else "") for v in tuple(r)[1:]))
+            for r in rows
+        ])
 
     def selected_user(self):
         return self.selected_key("#users")

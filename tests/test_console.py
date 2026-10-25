@@ -5,6 +5,7 @@ import re
 import socket
 
 import pytest
+from textual.coordinate import Coordinate
 from textual.widgets import Button, DataTable, Input, OptionList, Static
 
 from app.db import get_db
@@ -480,3 +481,99 @@ def test_quitting_while_the_server_runs(app):
 
     console = asyncio.run(scenario())
     assert not console.server.running
+
+
+def add_audit(app, n, start=0):
+    with app.app_context():
+        db = get_db()
+        for i in range(start, start + n):
+            db.execute(
+                "INSERT INTO audit_log (action, outcome, detail) VALUES ('test', 'ok', ?)",
+                (f"entry {i}",),
+            )
+        db.commit()
+
+
+async def open_tab(pilot, console, tab):
+    await pilot.press("enter")
+    await pilot.pause()
+    console.screen.query_one("#tabs").active = tab
+    await pilot.pause()
+
+
+def place(table):
+    """The highlighted row's key and the key of the row at the top of the view."""
+    cursor = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
+    top = table.coordinate_to_cell_key(Coordinate(int(table.scroll_y), 0)).row_key.value
+    return cursor, top
+
+
+def test_the_audit_tab_keeps_its_place(app):
+    add_audit(app, 80)
+    seen = []
+
+    async def scenario():
+        console = Console(app, start_server=False)
+        async with console.run_test(size=(120, 30)) as pilot:
+            await open_tab(pilot, console, "log-tab")
+            table = console.screen.query_one("#audit", DataTable)
+            table.move_cursor(row=30)
+            table.scroll_to(y=25, animate=False)
+            await pilot.pause()
+            seen.append(place(table))
+            console.load_audit()  # nothing new
+            await pilot.pause()
+            seen.append(place(table))
+            add_audit(app, 3, start=80)
+            console.load_audit()
+            await pilot.pause()
+            await pilot.pause()
+            seen.append(place(table))
+            seen.append(table.row_count)
+
+    run(scenario)
+    assert seen[0] == seen[1] == seen[2]
+    assert seen[0] != (None, None)
+    assert seen[3] == 83
+
+
+def test_new_audit_entries_show_at_the_top(app):
+    add_audit(app, 5)
+    seen = []
+
+    async def scenario():
+        console = Console(app, start_server=False)
+        async with console.run_test(size=(120, 30)) as pilot:
+            await open_tab(pilot, console, "log-tab")
+            table = console.screen.query_one("#audit", DataTable)
+            highlighted = place(table)[0]
+            add_audit(app, 2, start=5)
+            console.load_audit()
+            await pilot.pause()
+            await pilot.pause()
+            seen.append(table.scroll_y)
+            seen.append(str(table.get_row_at(0)[5]))
+            seen.append(place(table)[0] == highlighted)
+
+    run(scenario)
+    assert seen == [0, "entry 6", True]
+
+
+def test_the_users_tab_keeps_the_highlight_after_an_action(app, alice, bob):
+    seen = []
+
+    async def scenario():
+        console = Console(app, start_server=False)
+        async with console.run_test(size=(140, 40)) as pilot:
+            await open_tab(pilot, console, "users-tab")
+            console.screen.query_one("#users", DataTable).move_cursor(row=1)
+            await pilot.pause()
+            await pilot.click("#ban")
+            await console.workers.wait_for_complete()
+            await pilot.pause()
+            await pilot.pause()
+            seen.append(console.selected_user())
+
+    run(scenario)
+    assert seen == [bob.handle]
+
