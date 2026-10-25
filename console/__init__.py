@@ -177,13 +177,17 @@ class Ask(ModalScreen):
 
 
 class Choose(ModalScreen):
-    def __init__(self, title, options):
+    """A short title, an optional note that wraps, and the options."""
+
+    def __init__(self, title, options, note=""):
         super().__init__()
-        self.title_text, self.options = title, options
+        self.title_text, self.options, self.note = title, options, note
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="dialog"):
             yield Label(self.title_text, classes="dialog-title")
+            if self.note:
+                yield Static(Text(self.note), classes="dialog-note")
             yield OptionList(*[Text(o) for o in self.options])
             with Horizontal(classes="dialog-buttons"):
                 yield Button("Cancel", id="cancel", compact=True)
@@ -1202,16 +1206,18 @@ class Console(App):
 
     @work(thread=True)
     def offer_link_move(self, old_port, new_port):
-        found = public_link.rules_for(public_link.status(), old_port)
+        config = public_link.status()
+        self.call_from_thread(self.set_link, public_link.describe(config, new_port))
+        found = public_link.rules_for(config, old_port)
         if not found:
             self.call_from_thread(self.notify, f"Now on port {new_port}.")
-            self.call_from_thread(self.check_link)
             return
         links = ", ".join(public_link.url_of(r) for r in found)
         self.call_from_thread(
             self.push_screen,
-            Choose(f"Now on port {new_port}. {links} still points at port {old_port}."
-                   f" Move it to {new_port}?", ["Move it", "Leave it"]),
+            Choose("Move the Tailscale link?", ["Move it", "Leave it"],
+                   f"Now on port {new_port}. {links} still points at port {old_port}."
+                   f" Move it to {new_port}?"),
             lambda choice: self.link_choice(choice, found, old_port, new_port),
         )
 

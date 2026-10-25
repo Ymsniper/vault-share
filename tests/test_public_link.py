@@ -184,7 +184,8 @@ def change_port_in_the_console(app, then):
 def test_the_console_offers_to_move_the_link(app, tailscale):
     screen = change_port_in_the_console(app, then=0)
     assert isinstance(screen, Choose)
-    assert f"https://{HOST} still points at port 5000. Move it to 7000?" in screen.title_text
+    assert screen.title_text == "Move the Tailscale link?"
+    assert f"https://{HOST} still points at port 5000. Move it to 7000?" in screen.note
     assert tailscale.proxy() == "http://127.0.0.1:7000"
 
 
