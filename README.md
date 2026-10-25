@@ -329,8 +329,14 @@ hashed, encrypted and signed, so a higher ceiling would let a few uploads
 use up the memory. A file with wrong values is ignored, with a warning, and
 the defaults are used. The server always listens on 127.0.0.1, which is not
 a setting: from elsewhere it is reached through a proxy. The console uses a
-new port at once; `vault-share serve` when it starts again. After a port
-change, point Tailscale Funnel at it too.
+new port at once; `vault-share serve` when it starts again.
+
+When the port changes and a Tailscale link (Funnel or serve) still points at
+the old one, the console and `server-settings` ask whether to move it, and
+do it on yes (`--yes` answers for the command). Only the rules that pointed
+at the old port on this machine change; a public link stays public, a
+tailnet one stays private, and nothing is turned on. The console's startup
+screen and Setup tab say where the link points.
 
 ## Admin
 
