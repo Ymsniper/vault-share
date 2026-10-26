@@ -288,7 +288,8 @@ class Main(Screen):
                     yield Button("Start", id="start", variant="primary", compact=True)
                     yield Button("Stop", id="stop", compact=True)
                     yield Button("Unlock", id="unlock", compact=True)
-                yield RichLog(id="log", wrap=True, markup=False)
+                # bounded, so a console left running for weeks does not keep every line
+                yield RichLog(id="log", wrap=True, markup=False, max_lines=5000)
             with TabPane("Users", id="users-tab"):
                 with Horizontal(classes="buttons"):
                     yield Button("Make admin", id="grant", compact=True)
@@ -546,7 +547,9 @@ class Console(App):
             pane = self.get_screen("main").query_one("#log", RichLog)
         except KeyError:  # a line from the server thread while the console closes
             return
-        pane.write(line)
+        # follows new lines only from the bottom, so reading older ones while
+        # the server is busy does not get interrupted
+        pane.write(line, scroll_end=pane.is_vertical_scroll_end)
 
     def main_ready(self):
         self.ready = True

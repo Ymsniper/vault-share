@@ -5,8 +5,9 @@ import re
 import socket
 
 import pytest
+from rich.text import Text
 from textual.coordinate import Coordinate
-from textual.widgets import Button, DataTable, Input, OptionList, Static
+from textual.widgets import Button, DataTable, Input, OptionList, RichLog, Static
 
 from app.db import get_db
 from app.serving import make_app_server
@@ -576,4 +577,32 @@ def test_the_users_tab_keeps_the_highlight_after_an_action(app, alice, bob):
 
     run(scenario)
     assert seen == [bob.handle]
+
+
+def test_the_server_log_follows_only_from_the_bottom(app):
+    seen = []
+
+    async def scenario():
+        console = Console(app, start_server=False)
+        async with console.run_test(size=(120, 30)) as pilot:
+            await pilot.press("enter")
+            await pilot.pause()
+            pane = console.screen.query_one("#log", RichLog)
+            for i in range(100):
+                console.log_line(Text(f"line {i}"))
+            await pilot.pause()
+            seen.append(pane.is_vertical_scroll_end)
+            pane.scroll_to(y=10, animate=False)
+            await pilot.pause()
+            console.log_line(Text("while reading"))
+            await pilot.pause()
+            seen.append(pane.scroll_y)
+            pane.scroll_end(animate=False)
+            await pilot.pause()
+            console.log_line(Text("at the bottom"))
+            await pilot.pause()
+            seen.append(pane.is_vertical_scroll_end)
+
+    run(scenario)
+    assert seen == [True, 10, True]
 
