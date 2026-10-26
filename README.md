@@ -234,6 +234,14 @@ remove the USB stick and the passphrase, create the CA and the HTTPS
 certificate, and reset the database. It uses the terminal's own colors.
 Every action also stays available as a `flask --app app ...` command.
 
+The lists keep their place while they update: the highlighted row and the
+rows in view stay put as new entries arrive, and the server log only
+follows new lines when you are at its bottom. In the Users, Invites and
+Audit log tabs, `c` copies the highlighted row, and Enter (or a click on the
+row already highlighted) opens it in a window whose text can be selected
+and copied with Ctrl+C. Holding Shift while dragging selects any text on
+screen in most terminals.
+
 <table>
   <tr>
     <td width="50%"><img src="docs/screenshots/console-splash.png" alt="Startup checks"><br>Startup checks</td>
