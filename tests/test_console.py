@@ -606,3 +606,57 @@ def test_the_server_log_follows_only_from_the_bottom(app):
     run(scenario)
     assert seen == [True, 10, True]
 
+
+
+def test_c_copies_the_highlighted_row(app, alice):
+    copied = []
+
+    async def scenario():
+        console = Console(app, start_server=False)
+        console.copy_to_clipboard = copied.append
+        async with console.run_test(size=(140, 40)) as pilot:
+            await open_tab(pilot, console, "users-tab")
+            await pilot.press("c")
+            await pilot.pause()
+
+    run(scenario)
+    lines = copied[0].splitlines()
+    assert lines[0] == f"User: {alice.handle}"
+    assert "Invited by: the server" in lines
+
+
+def test_enter_opens_the_highlighted_row(app, alice):
+    shown = []
+
+    async def scenario():
+        console = Console(app, start_server=False)
+        async with console.run_test(size=(140, 40)) as pilot:
+            await open_tab(pilot, console, "users-tab")
+            console.screen.query_one("#users", DataTable).focus()
+            await pilot.press("enter")
+            await pilot.pause()
+            shown.append(console.screen)
+
+    run(scenario)
+    assert isinstance(shown[0], Show)
+    assert shown[0].title_text == "User"
+    assert f"User: {alice.handle}" in shown[0].text
+
+
+def test_a_first_click_only_highlights(app, alice, bob):
+    seen = []
+
+    async def scenario():
+        console = Console(app, start_server=False)
+        async with console.run_test(size=(140, 40)) as pilot:
+            await open_tab(pilot, console, "users-tab")
+            # the header is line 0, the first row line 1, the second line 2
+            await pilot.click("#users", offset=(2, 2))
+            await pilot.pause()
+            seen.append((isinstance(console.screen, Main), console.selected_user()))
+            await pilot.click("#users", offset=(2, 2))
+            await pilot.pause()
+            seen.append(isinstance(console.screen, Show))
+
+    run(scenario)
+    assert seen == [(True, bob.handle), True]

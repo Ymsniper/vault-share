@@ -206,16 +206,19 @@ class Choose(ModalScreen):
 
 
 class Show(ModalScreen):
-    """A message that stays until it is acknowledged, such as a recovery code."""
+    """A message that stays until it is acknowledged, such as a recovery code.
+    Its text can be selected with the mouse and copied with Ctrl+C."""
 
-    def __init__(self, title, text, button="Close"):
+    def __init__(self, title, text, button="Close", note=""):
         super().__init__()
-        self.title_text, self.text, self.button = title, text, button
+        self.title_text, self.text, self.button, self.note = title, text, button, note
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="dialog"):
             yield Label(self.title_text, classes="dialog-title")
             yield Static(Text(self.text), classes="dialog-text")
+            if self.note:
+                yield Static(Text(self.note, style="dim"), classes="dialog-note")
             with Horizontal(classes="dialog-buttons"):
                 yield Button(self.button, variant="primary", id="close", compact=True)
 
@@ -277,6 +280,7 @@ class Main(Screen):
         Binding("s", "app.toggle_server", "Start/stop"),
         Binding("u", "app.unlock", "Unlock"),
         Binding("r", "app.refresh", "Refresh"),
+        Binding("c", "app.copy_row", "Copy row"),
         Binding("q", "app.quit", "Quit"),
     ]
 
@@ -366,6 +370,23 @@ def new_invite_code(uses=None, minutes=None):
 def change_defaults(uses, minutes, admin_per_day):
     warning = set_defaults(uses, minutes, admin_per_day)
     return warning or describe_defaults(defaults())
+
+
+# the tables whose rows can be copied or opened: tab, table and what a row is
+ROWS = {
+    "users-tab": ("#users", "User"),
+    "invites-tab": ("#invites", "Invite code"),
+    "log-tab": ("#audit", "Audit entry"),
+}
+
+
+def row_text(table):
+    """The highlighted row as "Column: value" lines, or None for an empty table."""
+    if table.row_count == 0:
+        return None
+    labels = [str(column.label) for column in table.columns.values()]
+    cells = table.get_row_at(table.cursor_row)
+    return "\n".join(f"{label}: {value}" for label, value in zip(labels, map(str, cells)))
 
 
 class Console(App):
@@ -678,6 +699,28 @@ class Console(App):
 
     def selected_user(self):
         return self.selected_key("#users")
+
+    def action_copy_row(self):
+        main = self.get_screen("main")
+        found = ROWS.get(main.query_one("#tabs", TabbedContent).active)
+        if found is None:
+            self.notify("Rows can be copied in the Users, Invites and Audit log tabs.")
+            return
+        text = row_text(main.query_one(found[0], DataTable))
+        if text:
+            # through the terminal (OSC 52), like the invite codes
+            self.copy_to_clipboard(text)
+            self.notify(f"{found[1]} copied.")
+
+    @on(DataTable.RowSelected)
+    def open_row(self, event):
+        # Enter, or a click on the row that is already highlighted
+        what = next((w for t, w in ROWS.values() if t == f"#{event.data_table.id}"), None)
+        text = row_text(event.data_table)
+        if what and text:
+            self.push_screen(Show(what, text, "Close",
+                                  "Select text with the mouse and press Ctrl+C, or press c"
+                                  " in the list to copy the whole row."))
 
     def selected_key(self, table_id):
         table = self.get_screen("main").query_one(table_id, DataTable)
