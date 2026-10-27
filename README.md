@@ -162,12 +162,21 @@ then the password next to the full username, so the browser's password
 manager saves the username with its tag. Quote it in a shell: `#` means
 something to some shells.
 
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/web-register.png" alt="Registering: the invite code and a name"><br>The invite code and a name</td>
+    <td width="50%"><img src="docs/screenshots/web-register-password.png" alt="Registering: the password"><br>The password, next to the full username</td>
+  </tr>
+</table>
+
 Admins can make codes too, on the "Invites" page, once their two-factor
 login is on: each code asks for their password and a code from their phone.
 Their codes get the defaults, and their daily limit counts the accounts
 their codes can create, five by default, cancelled codes included. So a
 stolen admin login can never let in more people than that, and
 `--admin-per-day 0` stops admin codes altogether.
+
+![An admin's invite codes](docs/screenshots/web-invites.png)
 
 ### Bans and cleanup
 
@@ -218,6 +227,10 @@ the database gives them nothing.
 
 ![A file shared with you](docs/screenshots/web-shared-file.png)
 
+An archive shared with you comes with a warning:
+
+![An archive shared with you](docs/screenshots/web-not-checked.png)
+
 This is not end-to-end encryption. While a file is uploaded or downloaded
 the server sees it, which is what lets it check uploads; a compromised
 running server could keep what passes through it. The same library also
@@ -249,11 +262,15 @@ screen in most terminals.
   </tr>
   <tr>
     <td width="50%"><img src="docs/screenshots/console-server.png" alt="The server and its log"><br>The server and its log</td>
-    <td width="50%"><img src="docs/screenshots/console-users.png" alt="Users"><br>Users: make an admin, revoke a certificate</td>
+    <td width="50%"><img src="docs/screenshots/console-users.png" alt="Users"><br>Users: make an admin, ban, revoke a certificate</td>
   </tr>
   <tr>
     <td width="50%"><img src="docs/screenshots/console-audit.png" alt="The audit log"><br>The audit log as it fills</td>
     <td width="50%"><img src="docs/screenshots/console-setup.png" alt="Setup"><br>Setup: the CA, its passphrase, the HTTPS certificate</td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/console-invites.png" alt="Invites"><br>Invites: new and special codes, defaults, cleanup</td>
+    <td width="50%"><img src="docs/screenshots/console-server-settings.png" alt="Server settings"><br>Server settings: the port and the upload limit</td>
   </tr>
 </table>
 
