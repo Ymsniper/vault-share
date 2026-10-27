@@ -60,6 +60,7 @@ from app.invites import (
     list_invites,
     parse_duration,
     people,
+    plural,
     set_defaults,
     short_duration,
     show_duration,
@@ -507,7 +508,7 @@ class Console(App):
             line.append(f"  {k.missing()}")
         else:
             users, files = self.counts()
-            line.append(f"   {users} users, {files} files")
+            line.append(f"   {plural(users, 'user')}, {plural(files, 'file')}")
         main.query_one("#status", Static).update(line)
         factors = ["machine key"]
         if k.needs_usb:
@@ -1044,7 +1045,7 @@ class Console(App):
         self.push_screen(
             Choose(f"Invite {number}", [
                 "Just cancel it",
-                f"Cancel it and ban the {len(accounts)} accounts made with it",
+                f"Cancel it and ban {plural(len(accounts), 'account')} made with it",
             ]),
             lambda choice: self.cancel_invite_choice(number, accounts, choice),
         )

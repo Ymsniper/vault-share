@@ -26,6 +26,7 @@ from .invites import (
     list_invites,
     people,
     places_today,
+    plural,
     show_duration,
     to_local,
 )
@@ -58,8 +59,8 @@ def accounts_left():
 
 
 def over_the_limit(d, left):
-    return (f"Not today: your codes may create {left} more accounts in the next 24 hours,"
-            f" and a code lets {people(d['uses'])} register.")
+    return (f"Not today: your codes may create {plural(left, 'more account')} in the next"
+            f" 24 hours, and a code lets {people(d['uses'])} register.")
 
 
 @bp.route("/invites")
@@ -76,7 +77,9 @@ def invites():
         defaults=d,
         people=people(d["uses"]),
         valid=show_duration(d["valid_minutes"]),
+        per_day=plural(d["admin_per_day"], "account"),
         left=left,
+        more=plural(left, "more account"),
         over=over_the_limit(d, left),
     )
     return no_store(page)
@@ -303,9 +306,10 @@ def plan_cleanup(since, until=None, inviter=ANY, unban=False):
 def apply_cleanup(accounts, codes, unban=False):
     ids = [a["id"] for a in accounts]
     if unban:
-        return f"{unban_accounts(ids)} accounts unbanned."
+        return f"{plural(unban_accounts(ids), 'account')} unbanned."
     cancelled = cancel_codes(codes)
-    return f"{ban_accounts(ids)} accounts banned, {cancelled} open codes cancelled."
+    banned = ban_accounts(ids)
+    return f"{plural(banned, 'account')} banned, {plural(cancelled, 'open code')} cancelled."
 
 
 def account_lines(accounts, verb, shown):
@@ -359,7 +363,7 @@ def cancel_and_ban(invite_id, accounts):
     except ValueError:  # no places left, expired or cancelled before
         state = "already closed"
     banned = ban_accounts([a["id"] for a in accounts])
-    return f"Invite {invite_id} {state}; {banned} accounts banned."
+    return f"Invite {invite_id} {state}; {plural(banned, 'account')} banned."
 
 
 def plan_revoke_admin(username, invited_since=None, all_invited=False):
@@ -394,8 +398,8 @@ def apply_revoke_admin(admin, accounts, codes, ban=False, revoke_cert=False):
     audit("admin", "revoked", user_id=admin["id"])
     done = [
         f"{admin['username']} is no longer an admin",
-        f"{cancel_codes(codes)} open codes cancelled",
-        f"{ban_accounts([a['id'] for a in accounts])} accounts banned",
+        f"{plural(cancel_codes(codes), 'open code')} cancelled",
+        f"{plural(ban_accounts([a['id'] for a in accounts]), 'account')} banned",
     ]
     if ban and ban_accounts([admin["id"]]):
         done.append(f"{admin['username']} banned")

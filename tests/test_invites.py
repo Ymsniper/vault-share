@@ -12,6 +12,7 @@ from app.invites import (
     defaults,
     list_invites,
     parse_duration,
+    plural,
     show_duration,
 )
 
@@ -262,6 +263,11 @@ def test_durations():
     ]
 
 
+def test_counts_say_1_account_not_1_accounts():
+    assert [plural(n, "account") for n in (0, 1, 2)] == ["0 accounts", "1 account", "2 accounts"]
+    assert plural(1, "more account") == "1 more account"
+
+
 def test_special_codes_at_the_server(app):
     r = invite(app, "new", "--uses", "3", "--valid", "30m")
     code = r.output.strip()
@@ -319,7 +325,7 @@ def test_a_used_up_code_can_still_take_its_accounts(app):
         code = create_invite()
     join(app, code, "amina")
     r = invite(app, "cancel", "1", "--ban-accounts", "--yes")
-    assert "Invite 1 already closed; 1 accounts banned." in r.output
+    assert "Invite 1 already closed; 1 account banned." in r.output
     assert banned(app) == 1
 
 

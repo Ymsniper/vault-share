@@ -195,6 +195,24 @@ def test_cancelled_codes_still_count(app, alice):
     assert shown_code(r.data) is None
 
 
+def test_a_count_of_one_is_singular(app, alice):
+    make_admin(app, alice)
+    turn_on(alice)
+    with app.app_context():
+        for _ in range(4):
+            create_invite(created_by=user_id(app, alice.handle))
+    page = alice.get("/admin/invites").data
+    assert b"Your codes may create 1 more account in the next 24 hours." in page
+
+    # a code for 2 people no longer fits in the one place left
+    set_defaults(app, "--uses", "2")
+    page = alice.get("/admin/invites").data
+    assert b"Not today: your codes may create 1 more account in the next 24 hours," in page
+
+    set_defaults(app, "--uses", "1", "--admin-per-day", "1")
+    assert b"Admins' codes can create 1 account a day." in alice.get("/admin/invites").data
+
+
 def test_the_limit_is_checked_where_the_code_is_stored(app, alice):
     make_admin(app, alice)
     set_defaults(app, "--uses", "3", "--admin-per-day", "5")

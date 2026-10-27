@@ -45,6 +45,11 @@ def people(n):
     return "1 person" if n == 1 else f"{n} people"
 
 
+def plural(n, word):
+    """n and word, with an s unless n is 1: 1 account, 3 more accounts."""
+    return f"{n} {word}" + ("" if n == 1 else "s")
+
+
 def parse_duration(text):
     """Minutes in "30m", "12h" or "7d", from 10 minutes to 90 days.
     Raises ValueError."""
@@ -92,7 +97,7 @@ def describe_defaults(d):
     text = (f"New codes let {people(d['uses'])} register and work for"
             f" {show_duration(d['valid_minutes'])}.")
     if d["admin_per_day"]:
-        return text + f" Admins' codes may create {d['admin_per_day']} accounts a day."
+        return text + f" Admins' codes may create {plural(d['admin_per_day'], 'account')} a day."
     return text + " Admins cannot make codes."
 
 
@@ -126,7 +131,8 @@ def set_defaults(uses=None, minutes=None, admin_per_day=None):
         audit("invite", "defaults", detail="; ".join(changes), user_id=None)
     if 0 < new["admin_per_day"] < new["uses"]:
         return (f"Admins cannot make codes now: a code lets {people(new['uses'])} register,"
-                f" more than the {new['admin_per_day']} accounts a day their codes may create.")
+                f" more than the {plural(new['admin_per_day'], 'account')} a day their codes may"
+                " create.")
     return None
 
 
