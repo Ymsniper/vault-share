@@ -16,10 +16,15 @@ by a local CA.
   server's own keys cannot open a stored file.
 - Files are signed with ECDSA P-256 keys certified by a local OpenSSL CA,
   with revocation and a signature proof that can be checked offline.
+- Uploads are checked by their content, not their name. Archives are
+  accepted but marked Not checked for everyone they are shared with.
 - The database is encrypted with SQLCipher, and every file record is
   protected by an HMAC.
 - Argon2id passwords, server-side sessions, CSRF protection, rate limits,
   security headers and optional two-factor login.
+- Registering needs an invite code, and every username gets a random tag.
+  Bans and a cleanup by inviter and time window undo what a stolen admin
+  login let in.
 - A duress password that opens an empty account, and can wipe it.
 - The master key can also require a USB stick and a passphrase; pulling the
   stick locks the service.
