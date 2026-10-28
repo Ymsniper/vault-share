@@ -20,7 +20,7 @@ from security.passwords import check_password
 from security.totp import matching_step, new_secret, qr_svg
 
 from .audit import audit
-from .auth import finish_login, login_required, password_limit
+from .auth import current_account, finish_login, login_required, password_limit
 from .db import get_db
 from .duress import login_flag
 from .keyring import master_key
@@ -49,10 +49,6 @@ def no_store(body):
     return response
 
 
-def current_username():
-    return g.user["username"] if g.user else ""
-
-
 def check_password_and_code(form, secret, last_step):
     """The time step of a valid code, or None after flashing why it failed.
 
@@ -71,7 +67,7 @@ def check_password_and_code(form, secret, last_step):
 
 @bp.route("/totp", methods=("GET", "POST"))
 @login_required
-@password_limit(current_username)
+@password_limit(current_account)
 def setup():
     """Turn two-factor login on: scan the QR code, then confirm a first code."""
     if g.user["totp_secret"] is not None:
@@ -113,7 +109,7 @@ def qr():
 
 @bp.route("/totp/disable", methods=("POST",))
 @login_required
-@password_limit(current_username)
+@password_limit(current_account)
 def disable():
     if g.user["totp_secret"] is None:
         return redirect(url_for("totp.setup"))
@@ -147,13 +143,13 @@ def pending_user():
     return get_db().execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
 
 
-def pending_username():
+def pending_account():
     user = pending_user()
-    return user["username"] if user else ""
+    return str(user["id"]) if user else None
 
 
 @bp.route("/login/code", methods=("GET", "POST"))
-@password_limit(pending_username)
+@password_limit(pending_account, scope="code")
 def login_code():
     user = pending_user()
     if user is None:

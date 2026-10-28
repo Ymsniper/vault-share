@@ -6,6 +6,7 @@ from app.auth import new_handle, show_handle
 from app.db import get_db
 
 from .conftest import PASSWORD, invite_code, register
+from .test_files import CONTRACT, download, new_file
 
 
 def login(client, username, password=PASSWORD):
@@ -267,6 +268,28 @@ def test_unknown_usernames_lock_the_same_way(client):
         r = login(client, "ghost#000000", "wrong guess")
         assert b"Incorrect username or password." in r.data
     assert login(client, "ghost#000000", "wrong guess").status_code == 429
+
+
+def from_address(app, address):
+    client = app.test_client()
+    client.environ_base["REMOTE_ADDR"] = address
+    return client
+
+
+def test_others_cannot_lock_an_owner_out(app):
+    owner = from_address(app, "198.51.100.7")
+    handle = register(owner)
+    login(owner, handle)
+    url = new_file(owner)
+
+    attacker = from_address(app, "203.0.113.9")
+    for _ in range(5):
+        login(attacker, handle, "a guess")
+    assert login(attacker, handle).status_code == 429
+
+    # the owner still logs in from her own address, and her session works
+    assert login(from_address(app, "198.51.100.7"), handle).headers["Location"] == "/"
+    assert download(owner, url).data == CONTRACT
 
 
 def test_one_address_cannot_spray_many_accounts(client):

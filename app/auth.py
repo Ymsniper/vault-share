@@ -92,6 +92,7 @@ BUSY = "Too many attempts at once. Try again in a moment."
 
 FIVE = parse("5 per 15 minutes")
 TWENTY = parse("20 per 15 minutes")
+TEN_AN_HOUR = parse("10 per hour")
 
 # Flask-Limiter's deduct_when records a failure only once the response is
 # built, so requests sent together would all pass the check before any of
@@ -132,20 +133,32 @@ def settle(limits, failed):
                 del _in_flight[scope, key]
 
 
-def password_limit(key_func, item=FIVE, scope="wrong-password", log=True):
+def current_account():
+    """The logged-in user's id: only their own session can count toward the
+    limit of their password checks."""
+    return str(g.user["id"]) if g.get("user") else None
+
+
+def login_key():
+    # one username from one address, so wrong tries elsewhere never lock the
+    # owner out; cut, since the field is not validated yet and the key is kept
+    return f"{request.form.get('username', '')[:40]}|{get_remote_address()}"
+
+
+def password_limit(key_func, item=FIVE, scope="account", log=True):
     """Wrong passwords sent with POST count toward item for key_func();
-    right ones cost nothing. The view sets g.wrong_password when it refused
-    a password. By default 5 wrong passwords for one username, at login,
-    upload, download or share, block that username for 15 minutes.
-    Usernames that do not exist count the same way, so the block says
-    nothing about which accounts are real.
+    right ones cost nothing, and a key of None counts nowhere. The view sets
+    g.wrong_password when it refused a password. By default 5 wrong
+    passwords in a logged-in account, at upload, download, share or in its
+    settings, block its password checks for 15 minutes.
     """
     def decorator(view):
         @functools.wraps(view)
         def wrapped(*args, **kwargs):
             if request.method != "POST":
                 return view(*args, **kwargs)
-            limits = [(item, scope, key_func())]
+            key = key_func()
+            limits = [] if key is None else [(item, scope, key)]
             verdict = admit(limits)
             if verdict == LOCKED and log:
                 audit("password", "locked", user_id=None)
@@ -266,7 +279,9 @@ def register_password():
 
 
 @bp.route("/login", methods=("GET", "POST"))
-@password_limit(lambda: request.form.get("username", ""))
+# 5 wrong passwords for one username from one address; usernames that do
+# not exist count the same way, so the block says nothing about which are real
+@password_limit(login_key, scope="login")
 # and 20 from one address, so one machine cannot try many accounts
 @password_limit(get_remote_address, TWENTY, "login-address")
 def login():

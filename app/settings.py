@@ -3,7 +3,7 @@ from flask import Blueprint, flash, g, redirect, render_template, url_for
 from security.passwords import check_password, hash_password, password_problem
 
 from .audit import audit
-from .auth import login_required, password_limit
+from .auth import current_account, login_required, password_limit
 from .db import get_db
 from .duress import DECOY, WIPE, empty_slot, seal_mode
 from .forms import DuressForm, RemoveDuressForm, first_error
@@ -13,13 +13,9 @@ bp = Blueprint("settings", __name__, url_prefix="/auth")
 DECOY_REFUSAL = "The duress password could not be saved. Try again later."
 
 
-def current_username():
-    return g.user["username"] if g.user else ""
-
-
 @bp.route("/duress", methods=("GET", "POST"))
 @login_required
-@password_limit(current_username)
+@password_limit(current_account)
 def duress():
     """Set or replace the duress password.
 
@@ -58,7 +54,7 @@ def duress():
 
 @bp.route("/duress/remove", methods=("POST",))
 @login_required
-@password_limit(current_username)
+@password_limit(current_account)
 def remove_duress():
     form = RemoveDuressForm()
     if g.duress:

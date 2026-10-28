@@ -99,12 +99,17 @@ shows up at once:
 
 ![A record that fails its check](docs/screenshots/web-integrity-failed.png)
 
-Five wrong passwords for one username, at login or upload, block it for 15
-minutes, and twenty from one address block that address. The counters live
-in memory (Flask-Limiter), so restarting the app clears them. A password
-check counts from the moment it starts, so requests sent at the same time
-cannot all slip under a limit, and at most four checks run at once: each
-one takes 64 MiB of memory.
+At login, five wrong passwords for one username from one address block
+that pair for 15 minutes, and twenty from one address block the address.
+Wrong tries from somewhere else never lock the owner out. Once logged in,
+the password asked at upload, download, sharing and in the settings has a
+limit of its own, five wrong ones per account, which only that account's
+sessions can use up. Sharing with a username that does not exist counts
+too, ten an hour, since each one is a guess at someone's tag. The counters
+live in memory (Flask-Limiter), so restarting the app clears them. A
+password check counts from the moment it starts, so requests sent at the
+same time cannot all slip under a limit, and at most four checks run at
+once: each one takes 64 MiB of memory.
 
 Two-factor login is optional, per user, from the "Two-factor" page: scan
 the QR code with an authenticator app such as Aegis or FreeOTP and confirm
@@ -166,8 +171,8 @@ console offers the same.
 Usernames carry a tag: you pick a name and the server adds a random 6-digit
 tag, so `bob` becomes something like `bob#516850`, and you log in and share
 with all of it. Names can repeat, so the register page never says whether
-one is taken, and knowing a name is not enough to lock its owner out with
-wrong passwords. Registering takes two steps, the code and the name first,
+one is taken, and knowing a username is not enough to lock its owner out
+with wrong passwords. Registering takes two steps, the code and the name first,
 then the password next to the full username, so the browser's password
 manager saves the username with its tag. Quote it in a shell: `#` means
 something to some shells.

@@ -556,12 +556,23 @@ def test_only_the_password_opens_a_stored_file(app, alice):
         assert decrypt(file_key, f.read(), file_id(url).encode()) == CONTRACT
 
 
+def test_guessing_recipients_is_limited(alice, bob):
+    url = new_file(alice)
+    for i in range(10):
+        r = share(alice, url, f"bob#{i:06d}", follow_redirects=True)
+        assert b"Unknown user." in r.data
+    # each wrong tag was a guess at someone's username
+    r = share(alice, url, bob.handle, follow_redirects=True)
+    assert b"Too many unknown usernames." in r.data
+    assert f"Shared with {bob.handle}.".encode() not in r.data
+
+
 def test_download_needs_the_right_password(alice):
     url = new_file(alice)
     r = download(alice, url, password="a guess", follow_redirects=True)
     assert CONTRACT not in r.data
     assert b"Wrong password." in r.data
-    # counted with failed logins: after 5 wrong ones even the right password waits
+    # counted for the account: after 5 wrong ones even the right password waits
     for _ in range(4):
         download(alice, url, password="a guess")
     assert download(alice, url).status_code == 429

@@ -40,7 +40,7 @@ from security.uploads import (
 )
 
 from .audit import audit
-from .auth import login_required, password_limit
+from .auth import TEN_AN_HOUR, admit, current_account, login_required, password_limit, settle
 from .db import get_db
 from .forms import (
     CheckCopyForm,
@@ -247,7 +247,7 @@ def upload_page():
 
 @bp.route("/upload", methods=("GET", "POST"))
 @login_required
-@password_limit(lambda: g.user["username"] if g.user else "")
+@password_limit(current_account)
 def upload():
     form = UploadForm()
     if form.validate_on_submit():
@@ -394,7 +394,7 @@ def detail(id):
 
 @bp.route("/files/<uuid:id>/download", methods=("POST",))
 @login_required
-@password_limit(lambda: g.user["username"] if g.user else "")
+@password_limit(current_account)
 def download(id):
     f = get_file(id)
     form = DownloadForm()
@@ -502,7 +502,7 @@ def check_copy(id):
 
 @bp.route("/files/<uuid:id>/share", methods=("POST",))
 @login_required
-@password_limit(lambda: g.user["username"] if g.user else "")
+@password_limit(current_account)
 def share(id):
     f = get_file(id, owner_only=True)
     form = ShareForm()
@@ -517,13 +517,23 @@ def share(id):
         flash(error)
         return redirect(url_for("files.detail", id=f["id"]))
     username = form.username.data
+    # every unknown username is a guess at someone's tag: ten an hour
+    limits = [(TEN_AN_HOUR, "unknown-recipient", current_account())]
+    if admit(limits) is not None:
+        audit("share", "refused", file_id=f["id"], detail="too many unknown usernames")
+        flash("Too many unknown usernames. Try again later.")
+        return redirect(url_for("files.detail", id=f["id"]))
     db = get_db()
-    user = db.execute(
-        "SELECT u.id, e.public_key FROM users u"
-        " LEFT JOIN encryption_keys e ON e.user_id = u.id"
-        " WHERE u.username = ? AND u.banned_at IS NULL",
-        (username,),
-    ).fetchone()
+    user = None
+    try:
+        user = db.execute(
+            "SELECT u.id, e.public_key FROM users u"
+            " LEFT JOIN encryption_keys e ON e.user_id = u.id"
+            " WHERE u.username = ? AND u.banned_at IS NULL",
+            (username,),
+        ).fetchone()
+    finally:
+        settle(limits, user is None)
     if user is None:
         audit("share", "failed", file_id=f["id"], detail="unknown user")
         flash("Unknown user.")

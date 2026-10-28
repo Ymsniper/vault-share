@@ -12,7 +12,7 @@ from flask import (
 )
 
 from .audit import audit
-from .auth import login_required, password_limit
+from .auth import current_account, login_required, password_limit
 from .db import get_db
 from .forms import TotpForm, first_error
 from .identity import write_crl
@@ -87,7 +87,7 @@ def invites():
 
 @bp.route("/invites/new", methods=("POST",))
 @login_required
-@password_limit(lambda: g.user["username"] if g.user else "")
+@password_limit(current_account)
 def new_invite():
     """An admin makes a code with their password and a code from their phone,
     so a stolen password alone, or a stolen session, cannot let anyone in."""
