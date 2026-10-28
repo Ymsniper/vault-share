@@ -1,3 +1,4 @@
+import datetime
 import hmac
 import io
 import os
@@ -56,6 +57,9 @@ from .storage import storage_path
 
 bp = Blueprint("files", __name__)
 
+# as SQLite's datetime('now') writes it, in UTC
+TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+
 
 def mac_key():
     return subkey(master_key(), "file-record-hmac")
@@ -63,7 +67,8 @@ def mac_key():
 
 def mac_of(f):
     return record_mac(
-        mac_key(), f["id"], f["owner_id"], f["sha256"], f["size"], f["mime"], f["checked"]
+        mac_key(), f["id"], f["owner_id"], f["sha256"], f["size"], f["mime"], f["checked"],
+        f["uploaded_at"],
     )
 
 
@@ -177,7 +182,12 @@ def signature_problem(f, digest):
     """
     cert = load_certificate(f["cert_pem"])
     ca_cert = load_ca_certificate(current_app.config["CA_CERT"])
-    problem = certificate_problem(cert, ca_cert, f["owner"])
+    # judged when the file was uploaded, a time the record HMAC covers, so
+    # files do not fail once the certificate expires
+    signed_at = datetime.datetime.strptime(f["uploaded_at"], TIME_FORMAT).replace(
+        tzinfo=datetime.UTC
+    )
+    problem = certificate_problem(cert, ca_cert, f["owner"], at=signed_at)
     if problem is not None:
         return problem
     if f["cert_revoked_at"] is not None:
@@ -322,13 +332,18 @@ def upload():
         with open(storage_path(file_id), "wb") as out:
             out.write(encrypt(file_key, data, file_id.encode()))
         owner_public_key = ensure_encryption_key(g.user["id"], username, password)
-        mac = record_mac(mac_key(), file_id, g.user["id"], digest.hex(), len(data), mime, checked)
+        # after the certificate was chosen or renewed, which starts at the
+        # second it was issued; SQLite's own format, which the pages slice
+        uploaded_at = datetime.datetime.now(datetime.UTC).strftime(TIME_FORMAT)
+        mac = record_mac(
+            mac_key(), file_id, g.user["id"], digest.hex(), len(data), mime, checked, uploaded_at
+        )
 
         db.execute(
             "INSERT INTO files"
             " (id, owner_id, filename, description, mime, checked, size, sha256, record_mac,"
-            " signature, cert_id)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " signature, cert_id, uploaded_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 file_id,
                 g.user["id"],
@@ -341,6 +356,7 @@ def upload():
                 mac,
                 signature,
                 cert_id,
+                uploaded_at,
             ),
         )
         db.execute(

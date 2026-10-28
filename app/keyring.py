@@ -259,7 +259,10 @@ def reencrypt(database, old, new):
 
         old_mac, new_mac = subkey(old, "file-record-hmac"), subkey(new, "file-record-hmac")
         for f in db.execute("SELECT * FROM fresh.files").fetchall():
-            fields = (f["id"], f["owner_id"], f["sha256"], f["size"], f["mime"], f["checked"])
+            fields = (
+                f["id"], f["owner_id"], f["sha256"], f["size"], f["mime"], f["checked"],
+                f["uploaded_at"],
+            )
             # a record edited behind the app's back must not get a valid new HMAC
             if not hmac.compare_digest(record_mac(old_mac, *fields), f["record_mac"]):
                 raise ValueError(f"the record of file {f['id']} was changed in the database")

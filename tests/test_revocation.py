@@ -1,11 +1,13 @@
 import subprocess
+from types import SimpleNamespace
 
 from cryptography.hazmat.primitives.asymmetric import ec
 
 from app.db import get_db
+from security import pki
 from security.pki import crl_to_pem, load_ca_certificate, make_crl
 
-from .test_files import new_file
+from .test_files import CONTRACT, download, new_file
 
 
 def revoke(app, username):
@@ -88,3 +90,34 @@ def test_expired_certificate_is_renewed_at_upload(app, alice, test_certs):
     assert len(certificates(app)) == 2
     verified = f"Record verified. Signature valid, signed by {alice.handle}."
     assert verified.encode() in alice.get(url).data
+
+
+def a_year_later(monkeypatch):
+    """Move the clock that certificates are judged by 366 days ahead."""
+    real = pki.datetime
+
+    class Later(real.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return real.datetime.now(tz) + real.timedelta(days=366)
+
+    clock = SimpleNamespace(datetime=Later, UTC=real.UTC, timedelta=real.timedelta)
+    monkeypatch.setattr(pki, "datetime", clock)
+
+
+def test_files_stay_valid_after_the_certificate_expires(app, alice, monkeypatch):
+    url = new_file(alice)
+    a_year_later(monkeypatch)
+    verified = f"Record verified. Signature valid, signed by {alice.handle}."
+    assert verified.encode() in alice.get(url).data
+    assert download(alice, url).data == CONTRACT
+
+
+def test_the_upload_time_is_covered_by_the_record_hmac(app, alice):
+    url = new_file(alice)
+    with app.app_context():
+        db = get_db()
+        # moved back into a validity window it was not signed in
+        db.execute("UPDATE files SET uploaded_at = datetime(uploaded_at, '-1 day')")
+        db.commit()
+    assert b"the record of this file was changed in the database" in alice.get(url).data

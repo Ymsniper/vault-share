@@ -386,7 +386,10 @@ To revoke a user's certificate, for example after their key leaked:
 This needs `CA_PASSPHRASE`: it also writes `instance/ca/crl.pem`, a
 revocation list signed by the CA. Files signed with the revoked certificate
 stop passing verification, and the user's next upload gives them a new key
-and certificate. OpenSSL can check a certificate against the list:
+and certificate. Expiry is different: a certificate lasts a year, and a
+file is judged by whether it was valid at its upload time, which the
+record HMAC covers, so files keep verifying after it expires. OpenSSL can
+check a certificate against the list:
 
     openssl verify -crl_check -CAfile instance/ca/ca.crt -CRLfile instance/ca/crl.pem <certificate>
 

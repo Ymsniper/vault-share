@@ -110,11 +110,13 @@ CREATE TABLE files (
     checked INTEGER NOT NULL CHECK (checked IN (0, 1)),
     size INTEGER NOT NULL,
     sha256 TEXT NOT NULL,
-    -- HMAC of id, owner_id, sha256, size, mime and checked, so editing
-    -- them is detected
+    -- HMAC of id, owner_id, sha256, size, mime, checked and uploaded_at,
+    -- so editing them is detected
     record_mac BLOB NOT NULL,
     signature BLOB NOT NULL,
     cert_id INTEGER NOT NULL REFERENCES certificates (id),
+    -- the signature is judged at this time; the app writes it, so the
+    -- HMAC covers exactly what is stored
     uploaded_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

@@ -73,7 +73,7 @@ def test_expired_certificate_is_refused(app, alice, test_certs):
     url = new_file(alice)
     key = load_pem_private_key((test_certs / "expired.key").read_bytes(), None)
     resign(app, url, key, (test_certs / "expired.crt").read_text())
-    assert b"the certificate has expired or is not valid yet" in page(alice, url)
+    assert b"the certificate was not valid when the file was uploaded" in page(alice, url)
 
 
 def test_certificate_from_an_unknown_ca_is_refused(app, alice, test_certs):

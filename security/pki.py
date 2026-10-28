@@ -77,15 +77,24 @@ def load_ca_certificate(path):
         return x509.load_pem_x509_certificate(f.read())
 
 
-def certificate_problem(cert, ca_cert, username):
-    """Why cert cannot vouch for a signature by username, or None if it can."""
+def certificate_problem(cert, ca_cert, username, at=None):
+    """Why cert cannot vouch for a signature by username, or None if it can.
+
+    at is when the signature was made, so a file signed while the
+    certificate was valid stays valid after it expires; without it, the
+    certificate must be valid now, as it must be to sign.
+    """
     try:
         cert.verify_directly_issued_by(ca_cert)
     except (ValueError, TypeError, InvalidSignature):
         return "the certificate was not issued by the local CA"
-    now = datetime.datetime.now(datetime.UTC)
-    if not cert.not_valid_before_utc <= now <= cert.not_valid_after_utc:
-        return "the certificate has expired or is not valid yet"
+    if at is not None:
+        if not cert.not_valid_before_utc <= at <= cert.not_valid_after_utc:
+            return "the certificate was not valid when the file was uploaded"
+    else:
+        now = datetime.datetime.now(datetime.UTC)
+        if not cert.not_valid_before_utc <= now <= cert.not_valid_after_utc:
+            return "the certificate has expired or is not valid yet"
     try:
         usage = cert.extensions.get_extension_for_class(x509.KeyUsage).value
     except x509.ExtensionNotFound:
