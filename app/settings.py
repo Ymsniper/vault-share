@@ -2,7 +2,6 @@ from flask import Blueprint, flash, g, redirect, render_template, url_for
 
 from security.passwords import check_password, hash_password, password_problem
 
-from .audit import audit
 from .auth import current_account, login_required, password_limit
 from .db import get_db
 from .duress import DECOY, WIPE, empty_slot, seal_mode
@@ -44,7 +43,7 @@ def duress():
                 (duress_hash, seal_mode(user["username"], mode), user["id"]),
             )
             db.commit()
-            audit("duress", "set")
+            # not logged: the audit log must not show who has a duress password
             flash("Duress password saved.", "success")
             return redirect(url_for("settings.duress"))
     elif form.is_submitted():
@@ -71,6 +70,5 @@ def remove_duress():
             (*empty_slot(g.user["username"]), g.user["id"]),
         )
         db.commit()
-        audit("duress", "removed")
         flash("Duress password removed, if there was one.", "success")
     return redirect(url_for("settings.duress"))

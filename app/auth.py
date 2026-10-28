@@ -314,10 +314,14 @@ def login():
                 ensure_encryption_key(user["id"], username, password)
             if duress:
                 wipe = mode_of(user) == WIPE
-                if wipe:
+                # with two-factor on, the wipe waits for the code like the
+                # login does, so the duress password alone destroys nothing
+                waits = wipe and user["totp_secret"] is not None
+                if wipe and not waits:
                     wipe_account(user)
                 # the silent alarm: only an administrator ever sees it
-                audit("duress", "used", user_id=user["id"], detail="wipe" if wipe else "decoy")
+                detail = "wipe after the code" if waits else "wipe" if wipe else "decoy"
+                audit("duress", "used", user_id=user["id"], detail=detail)
             if user["totp_secret"] is not None:
                 # right password, but no session until the code is right too
                 session.clear()

@@ -22,7 +22,7 @@ from security.totp import matching_step, new_secret, qr_svg
 from .audit import audit
 from .auth import current_account, finish_login, login_required, password_limit
 from .db import get_db
-from .duress import login_flag
+from .duress import WIPE, login_flag, mode_of, wipe_account
 from .keyring import master_key
 from .forms import CodeForm, TotpForm, first_error
 
@@ -164,7 +164,12 @@ def login_code():
             db = get_db()
             db.execute("UPDATE users SET totp_last_step = ? WHERE id = ?", (step, user["id"]))
             db.commit()
-            return finish_login(user, login_flag(user["id"], session["totp_mode"]))
+            duress = login_flag(user["id"], session["totp_mode"])
+            if duress and mode_of(user) == WIPE:
+                # the wipe the duress password asked for, now that the code is right
+                wipe_account(user)
+                audit("duress", "wiped", user_id=user["id"])
+            return finish_login(user, duress)
         g.wrong_password = True
         audit("login", "failed", user_id=None, detail="wrong code")
         flash("Wrong code.")

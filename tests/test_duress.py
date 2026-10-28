@@ -66,9 +66,8 @@ def test_duress_raises_a_silent_alarm(app, alice):
     assert ("duress", "used", "decoy") in rows
 
 
-def test_the_decoy_account_cannot_upload_or_read_the_log(app, alice):
+def test_the_decoy_account_cannot_upload_or_change_settings(app, alice):
     set_duress(alice)
-    app.test_cli_runner().invoke(args=["admin", "grant", alice.handle])
     forced, _ = log_in(app, alice, DURESS)
 
     r = forced.post(
@@ -78,10 +77,44 @@ def test_the_decoy_account_cannot_upload_or_read_the_log(app, alice):
     )
     assert b"The upload failed. Try again later." in r.data
     assert b"Wrong password" not in r.data
-    assert forced.get("/admin/log").status_code == 403
-    assert b"Audit log" not in forced.get("/").data
     r = forced.post("/auth/duress", data={"password": DURESS}, follow_redirects=True)
     assert b"could not be saved" in r.data
+
+
+ALARM_CELL = b'<td class="vs-mono">duress</td>'
+
+
+def audit_rows(app):
+    with app.app_context():
+        return [tuple(r) for r in get_db().execute("SELECT action, outcome FROM audit_log")]
+
+
+def test_setting_a_duress_password_leaves_no_trace_in_the_log(app, alice):
+    set_duress(alice)
+    alice.post("/auth/duress/remove", data={"password": PASSWORD})
+    assert [r for r in audit_rows(app) if r[0] == "duress"] == []
+
+
+def test_a_decoy_admin_sees_the_admin_pages_without_the_alarm(app, alice):
+    set_duress(alice)
+    app.test_cli_runner().invoke(args=["admin", "grant", alice.handle])
+    forced, _ = log_in(app, alice, DURESS)
+    assert b"Audit log" in forced.get("/").data
+    page = forced.get("/admin/log")
+    assert page.status_code == 200
+    assert b'<td class="vs-mono">login</td>' in page.data
+    assert ALARM_CELL not in page.data
+    assert forced.get("/admin/invites").status_code == 200
+
+    # the decoy cannot make a code, and its attempt shows only to real admins
+    r = forced.post(
+        "/admin/invites/new", data={"password": DURESS, "code": "123456"}, follow_redirects=True
+    )
+    assert b"could not be saved" in r.data
+    assert ALARM_CELL not in forced.get("/admin/log").data
+    assert ("duress", "refused") in audit_rows(app)
+    with app.app_context():
+        assert get_db().execute("SELECT COUNT(*) FROM invites WHERE created_by IS NOT NULL").fetchone()[0] == 0
 
 
 def test_wipe_destroys_files_and_keys(app, alice, bob):
@@ -205,3 +238,19 @@ def test_duress_with_two_factor_still_asks_for_the_code(app, alice):
     r = forced.post("/auth/login/code", data={"code": code(secret, 1)})
     assert r.headers["Location"] == "/"
     assert b"No files found." in forced.get("/").data
+
+
+
+def test_with_two_factor_the_wipe_waits_for_the_code(app, alice):
+    secret = turn_on(alice)
+    url = new_file(alice)
+    set_duress(alice, mode="wipe")
+    forced, r = log_in(app, alice, DURESS)
+    assert r.headers["Location"] == "/auth/login/code"
+    # the duress password alone destroys nothing, but the alarm is raised
+    assert os.path.exists(stored_path(app, url))
+    assert ("duress", "used") in audit_rows(app)
+
+    r = forced.post("/auth/login/code", data={"code": code(secret, 1)})
+    assert r.headers["Location"] == "/"
+    assert not os.path.exists(stored_path(app, url))

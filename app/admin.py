@@ -35,22 +35,38 @@ from .totp import check_password_and_code, no_store, unseal
 bp = Blueprint("admin", __name__, url_prefix="/admin")
 
 
+DECOY_REFUSAL = "This could not be saved. Try again later."
+
+
 def admin_only(action):
-    # the decoy account is never an administrator
-    if not g.user["is_admin"] or g.duress:
+    if not g.user["is_admin"]:
         audit(action, "denied")
         abort(403)
+
+
+def refuse_decoy(tried):
+    """An admin's decoy session shows the admin pages, since a 403 would give
+    it away, but it cannot act. The attempt is logged as a duress event,
+    which the decoy's own view of the log never shows."""
+    audit("duress", "refused", detail=tried)
+    flash(DECOY_REFUSAL)
+    return redirect(url_for("admin.invites"))
+
+
+def log_entries(hide_duress=False):
+    """The latest 200 audit entries. A decoy session never sees the duress
+    events: the silent alarm, and what the decoy itself was refused."""
+    sql = "SELECT a.*, u.username FROM audit_log a LEFT JOIN users u ON u.id = a.user_id"
+    if hide_duress:
+        sql += " WHERE a.action != 'duress'"
+    return get_db().execute(sql + " ORDER BY a.id DESC LIMIT 200").fetchall()
 
 
 @bp.route("/log")
 @login_required
 def log():
     admin_only("read_log")
-    entries = get_db().execute(
-        "SELECT a.*, u.username FROM audit_log a LEFT JOIN users u ON u.id = a.user_id"
-        " ORDER BY a.id DESC LIMIT 200"
-    ).fetchall()
-    return render_template("admin/log.html", entries=entries)
+    return render_template("admin/log.html", entries=log_entries(hide_duress=g.duress))
 
 
 def accounts_left():
@@ -92,6 +108,8 @@ def new_invite():
     """An admin makes a code with their password and a code from their phone,
     so a stolen password alone, or a stolen session, cannot let anyone in."""
     admin_only("invite")
+    if g.duress:
+        return refuse_decoy("making an invite code")
     if g.user["totp_secret"] is None:
         flash("Turn on two-factor login first: admins need it to make invite codes.")
         return redirect(url_for("admin.invites"))
@@ -129,6 +147,8 @@ def new_invite():
 @login_required
 def cancel_code(invite_id):
     admin_only("invite")
+    if g.duress:
+        return refuse_decoy(f"cancelling invite {invite_id}")
     try:
         cancel_invite(invite_id, created_by=g.user["id"])
     except ValueError as e:

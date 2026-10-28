@@ -122,9 +122,16 @@ A duress password, set from the "Duress" page, is the one to give if someone
 forces you to log in. It opens your account as if it were empty and writes a
 silent alert to the audit log; with the wipe option it first destroys your
 files, every file key copy made for you and your private keys, which nobody
-can undo. Every account
-has a duress slot, used or not, and its mode is stored encrypted, so the
-database does not show who set one.
+can undo. With two-factor login on, the wipe waits for the code, like the
+login itself, so a leaked duress password alone destroys nothing; the alert
+is written as soon as the password is typed. Every account has a duress
+slot, used or not, its mode is stored encrypted, and setting or removing
+one is not logged, so neither the database nor the audit log shows who
+set one. An admin's decoy session still shows the Audit log and Invites
+pages, without the duress entries, but making or cancelling a code, like
+changing a setting, answers that it could not be saved. Someone who tries
+that every time may notice, and an admin who is the coercer sees the
+alert.
 
 ![Setting a duress password](docs/screenshots/web-duress.png)
 

@@ -142,10 +142,17 @@ def test_admins_see_and_cancel_only_their_own_codes(app, alice):
 
 def test_the_decoy_account_cannot_make_codes(app, alice):
     make_admin(app, alice)
+    secret = turn_on(alice)
     set_duress(alice)
     forced, _ = log_in(app, alice, DURESS)
-    assert forced.get("/admin/invites").status_code == 403
-    assert b">Invites</a>" not in forced.get("/").data
+    forced.post("/auth/login/code", data={"code": code(secret, 1)})
+    # the page shows, as it would for the real account, but nothing is made
+    assert forced.get("/admin/invites").status_code == 200
+    assert b">Invites</a>" in forced.get("/").data
+    r = new_code(forced, secret, steps_ahead=2)
+    assert b"could not be saved" in r.data
+    assert shown_code(r.data) is None
+    assert made_by(app, alice) == 0
 
 
 def set_defaults(app, *args):
