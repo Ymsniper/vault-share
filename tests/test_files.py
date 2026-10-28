@@ -1,6 +1,7 @@
 import io
 import os
 import re
+import shlex
 import sqlite3
 import stat
 import subprocess
@@ -415,27 +416,47 @@ def test_revoked_recipient_loses_access(app, alice, bob):
     assert download(bob, url).status_code == 403
 
 
-def test_signature_proof_checks_out_offline(app, alice, tmp_path):
-    url = new_file(alice)
-    proof = alice.get(f"{url}/proof")
+def proof_of(client, url, tmp_path):
+    """Unpack a file's signature proof into tmp_path; return its README's
+    commands."""
+    proof = client.get(f"{url}/proof")
     assert proof.headers["Content-Disposition"].startswith("attachment;")
     with zipfile.ZipFile(io.BytesIO(proof.data)) as z:
-        assert sorted(z.namelist()) == ["README.txt", "ca.crt", "contract.txt.sig", "signer.crt"]
+        assert sorted(z.namelist()) == ["README.txt", "ca.crt", "signature.sig", "signer.crt"]
         z.extractall(tmp_path)
-    (tmp_path / "contract.txt").write_bytes(download(alice, url).data)
+    readme = (tmp_path / "README.txt").read_text()
+    return [line.strip() for line in readme.splitlines() if line.strip().startswith("openssl ")]
 
-    def openssl(*args):
-        return subprocess.run(["openssl", *args], cwd=tmp_path, capture_output=True, text=True)
 
-    assert openssl("verify", "-CAfile", "ca.crt", "signer.crt").returncode == 0
-    pub = openssl("x509", "-in", "signer.crt", "-pubkey", "-noout").stdout
-    (tmp_path / "signer.pub").write_text(pub)
-    r = openssl("dgst", "-sha256", "-verify", "signer.pub", "-signature", "contract.txt.sig", "contract.txt")
-    assert r.stdout.strip() == "Verified OK"
+def run(command, copy, cwd):
+    """One README command, as typed, with FILE replaced by the copy."""
+    args = shlex.split(command.replace("FILE", copy))
+    return subprocess.run(args, cwd=cwd, capture_output=True, text=True)
 
-    (tmp_path / "contract.txt").write_bytes(CONTRACT.replace(b"40 EUR", b"14 EUR"))
-    r = openssl("dgst", "-sha256", "-verify", "signer.pub", "-signature", "contract.txt.sig", "contract.txt")
-    assert r.stdout.strip() == "Verification failure"
+
+def test_signature_proof_checks_out_offline(app, alice, tmp_path):
+    url = new_file(alice)
+    commands = proof_of(alice, url, tmp_path)
+    assert len(commands) == 3
+    (tmp_path / "copy.txt").write_bytes(download(alice, url).data)
+    results = [run(c, "copy.txt", tmp_path) for c in commands]
+    assert [r.returncode for r in results] == [0, 0, 0], [r.stderr for r in results]
+    assert results[-1].stdout.strip() == "Verified OK"
+
+    (tmp_path / "copy.txt").write_bytes(CONTRACT.replace(b"40 EUR", b"14 EUR"))
+    assert run(commands[-1], "copy.txt", tmp_path).stdout.strip() == "Verification failure"
+
+
+def test_the_proof_commands_hold_no_file_name(alice, tmp_path):
+    name = "q$(touch PWNED).pdf"
+    url = new_file(alice, PDF, name)
+    commands = proof_of(alice, url, tmp_path)
+    for command in commands:
+        assert name not in command and "$" not in command and "`" not in command
+    (tmp_path / "copy.pdf").write_bytes(download(alice, url).data)
+    results = [run(c, "copy.pdf", tmp_path) for c in commands]
+    assert results[-1].stdout.strip() == "Verified OK"
+    assert not (tmp_path / "PWNED").exists()
 
 
 def test_signature_proof_needs_access(alice, bob):

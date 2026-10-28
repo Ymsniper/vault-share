@@ -424,17 +424,23 @@ def download(id):
     )
 
 
+# the commands hold no file name, which could carry shell syntax: the copy
+# to check is FILE, for the reader to replace
 PROOF_README = """\
-Check that {name} was signed by {owner}, without the web app:
+Check that a file was signed by {owner}, without the web app.
 
-1. The signer's certificate was issued by the local CA:
-   openssl verify -CAfile ca.crt signer.crt
+File: {name}
+Uploaded: {uploaded_at} UTC
+
+1. The signer's certificate was issued by the local CA and was valid when
+   the file was uploaded:
+   openssl verify -attime {epoch} -CAfile ca.crt signer.crt
 
 2. Take the public key out of the certificate:
-   openssl x509 -in signer.crt -pubkey -noout > signer.pub
+   openssl x509 -in signer.crt -pubkey -noout -out signer.pub
 
-3. The signature matches your copy of the file:
-   openssl dgst -sha256 -verify signer.pub -signature "{name}.sig" "{name}"
+3. The signature matches your copy of the file; replace FILE with its path:
+   openssl dgst -sha256 -verify signer.pub -signature signature.sig FILE
 """
 
 
@@ -446,11 +452,16 @@ def proof(id):
     with open(current_app.config["CA_CERT"], "rb") as fp:
         ca_pem = fp.read()
     buf = io.BytesIO()
+    uploaded = datetime.datetime.strptime(f["uploaded_at"], TIME_FORMAT)
+    epoch = int(uploaded.replace(tzinfo=datetime.UTC).timestamp())
+    readme = PROOF_README.format(
+        name=f["filename"], owner=f["owner"], uploaded_at=f["uploaded_at"], epoch=epoch
+    )
     with zipfile.ZipFile(buf, "w") as z:
-        z.writestr(f"{f['filename']}.sig", f["signature"])
+        z.writestr("signature.sig", f["signature"])
         z.writestr("signer.crt", f["cert_pem"])
         z.writestr("ca.crt", ca_pem)
-        z.writestr("README.txt", PROOF_README.format(name=f["filename"], owner=f["owner"]))
+        z.writestr("README.txt", readme)
     buf.seek(0)
     audit("download_proof", "ok", file_id=f["id"])
     return send_file(

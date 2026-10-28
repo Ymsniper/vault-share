@@ -64,7 +64,9 @@ code: make the first one with `vault-share invite new` (see below).
 Uploading asks for your password again: it unlocks your private key to sign
 the file. Each file page also offers a signature proof, a zip with the
 signature, the signer's certificate, the CA certificate and the OpenSSL
-commands that check the file without the app.
+commands that check the file without the app. They check the certificate
+as it was at the upload time, and name your copy FILE rather than using
+the file's name, which could hold shell syntax.
 
 Every upload is checked before it is stored: its extension must be on the
 list, its content must really be that type (`filetype` reads the first
