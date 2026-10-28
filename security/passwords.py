@@ -1,3 +1,5 @@
+import threading
+
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
 from argon2.low_level import Type, hash_secret_raw
@@ -9,28 +11,36 @@ from zxcvbn import zxcvbn
 _hasher = PasswordHasher()
 _DUMMY_HASH = _hasher.hash("not a real account")
 
+# every Argon2id call holds 64 MiB: four at most run at once, whatever the
+# number of requests, so a burst of logins cannot use up the memory
+_slots = threading.BoundedSemaphore(4)
+
+
 def hash_password(password):
-    return _hasher.hash(password)
+    with _slots:
+        return _hasher.hash(password)
 
 
 def check_password(stored_hash, password):
     try:
-        return _hasher.verify(stored_hash, password)
+        with _slots:
+            return _hasher.verify(stored_hash, password)
     except (VerificationError, InvalidHashError):
         return False
 
 
 def derive_key(password, salt):
     """A 256-bit key from the password, at the same Argon2id cost as the hashes."""
-    return hash_secret_raw(
-        password.encode(),
-        salt,
-        time_cost=_hasher.time_cost,
-        memory_cost=_hasher.memory_cost,
-        parallelism=_hasher.parallelism,
-        hash_len=32,
-        type=Type.ID,
-    )
+    with _slots:
+        return hash_secret_raw(
+            password.encode(),
+            salt,
+            time_cost=_hasher.time_cost,
+            memory_cost=_hasher.memory_cost,
+            parallelism=_hasher.parallelism,
+            hash_len=32,
+            type=Type.ID,
+        )
 
 
 def check_password_of_unknown_user(password):

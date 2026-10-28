@@ -5,11 +5,12 @@ import os
 import click
 from flask import Blueprint, current_app, flash, g, redirect, render_template, url_for
 from flask.cli import AppGroup
+from flask_limiter.util import get_remote_address
 
 from security.passwords import derive_key, passphrase_problem
 
-from . import limiter
 from .audit import audit
+from .auth import password_limit
 from .forms import UnlockForm, first_error
 from .keyring import (
     USB_KEY_FILE,
@@ -188,11 +189,8 @@ def remove_passphrase_command():
 # for the operator only: no page links here, and visitors of a locked app
 # only see that the service is paused
 @bp.route("/unlock", methods=("GET", "POST"))
-@limiter.limit(
-    "5 per 15 minutes",
-    deduct_when=lambda response: g.get("wrong_password", False),
-    error_message="Too many failed attempts. Try again in 15 minutes.",
-)
+# nothing goes to the audit log: the database is closed while locked
+@password_limit(get_remote_address, scope="unlock", log=False)
 def unlock():
     keyring = get_keyring()
     if not keyring.locked:

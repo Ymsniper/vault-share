@@ -1,10 +1,13 @@
 import functools
 import hashlib
 import secrets
+import threading
 import time
+from collections import Counter
 
 from flask import (
     Blueprint,
+    abort,
     current_app,
     flash,
     g,
@@ -14,6 +17,8 @@ from flask import (
     session,
     url_for,
 )
+from flask_limiter.util import get_remote_address
+from limits import parse
 from markupsafe import Markup, escape
 
 from security.passwords import check_password, check_password_of_unknown_user, hash_password
@@ -83,31 +88,75 @@ def end_session(token):
 
 
 LOCKED = "Too many failed attempts. Try again in 15 minutes."
+BUSY = "Too many attempts at once. Try again in a moment."
+
+FIVE = parse("5 per 15 minutes")
+TWENTY = parse("20 per 15 minutes")
+
+# Flask-Limiter's deduct_when records a failure only once the response is
+# built, so requests sent together would all pass the check before any of
+# them counted. A password check therefore counts as in flight from the
+# moment it is let through until it is settled.
+_gate = threading.Lock()
+_in_flight = Counter()
 
 
-def wrong_password_given(response):
-    """Only failed attempts count toward the limits below."""
-    return g.get("wrong_password", False)
+def admit(limits):
+    """None if a password check may run under limits, a list of (item,
+    scope, key), else LOCKED when the failures recorded in a window fill
+    its limit, or BUSY when the checks in flight do."""
+    with _gate:
+        verdict = None
+        for item, scope, key in limits:
+            remaining = limiter.limiter.get_window_stats(item, scope, key).remaining
+            if remaining <= 0:
+                return LOCKED
+            if remaining <= _in_flight[scope, key]:
+                verdict = BUSY
+        if verdict is None:
+            for _, scope, key in limits:
+                _in_flight[scope, key] += 1
+        return verdict
 
 
-def report_lock(request_limit):
-    audit("password", "locked", user_id=None)
+def settle(limits, failed):
+    """Record a failed check, then stop counting it as in flight: in this
+    order, so it is never counted nowhere."""
+    if failed:
+        for item, scope, key in limits:
+            limiter.limiter.hit(item, scope, key)
+    with _gate:
+        for _, scope, key in limits:
+            _in_flight[scope, key] -= 1
+            if not _in_flight[scope, key]:
+                del _in_flight[scope, key]
 
 
-def password_limit(key_func):
-    """5 wrong passwords for one username, at login, upload, download or
-    share, block that username for 15 minutes. Usernames that do not exist count the same way,
-    so the block says nothing about which accounts are real.
+def password_limit(key_func, item=FIVE, scope="wrong-password", log=True):
+    """Wrong passwords sent with POST count toward item for key_func();
+    right ones cost nothing. The view sets g.wrong_password when it refused
+    a password. By default 5 wrong passwords for one username, at login,
+    upload, download or share, block that username for 15 minutes.
+    Usernames that do not exist count the same way, so the block says
+    nothing about which accounts are real.
     """
-    return limiter.shared_limit(
-        "5 per 15 minutes",
-        scope="wrong-password",
-        key_func=key_func,
-        methods=["POST"],
-        deduct_when=wrong_password_given,
-        error_message=LOCKED,
-        on_breach=report_lock,
-    )
+    def decorator(view):
+        @functools.wraps(view)
+        def wrapped(*args, **kwargs):
+            if request.method != "POST":
+                return view(*args, **kwargs)
+            limits = [(item, scope, key_func())]
+            verdict = admit(limits)
+            if verdict == LOCKED and log:
+                audit("password", "locked", user_id=None)
+            if verdict is not None:
+                abort(429, verdict)
+            try:
+                return view(*args, **kwargs)
+            finally:
+                settle(limits, g.get("wrong_password", False))
+        return wrapped
+    return decorator
 
 
 def show_handle(username):
@@ -219,13 +268,7 @@ def register_password():
 @bp.route("/login", methods=("GET", "POST"))
 @password_limit(lambda: request.form.get("username", ""))
 # and 20 from one address, so one machine cannot try many accounts
-@limiter.limit(
-    "20 per 15 minutes",
-    methods=["POST"],
-    deduct_when=wrong_password_given,
-    error_message=LOCKED,
-    on_breach=report_lock,
-)
+@password_limit(get_remote_address, TWENTY, "login-address")
 def login():
     form = LoginForm()
     if form.validate_on_submit():

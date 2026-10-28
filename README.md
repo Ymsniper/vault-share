@@ -99,7 +99,10 @@ shows up at once:
 
 Five wrong passwords for one username, at login or upload, block it for 15
 minutes, and twenty from one address block that address. The counters live
-in memory (Flask-Limiter), so restarting the app clears them.
+in memory (Flask-Limiter), so restarting the app clears them. A password
+check counts from the moment it starts, so requests sent at the same time
+cannot all slip under a limit, and at most four checks run at once: each
+one takes 64 MiB of memory.
 
 Two-factor login is optional, per user, from the "Two-factor" page: scan
 the QR code with an authenticator app such as Aegis or FreeOTP and confirm

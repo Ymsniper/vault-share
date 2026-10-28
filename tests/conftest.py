@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from app import create_app, limiter, public_link
+from app import auth, create_app, limiter, public_link
 from app.db import init_db
 from app.invites import create_invite
 
@@ -87,8 +87,10 @@ def app(tmp_path, ca_dir):
     )
     with app.app_context():
         init_db()
-    # the limiter keeps its counters in memory, shared by every test app
+    # the limiter keeps its counters in memory, shared by every test app,
+    # and so does the count of password checks in flight
     limiter.reset()
+    auth._in_flight.clear()
     return app
 
 
