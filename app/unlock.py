@@ -3,9 +3,18 @@ import hashlib
 import os
 
 import click
-from flask import Blueprint, current_app, flash, g, redirect, render_template, url_for
+from flask import (
+    Blueprint,
+    abort,
+    current_app,
+    flash,
+    g,
+    redirect,
+    render_template,
+    request,
+    url_for,
+)
 from flask.cli import AppGroup
-from flask_limiter.util import get_remote_address
 
 from security.passwords import derive_key, passphrase_problem
 
@@ -186,12 +195,24 @@ def remove_passphrase_command():
     click.echo("The passphrase is no longer required.")
 
 
-# for the operator only: no page links here, and visitors of a locked app
-# only see that the service is paused
+def from_this_machine():
+    """A request straight from this machine. Behind Tailscale Funnel every
+    visitor arrives from 127.0.0.1 too, unless BEHIND_PROXY is set, but the
+    proxy always adds X-Forwarded-For."""
+    return request.remote_addr in ("127.0.0.1", "::1") and (
+        "X-Forwarded-For" not in request.headers
+    )
+
+
+# for the operator only, on this machine: no page links here, and other
+# visitors of a locked app only see that the service is paused
 @bp.route("/unlock", methods=("GET", "POST"))
-# nothing goes to the audit log: the database is closed while locked
-@password_limit(get_remote_address, scope="unlock", log=False)
+# one count for everyone, since only this machine gets here; nothing goes to
+# the audit log, the database is closed while locked
+@password_limit(lambda: "all", scope="unlock", log=False)
 def unlock():
+    if not from_this_machine():
+        abort(404)
     keyring = get_keyring()
     if not keyring.locked:
         return redirect(url_for("files.index"))

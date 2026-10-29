@@ -49,9 +49,9 @@ def plug(stick):
     os.rename(pulled_out(stick), stick)
 
 
-def restart(app):
+def restart(app, **config):
     """The same instance folder opened by a fresh process."""
-    return create_app({k: v for k, v in app.config.items() if k.isupper()})
+    return create_app({**{k: v for k, v in app.config.items() if k.isupper()}, **config})
 
 
 def test_by_default_only_the_machine_key_is_used(app):
@@ -164,6 +164,27 @@ def test_unlock_guesses_are_limited(app):
     for _ in range(5):
         client.post("/unlock", data={"passphrase": "not the passphrase"})
     assert client.post("/unlock", data={"passphrase": PASSPHRASE}).status_code == 429
+
+
+@pytest.mark.parametrize("behind_proxy", [False, True])
+def test_unlock_only_from_this_machine(app, behind_proxy):
+    keys(app, "set-passphrase", input=f"{PASSPHRASE}\n{PASSPHRASE}\n")
+    started = restart(app, BEHIND_PROXY=behind_proxy)
+    remote = started.test_client()
+    remote.environ_base["REMOTE_ADDR"] = "203.0.113.9"
+    # what a visitor through Tailscale Funnel looks like: the proxy runs here
+    proxied = started.test_client()
+    proxied.environ_base["HTTP_X_FORWARDED_FOR"] = "203.0.113.9"
+    for visitor in (remote, proxied):
+        r = visitor.post("/unlock", data={"passphrase": PASSPHRASE})
+        assert r.status_code == 503
+        assert b"passphrase" not in r.data.lower()
+    assert started.extensions["keyring"].locked
+
+    started.test_client().post("/unlock", data={"passphrase": PASSPHRASE})
+    assert not started.extensions["keyring"].locked
+    assert remote.get("/unlock").status_code == 404
+    assert proxied.get("/unlock").status_code == 404
 
 
 def test_a_weak_passphrase_is_refused(app):
