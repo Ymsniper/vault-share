@@ -114,7 +114,23 @@ def test_a_decoy_admin_sees_the_admin_pages_without_the_alarm(app, alice):
     assert ALARM_CELL not in forced.get("/admin/log").data
     assert ("duress", "refused") in audit_rows(app)
     with app.app_context():
-        assert get_db().execute("SELECT COUNT(*) FROM invites WHERE created_by IS NOT NULL").fetchone()[0] == 0
+        made = get_db().execute("SELECT COUNT(*) FROM invites WHERE created_by IS NOT NULL")
+        assert made.fetchone()[0] == 0
+
+
+def test_the_decoy_never_sees_the_alarm_filtered_or_paged(app, alice):
+    set_duress(alice)
+    app.test_cli_runner().invoke(args=["admin", "grant", alice.handle])
+    forced, _ = log_in(app, alice, DURESS)
+    with app.app_context():
+        db = get_db()
+        for i in range(250):
+            db.execute("INSERT INTO audit_log (action, outcome) VALUES ('test', 'ok')")
+        db.commit()
+    assert ALARM_CELL not in forced.get("/admin/log?problems=1").data
+    first = forced.get("/admin/log").data
+    older = re.search(rb'href="([^"]*before=[^"]*)"', first).group(1).decode()
+    assert ALARM_CELL not in forced.get(older.replace("&amp;", "&")).data
 
 
 def test_wipe_destroys_files_and_keys(app, alice, bob):

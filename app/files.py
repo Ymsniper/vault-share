@@ -383,7 +383,10 @@ def detail(id):
     f = get_file(id)
     problem = record_problem(f)
     error = f"Verification failed: {problem}." if problem else None
-    audit("verify", "failed" if error else "ok", file_id=f["id"], detail=error)
+    # an owner's own visits are not logged: they would only push the
+    # entries that matter out of view
+    if error or f["owner_id"] != g.user["id"]:
+        audit("verify", "failed" if error else "ok", file_id=f["id"], detail=error)
     shares = get_db().execute(
         "SELECT u.id, u.username FROM shares s JOIN users u ON u.id = s.recipient_id"
         " WHERE s.file_id = ? AND s.revoked_at IS NULL ORDER BY u.username",

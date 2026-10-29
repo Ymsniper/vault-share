@@ -1,4 +1,6 @@
+import html
 import io
+import re
 
 from app import create_app
 from app.audit import network_of
@@ -27,13 +29,16 @@ def test_file_actions_are_logged(app, alice, bob):
     file_id = url.rsplit("/", 1)[-1]
     alice.get(url)
     share(alice, url, bob.handle)
+    bob.get(url)
     download(bob, url)
     alice.post(f"{url}/delete")
 
     rows = log_rows(app)
+    # an owner's own visits would only fill the log; a recipient's count
+    assert (alice.handle, "verify", "ok", file_id) not in rows
     for expected in (
         (alice.handle, "upload", "ok", file_id),
-        (alice.handle, "verify", "ok", file_id),
+        (bob.handle, "verify", "ok", file_id),
         (alice.handle, "share", "ok", file_id),
         (bob.handle, "download", "ok", file_id),
         (alice.handle, "delete", "ok", file_id),
@@ -63,6 +68,39 @@ def test_audit_log_is_for_admins_only(app, alice):
     r = alice.get("/admin/log")
     assert r.status_code == 200
     assert b"read_log" in r.data
+
+
+def add_entries(app, n, action="test", outcome="ok"):
+    with app.app_context():
+        db = get_db()
+        for i in range(n):
+            db.execute(
+                "INSERT INTO audit_log (action, outcome, detail) VALUES (?, ?, ?)",
+                (action, outcome, f"entry {i:03d}"),
+            )
+        db.commit()
+
+
+def older_link(page):
+    return html.unescape(re.search(rb'href="([^"]*before=[^"]*)"', page).group(1).decode())
+
+
+def test_older_entries_stay_reachable(app, alice):
+    app.test_cli_runner().invoke(args=["admin", "grant", alice.handle])
+    add_entries(app, 250)
+    page = alice.get("/admin/log").data
+    assert b"entry 249" in page and b"entry 010" not in page
+    page = alice.get(older_link(page)).data
+    assert b"entry 010" in page and b"entry 249" not in page
+
+
+def test_problems_only(app, alice):
+    app.test_cli_runner().invoke(args=["admin", "grant", alice.handle])
+    add_entries(app, 3)
+    add_entries(app, 2, action="upload", outcome="refused")
+    page = alice.get("/admin/log?problems=1").data
+    assert b'<td class="vs-mono">upload</td>' in page
+    assert b'<td class="vs-mono">test</td>' not in page
 
 
 def test_grant_rejects_unknown_user(app):

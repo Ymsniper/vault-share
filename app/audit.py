@@ -6,6 +6,9 @@ from .db import get_db
 
 _current_user = object()
 
+# what the "problems only" views show, with the duress alarm
+PROBLEMS = ("failed", "refused", "denied", "locked", "mismatch")
+
 
 def network_of(address):
     """The /24 (IPv4) or /48 (IPv6) network of an address, or None.

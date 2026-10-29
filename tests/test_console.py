@@ -538,6 +538,32 @@ def test_the_audit_tab_keeps_its_place(app):
     assert seen[3] == 83
 
 
+def test_the_audit_tab_shows_problems_and_more(app):
+    add_audit(app, 230)
+    with app.app_context():
+        db = get_db()
+        for _ in range(2):
+            db.execute("INSERT INTO audit_log (action, outcome) VALUES ('login', 'failed')")
+        db.commit()
+    seen = []
+
+    async def scenario():
+        console = Console(app, start_server=False)
+        async with console.run_test(size=(120, 30)) as pilot:
+            await open_tab(pilot, console, "log-tab")
+            table = console.screen.query_one("#audit", DataTable)
+            seen.append(table.row_count)
+            await pilot.click("#audit-more")
+            await pilot.pause()
+            seen.append(table.row_count)
+            await pilot.click("#audit-problems")
+            await pilot.pause()
+            seen.append(table.row_count)
+
+    run(scenario)
+    assert seen == [200, 232, 2]
+
+
 def test_new_audit_entries_show_at_the_top(app):
     add_audit(app, 5)
     seen = []

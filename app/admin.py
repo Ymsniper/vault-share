@@ -7,11 +7,12 @@ from flask import (
     g,
     redirect,
     render_template,
+    request,
     session,
     url_for,
 )
 
-from .audit import audit
+from .audit import PROBLEMS, audit
 from .auth import current_account, login_required, password_limit
 from .db import get_db
 from .forms import TotpForm, first_error
@@ -53,20 +54,39 @@ def refuse_decoy(tried):
     return redirect(url_for("admin.invites"))
 
 
-def log_entries(hide_duress=False):
-    """The latest 200 audit entries. A decoy session never sees the duress
-    events: the silent alarm, and what the decoy itself was refused."""
-    sql = "SELECT a.*, u.username FROM audit_log a LEFT JOIN users u ON u.id = a.user_id"
+PAGE = 200
+
+
+def log_entries(hide_duress=False, problems=False, before=None):
+    """Up to 200 audit entries, newest first, older than entry number before
+    if given. With problems, only failures and refusals, and the duress
+    alarm. A decoy session never sees the duress events: the silent alarm,
+    and what the decoy itself was refused."""
+    where, params = [], []
     if hide_duress:
-        sql += " WHERE a.action != 'duress'"
-    return get_db().execute(sql + " ORDER BY a.id DESC LIMIT 200").fetchall()
+        where.append("a.action != 'duress'")
+    if problems:
+        where.append(f"(a.outcome IN ({', '.join('?' * len(PROBLEMS))}) OR a.action = 'duress')")
+        params += PROBLEMS
+    if before is not None:
+        where.append("a.id < ?")
+        params.append(before)
+    sql = "SELECT a.*, u.username FROM audit_log a LEFT JOIN users u ON u.id = a.user_id"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    return get_db().execute(sql + f" ORDER BY a.id DESC LIMIT {PAGE}", params).fetchall()
 
 
 @bp.route("/log")
 @login_required
 def log():
+    """Pages of 200, so a flood of new entries cannot push an old one out of
+    reach."""
     admin_only("read_log")
-    return render_template("admin/log.html", entries=log_entries(hide_duress=g.duress))
+    problems = request.args.get("problems") == "1"
+    entries = log_entries(g.duress, problems, request.args.get("before", type=int))
+    older = entries[-1]["id"] if len(entries) == PAGE else None
+    return render_template("admin/log.html", entries=entries, problems=problems, older=older)
 
 
 def accounts_left():

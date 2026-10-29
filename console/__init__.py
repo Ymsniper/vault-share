@@ -51,6 +51,7 @@ from app.admin import (
     revoke_certificate,
     unban_user,
 )
+from app.audit import PROBLEMS
 from app.db import get_db, init_db
 from app.invites import (
     cancel_invite,
@@ -312,6 +313,9 @@ class Main(Screen):
                     yield Button("Clean up...", id="cleanup", variant="error", compact=True)
                 yield DataTable(id="invites", cursor_type="row")
             with TabPane("Audit log", id="log-tab"):
+                with Horizontal(classes="buttons"):
+                    yield Button("Problems only", id="audit-problems", compact=True)
+                    yield Button("Show 200 more", id="audit-more", compact=True)
                 yield DataTable(id="audit", cursor_type="row")
             with TabPane("Keys", id="keys-tab"):
                 yield Static("", id="factors")
@@ -410,6 +414,9 @@ class Console(App):
         self.link = ("checking...", True)
         # what each table shows, to leave it alone when a refresh brings nothing new
         self.shown = {}
+        # the Audit log tab: problems only or everything, and how many rows
+        self.audit_problems = False
+        self.audit_limit = 200
 
     def on_mount(self):
         self.install_screen(Main(), "main")
@@ -687,11 +694,16 @@ class Console(App):
         if self.keyring.locked:
             self.fill("#audit", [])
             return
+        where, params = "", []
+        if self.audit_problems:
+            where = f" WHERE a.outcome IN ({', '.join('?' * len(PROBLEMS))}) OR a.action = 'duress'"
+            params = list(PROBLEMS)
         with self.flask_app.app_context():
             rows = get_db().execute(
                 "SELECT a.id, a.at, u.username, a.action, a.file_id, a.outcome, a.detail, a.ip"
-                " FROM audit_log a LEFT JOIN users u ON u.id = a.user_id"
-                " ORDER BY a.id DESC LIMIT 200"
+                " FROM audit_log a LEFT JOIN users u ON u.id = a.user_id" + where
+                + " ORDER BY a.id DESC LIMIT ?",
+                (*params, self.audit_limit),
             ).fetchall()
         self.fill("#audit", [
             (str(r["id"]), tuple(Text(str(v) if v is not None else "") for v in tuple(r)[1:]))
@@ -1245,6 +1257,19 @@ class Console(App):
         else:
             self.call_from_thread(self.notify, "Failed, see the Server tab.", severity="error")
         self.call_from_thread(self.refresh_all)
+
+    @on(Button.Pressed, "#audit-problems")
+    def audit_problems_pressed(self, event):
+        self.audit_problems = not self.audit_problems
+        event.button.label = "All events" if self.audit_problems else "Problems only"
+        self.audit_limit = 200
+        self.load_audit()
+
+    @on(Button.Pressed, "#audit-more")
+    def audit_more_pressed(self):
+        # a flood of new entries never puts an old one out of reach
+        self.audit_limit += 200
+        self.load_audit()
 
     @on(Button.Pressed, "#server-settings")
     def server_settings_pressed(self):
