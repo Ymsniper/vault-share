@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 from cryptography.hazmat.primitives.asymmetric import ec
 
+from app import files
 from app.db import get_db
 from security import pki
 from security.pki import crl_to_pem, load_ca_certificate, make_crl
@@ -93,7 +94,8 @@ def test_expired_certificate_is_renewed_at_upload(app, alice, test_certs):
 
 
 def a_year_later(monkeypatch):
-    """Move the clock that certificates are judged by 366 days ahead."""
+    """Move the clocks that certificates are issued and judged by, and that
+    uploads are dated by, 366 days ahead."""
     real = pki.datetime
 
     class Later(real.datetime):
@@ -103,6 +105,7 @@ def a_year_later(monkeypatch):
 
     clock = SimpleNamespace(datetime=Later, UTC=real.UTC, timedelta=real.timedelta)
     monkeypatch.setattr(pki, "datetime", clock)
+    monkeypatch.setattr(files, "datetime", clock)
 
 
 def test_files_stay_valid_after_the_certificate_expires(app, alice, monkeypatch):
@@ -111,6 +114,18 @@ def test_files_stay_valid_after_the_certificate_expires(app, alice, monkeypatch)
     verified = f"Record verified. Signature valid, signed by {alice.handle}."
     assert verified.encode() in alice.get(url).data
     assert download(alice, url).data == CONTRACT
+
+
+def test_renewing_an_expired_certificate_keeps_old_files_valid(app, alice, monkeypatch):
+    old = new_file(alice)
+    a_year_later(monkeypatch)
+    # the certificate has expired, so this upload renews it
+    new = new_file(alice, name="a-year-later.txt")
+    assert len(certificates(app)) == 2
+    verified = f"Record verified. Signature valid, signed by {alice.handle}."
+    assert verified.encode() in alice.get(new).data
+    assert verified.encode() in alice.get(old).data
+    assert download(alice, old).data == CONTRACT
 
 
 def test_the_upload_time_is_covered_by_the_record_hmac(app, alice):
