@@ -497,6 +497,14 @@ def test_search_terms_stay_out_of_the_url(alice):
     assert b"contract.txt" not in my_files(alice, "invoice")
 
 
+def test_logged_in_pages_are_never_cached(client, alice):
+    assert alice.get("/").headers["Cache-Control"] == "no-store"
+    url = new_file(alice)
+    assert download(alice, url).headers["Cache-Control"] == "no-store"
+    # the stylesheet holds nothing private and may be cached
+    assert "no-store" not in client.get("/static/vault.css").headers.get("Cache-Control", "")
+
+
 def test_deeply_nested_json_and_toml_are_refused_cleanly(alice):
     deep = b"[" * 100_000 + b"]" * 100_000
     assert b"is not valid JSON" in upload(alice, deep, name="deep.json").data

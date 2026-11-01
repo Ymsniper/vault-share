@@ -420,6 +420,19 @@ check a certificate against the list:
 
     openssl verify -crl_check -CAfile instance/ca/ca.crt -CRLfile instance/ca/crl.pem <certificate>
 
+## Known limits
+
+- The server is Werkzeug's development server, with each TLS handshake in
+  its connection's own thread. It starts one thread per connection, without
+  a cap; Argon2, the part that needs memory, runs at most four at once.
+- Public encryption keys are read from the database, not certified by the
+  CA: someone holding the master key could swap a user's public key and
+  receive the next file shared with them.
+- The record HMAC does not cover a file's name and description, so those
+  could be changed in the database without the check noticing.
+- There is no password change: a leaked password stays valid until the
+  account is banned.
+
 ## Tests
 
     .venv/bin/pytest

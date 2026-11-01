@@ -8,6 +8,10 @@ class Handler(WSGIRequestHandler):
     # a connection that stays silent is dropped instead of holding a thread
     timeout = 30
 
+    def version_string(self):
+        # the Server header, without Werkzeug's name and version
+        return "Vault-Share"
+
     def handle(self):
         # the TLS handshake runs here, in this connection's own thread
         if isinstance(self.connection, ssl.SSLSocket):

@@ -1,6 +1,6 @@
 import os
 
-from flask import Flask, render_template, request
+from flask import Flask, g, render_template, request
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_talisman import Talisman
@@ -130,6 +130,14 @@ def create_app(test_config=None):
         # sent over HTTPS, and other sites never learn our URLs
         referrer_policy="same-origin",
     )
+
+    @app.after_request
+    def no_cache_when_logged_in(response):
+        # a logged-in user's pages and downloads hold names, descriptions and
+        # files, which must not stay in the browser's cache after logout
+        if g.get("user") is not None and request.endpoint != "static":
+            response.headers["Cache-Control"] = "no-store"
+        return response
 
     @app.errorhandler(Locked)
     def show_locked(e):

@@ -174,3 +174,11 @@ def test_form_not_from_this_site_is_refused_over_https(
     status, page = register_over_https(ca_dir, https_port, referer)
     assert status == 400
     assert reason in page
+
+
+def test_the_server_does_not_name_werkzeug(ca_dir, https_port):
+    trusting = ssl.create_default_context(cafile=str(ca_dir / "ca.crt"))
+    conn = http.client.HTTPSConnection("localhost", https_port, context=trusting)
+    conn.request("GET", "/auth/login")
+    assert conn.getresponse().getheader("Server") == "Vault-Share"
+    conn.close()
