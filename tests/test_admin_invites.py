@@ -119,6 +119,16 @@ def test_five_accounts_a_day(app, alice):
     assert shown_code(new_code(alice, secret).data)
 
 
+def test_the_new_code_never_goes_into_the_cookie(app, alice):
+    make_admin(app, alice)
+    secret = turn_on(alice)
+    r = alice.post("/admin/invites/new", data={"password": PASSWORD, "code": code(secret, 1)})
+    made = shown_code(r.data)
+    assert made is not None
+    with alice.session_transaction() as s:
+        assert made not in str(dict(s))
+
+
 def test_admins_see_and_cancel_only_their_own_codes(app, alice):
     make_admin(app, alice)
     made = shown_code(new_code(alice, turn_on(alice)).data)

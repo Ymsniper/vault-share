@@ -31,6 +31,8 @@ bp = Blueprint("totp", __name__, url_prefix="/auth")
 # after the right password, the code must follow within 5 minutes
 PENDING_LOGIN_SECONDS = 300
 
+WRONG_CODE = "Wrong code. Check that the time on your phone is right."
+
 
 def seal(user_id, secret):
     key = subkey(master_key(), "totp-secret")
@@ -40,6 +42,40 @@ def seal(user_id, secret):
 def unseal(user_id, blob):
     key = subkey(master_key(), "totp-secret")
     return decrypt(key, blob, f"totp:{user_id}".encode()).decode()
+
+
+def use_step(user_id, step):
+    """Mark a code's time step used, unless it or a later one already was.
+    One statement, so two requests with the same code cannot both pass
+    between a check and an update."""
+    db = get_db()
+    cur = db.execute(
+        "UPDATE users SET totp_last_step = ?"
+        " WHERE id = ? AND (totp_last_step IS NULL OR totp_last_step < ?)",
+        (step, user_id, step),
+    )
+    db.commit()
+    return cur.rowcount == 1
+
+
+def pending_secret(create=True):
+    """The secret this session is enrolling, made on first use, or None.
+    It stays with the session on the server, sealed like a confirmed one:
+    never in the browser's cookie, and never offered to the account's other
+    sessions, so a stolen or decoy session cannot hand the owner a secret
+    it knows."""
+    if g.user["session_totp_pending"] is not None:
+        return unseal(g.user["id"], g.user["session_totp_pending"])
+    if not create:
+        return None
+    secret = new_secret()
+    db = get_db()
+    db.execute(
+        "UPDATE sessions SET totp_pending = ? WHERE token_hash = ?",
+        (seal(g.user["id"], secret), g.session_hash),
+    )
+    db.commit()
+    return secret
 
 
 def no_store(body):
@@ -61,7 +97,7 @@ def check_password_and_code(form, secret, last_step):
     step = matching_step(secret, form.code.data, last_step)
     if step is None:
         g.wrong_password = True
-        flash("Wrong code. Check that the time on your phone is right.")
+        flash(WRONG_CODE)
     return step
 
 
@@ -73,8 +109,7 @@ def setup():
     if g.user["totp_secret"] is not None:
         return no_store(render_template("auth/totp.html", enabled=True, form=TotpForm()))
 
-    # kept in Flask's signed session cookie until confirmed; only this user sees it
-    secret = session.setdefault("totp_pending", new_secret())
+    secret = pending_secret()
     form = TotpForm()
     if form.is_submitted() and g.duress:
         # the decoy account cannot change its settings, and does not say why
@@ -87,8 +122,10 @@ def setup():
                 "UPDATE users SET totp_secret = ?, totp_last_step = ? WHERE id = ?",
                 (seal(g.user["id"], secret), step, g.user["id"]),
             )
+            db.execute(
+                "UPDATE sessions SET totp_pending = NULL WHERE token_hash = ?", (g.session_hash,)
+            )
             db.commit()
-            session.pop("totp_pending")
             audit("totp", "enabled")
             flash("Two-factor login is on.", "success")
             return redirect(url_for("totp.setup"))
@@ -101,7 +138,7 @@ def setup():
 @bp.route("/totp/qr.svg")
 @login_required
 def qr():
-    secret = session.get("totp_pending")
+    secret = pending_secret(create=False)
     if secret is None:
         abort(404)
     return no_store(Response(qr_svg(secret, g.user["username"]), mimetype="image/svg+xml"))
@@ -160,10 +197,7 @@ def login_code():
     if form.validate_on_submit():
         secret = unseal(user["id"], user["totp_secret"])
         step = matching_step(secret, form.code.data, user["totp_last_step"])
-        if step is not None:
-            db = get_db()
-            db.execute("UPDATE users SET totp_last_step = ? WHERE id = ?", (step, user["id"]))
-            db.commit()
+        if step is not None and use_step(user["id"], step):
             duress = login_flag(user["id"], session["totp_mode"])
             if duress and mode_of(user) == WIPE:
                 # the wipe the duress password asked for, now that the code is right

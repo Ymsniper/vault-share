@@ -360,7 +360,7 @@ def load_logged_in_user():
     db = get_db()
     # a session ends 8 hours after login, or after 30 minutes without a request
     g.user = db.execute(
-        "SELECT u.*, s.duress AS session_duress"
+        "SELECT u.*, s.duress AS session_duress, s.totp_pending AS session_totp_pending"
         " FROM sessions s JOIN users u ON u.id = s.user_id"
         " WHERE s.token_hash = ? AND s.expires_at > datetime('now') AND u.banned_at IS NULL"
         " AND s.last_seen > datetime('now', '-30 minutes')",
@@ -368,6 +368,7 @@ def load_logged_in_user():
     ).fetchone()
     if g.user is not None:
         g.duress = bool(g.user["session_duress"])
+        g.session_hash = token_hash(token)
         db.execute(
             "UPDATE sessions SET last_seen = datetime('now') WHERE token_hash = ?",
             (token_hash(token),),

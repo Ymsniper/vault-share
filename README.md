@@ -114,7 +114,11 @@ once: each one takes 64 MiB of memory.
 Two-factor login is optional, per user, from the "Two-factor" page: scan
 the QR code with an authenticator app such as Aegis or FreeOTP and confirm
 with a first code. Wrong codes count toward the same limit as wrong
-passwords, and each code works only once.
+passwords, and each code works only once, even when two requests carry it
+at the same moment. Until it is confirmed, the new secret stays on the
+server with the session that asked for it: it never goes into the
+browser's cookie, and another session of the account cannot see it. An
+admin's new invite code is shown the same way, in the page that made it.
 
 ![Turning on two-factor login](docs/screenshots/web-two-factor.png)
 

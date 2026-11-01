@@ -69,7 +69,10 @@ CREATE TABLE sessions (
     last_seen TEXT NOT NULL DEFAULT (datetime('now')),
     expires_at TEXT NOT NULL,
     -- opened with the duress password: the account shows as empty
-    duress INTEGER NOT NULL DEFAULT 0
+    duress INTEGER NOT NULL DEFAULT 0,
+    -- a two-factor secret this session is enrolling, sealed; it belongs to
+    -- the session, so no other session of the account can read it
+    totp_pending BLOB
 );
 
 -- the ECDSA private key, encrypted with AES-256-GCM under a key derived

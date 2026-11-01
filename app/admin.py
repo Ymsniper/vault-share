@@ -8,7 +8,6 @@ from flask import (
     redirect,
     render_template,
     request,
-    session,
     url_for,
 )
 
@@ -31,7 +30,7 @@ from .invites import (
     show_duration,
     to_local,
 )
-from .totp import check_password_and_code, no_store, unseal
+from .totp import WRONG_CODE, check_password_and_code, no_store, unseal, use_step
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
 
@@ -99,17 +98,13 @@ def over_the_limit(d, left):
             f" 24 hours, and a code lets {people(d['uses'])} register.")
 
 
-@bp.route("/invites")
-@login_required
-def invites():
-    admin_only("invite")
+def invites_page(new_code=None):
     d = defaults()
     left = accounts_left()
     page = render_template(
         "admin/invites.html",
         invites=list_invites(created_by=g.user["id"]),
-        # shown on this one page only: just its hash is stored
-        new_code=session.pop("new_invite_code", None),
+        new_code=new_code,
         defaults=d,
         people=people(d["uses"]),
         valid=show_duration(d["valid_minutes"]),
@@ -119,6 +114,13 @@ def invites():
         over=over_the_limit(d, left),
     )
     return no_store(page)
+
+
+@bp.route("/invites")
+@login_required
+def invites():
+    admin_only("invite")
+    return invites_page()
 
 
 @bp.route("/invites/new", methods=("POST",))
@@ -148,19 +150,22 @@ def new_invite():
         return redirect(url_for("admin.invites"))
     secret = unseal(g.user["id"], g.user["totp_secret"])
     step = check_password_and_code(form, secret, g.user["totp_last_step"])
+    # the code from the phone cannot be used again, not even by a request
+    # sent at the same moment
+    if step is not None and not use_step(g.user["id"], step):
+        g.wrong_password = True
+        flash(WRONG_CODE)
+        step = None
     if step is None:
         audit("invite", "refused", detail="wrong password or code")
         return redirect(url_for("admin.invites"))
-    db = get_db()
-    # this code from the phone cannot be used again
-    db.execute("UPDATE users SET totp_last_step = ? WHERE id = ?", (step, g.user["id"]))
-    db.commit()
     code = create_admin_invite(g.user["id"])
     if code is None:  # another request took the last of today's places
         flash(over_the_limit(d, accounts_left()))
-    else:
-        session["new_invite_code"] = code
-    return redirect(url_for("admin.invites"))
+        return redirect(url_for("admin.invites"))
+    # shown in this answer only, and stored as its hash: it never goes into
+    # the session cookie, which the browser can read
+    return invites_page(new_code=code)
 
 
 @bp.route("/invites/<int:invite_id>/cancel", methods=("POST",))

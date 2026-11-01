@@ -4,6 +4,7 @@ from urllib.parse import urlparse
 
 import pyotp
 
+from app import totp as totp_view
 from app.db import get_db
 from security.totp import new_secret, provisioning_uri
 
@@ -109,3 +110,45 @@ def test_the_tag_stays_in_the_authenticator_label():
     uri = provisioning_uri(new_secret(), "alice#516850")
     assert "alice%23516850" in uri
     assert urlparse(uri).fragment == ""
+
+
+def secret_on_page(client):
+    page = client.get("/auth/totp").data
+    return re.search(rb"<code>([A-Z2-7]{32})</code>", page).group(1).decode()
+
+
+def test_the_pending_secret_stays_on_the_server(alice):
+    secret = secret_on_page(alice)
+    with alice.session_transaction() as s:
+        assert secret not in str(dict(s))
+    # the same session keeps the same secret, so its QR code matches
+    assert secret_on_page(alice) == secret
+
+
+def test_each_session_enrols_its_own_secret(app, alice):
+    other = app.test_client()
+    other.post("/auth/login", data={"username": alice.handle, "password": PASSWORD})
+    mine, theirs = secret_on_page(alice), secret_on_page(other)
+    assert mine != theirs
+    r = other.post(
+        "/auth/totp", data={"password": PASSWORD, "code": code(theirs)}, follow_redirects=True
+    )
+    assert b"Two-factor login is on." in r.data
+    # the secret shown to the first session was never enrolled
+    log_out_and_in(alice)
+    assert b"Wrong code." in alice.post("/auth/login/code", data={"code": code(mine, 1)}).data
+    r = alice.post("/auth/login/code", data={"code": code(theirs, 1)})
+    assert r.headers["Location"] == "/"
+
+
+def test_a_code_works_once_even_when_sent_twice_at_once(app, alice, monkeypatch):
+    secret = turn_on(alice)
+    log_out_and_in(alice)
+    other = app.test_client()
+    other.post("/auth/login", data={"username": alice.handle, "password": PASSWORD})
+    # as if both requests had read the last used step before either saved it
+    real = totp_view.matching_step
+    monkeypatch.setattr(totp_view, "matching_step", lambda s, c, last: real(s, c, None))
+    same = code(secret, 1)
+    assert alice.post("/auth/login/code", data={"code": same}).headers["Location"] == "/"
+    assert b"Wrong code." in other.post("/auth/login/code", data={"code": same}).data
