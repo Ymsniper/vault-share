@@ -152,3 +152,24 @@ def test_a_code_works_once_even_when_sent_twice_at_once(app, alice, monkeypatch)
     same = code(secret, 1)
     assert alice.post("/auth/login/code", data={"code": same}).headers["Location"] == "/"
     assert b"Wrong code." in other.post("/auth/login/code", data={"code": same}).data
+
+
+def test_a_decoy_session_gets_its_own_secret(app, alice):
+    from .test_duress import DURESS, set_duress
+
+    set_duress(alice)
+    forced = app.test_client()
+    forced.post("/auth/login", data={"username": alice.handle, "password": DURESS})
+    decoy = secret_on_page(forced)
+    # kept with the decoy session, so its QR code matches the key it shows
+    assert secret_on_page(forced) == decoy
+    assert secret_on_page(alice) != decoy
+    r = forced.post(
+        "/auth/totp", data={"password": DURESS, "code": code(decoy)}, follow_redirects=True
+    )
+    assert b"could not be saved" in r.data
+    with app.app_context():
+        row = get_db().execute(
+            "SELECT totp_secret FROM users WHERE username = ?", (alice.handle,)
+        ).fetchone()
+    assert row["totp_secret"] is None
