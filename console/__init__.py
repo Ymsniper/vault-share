@@ -51,7 +51,6 @@ from app.admin import (
     revoke_certificate,
     unban_user,
 )
-from app.audit import PROBLEMS
 from app.db import get_db, init_db
 from app.invites import (
     cancel_invite,
@@ -694,16 +693,15 @@ class Console(App):
         if self.keyring.locked:
             self.fill("#audit", [])
             return
-        where, params = "", []
-        if self.audit_problems:
-            where = f" WHERE a.outcome IN ({', '.join('?' * len(PROBLEMS))}) OR a.action = 'duress'"
-            params = list(PROBLEMS)
         with self.flask_app.app_context():
+            # the same problems as the web page's filter
             rows = get_db().execute(
                 "SELECT a.id, a.at, u.username, a.action, a.file_id, a.outcome, a.detail, a.ip"
-                " FROM audit_log a LEFT JOIN users u ON u.id = a.user_id" + where
-                + " ORDER BY a.id DESC LIMIT ?",
-                (*params, self.audit_limit),
+                " FROM audit_log a LEFT JOIN users u ON u.id = a.user_id"
+                " WHERE ? = 0 OR a.outcome IN ('failed', 'refused', 'denied', 'locked', 'mismatch')"
+                " OR a.action = 'duress'"
+                " ORDER BY a.id DESC LIMIT ?",
+                (int(self.audit_problems), self.audit_limit),
             ).fetchall()
         self.fill("#audit", [
             (str(r["id"]), tuple(Text(str(v) if v is not None else "") for v in tuple(r)[1:]))

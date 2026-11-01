@@ -11,7 +11,7 @@ from flask import (
     url_for,
 )
 
-from .audit import PROBLEMS, audit
+from .audit import audit
 from .auth import current_account, login_required, password_limit
 from .db import get_db
 from .forms import TotpForm, first_error
@@ -61,19 +61,16 @@ def log_entries(hide_duress=False, problems=False, before=None):
     if given. With problems, only failures and refusals, and the duress
     alarm. A decoy session never sees the duress events: the silent alarm,
     and what the decoy itself was refused."""
-    where, params = [], []
-    if hide_duress:
-        where.append("a.action != 'duress'")
-    if problems:
-        where.append(f"(a.outcome IN ({', '.join('?' * len(PROBLEMS))}) OR a.action = 'duress')")
-        params += PROBLEMS
-    if before is not None:
-        where.append("a.id < ?")
-        params.append(before)
-    sql = "SELECT a.*, u.username FROM audit_log a LEFT JOIN users u ON u.id = a.user_id"
-    if where:
-        sql += " WHERE " + " AND ".join(where)
-    return get_db().execute(sql + f" ORDER BY a.id DESC LIMIT {PAGE}", params).fetchall()
+    # one fixed query: the parameters switch each condition on or off
+    return get_db().execute(
+        "SELECT a.*, u.username FROM audit_log a LEFT JOIN users u ON u.id = a.user_id"
+        " WHERE (? = 0 OR a.action != 'duress')"
+        " AND (? = 0 OR a.outcome IN ('failed', 'refused', 'denied', 'locked', 'mismatch')"
+        " OR a.action = 'duress')"
+        " AND (? IS NULL OR a.id < ?)"
+        " ORDER BY a.id DESC LIMIT ?",
+        (int(hide_duress), int(problems), before, before, PAGE),
+    ).fetchall()
 
 
 @bp.route("/log")
