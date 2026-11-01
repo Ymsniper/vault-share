@@ -303,6 +303,15 @@ def test_others_cannot_lock_an_owner_out(app):
     assert download(owner, url).data == CONTRACT
 
 
+def test_one_ipv6_network_counts_as_one_address(app):
+    handle = register(app.test_client())
+    # one subscriber can move across a whole /64 or more
+    for i in range(5):
+        login(from_address(app, f"2001:db8:5:{i}::1"), handle, "a guess")
+    assert login(from_address(app, "2001:db8:5:ff::7"), handle).status_code == 429
+    assert login(from_address(app, "2001:db8:6::1"), handle).headers["Location"] == "/"
+
+
 def test_one_address_cannot_spray_many_accounts(client):
     for i in range(20):
         login(client, f"user{i}#000000", "wrong guess")

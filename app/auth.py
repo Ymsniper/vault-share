@@ -1,5 +1,6 @@
 import functools
 import hashlib
+import ipaddress
 import secrets
 import threading
 import time
@@ -24,7 +25,7 @@ from markupsafe import Markup, escape
 from security.passwords import check_password, check_password_of_unknown_user, hash_password
 
 from . import limiter
-from .audit import audit
+from .audit import audit, network_of
 from .db import get_db
 from .duress import WIPE, empty_slot, mode_of, seal_login_flag, wipe_account
 from .forms import LoginForm, NewPasswordForm, RegisterForm, first_error
@@ -139,10 +140,24 @@ def current_account():
     return str(g.user["id"]) if g.get("user") else None
 
 
+def client_key():
+    """The visitor's address as the login limits count it. An IPv6 visitor
+    counts by their /48, the network part the audit log keeps: a single
+    subscriber can move across a whole /64 or more."""
+    address = get_remote_address()
+    try:
+        ip = ipaddress.ip_address(address)
+    except ValueError:
+        return address
+    if ip.version == 6:
+        return str(ip.ipv4_mapped) if ip.ipv4_mapped else network_of(address)
+    return address
+
+
 def login_key():
     # one username from one address, so wrong tries elsewhere never lock the
     # owner out; cut, since the field is not validated yet and the key is kept
-    return f"{request.form.get('username', '')[:40]}|{get_remote_address()}"
+    return f"{request.form.get('username', '')[:40]}|{client_key()}"
 
 
 def password_limit(key_func, item=FIVE, scope="account", log=True):
@@ -283,7 +298,7 @@ def register_password():
 # not exist count the same way, so the block says nothing about which are real
 @password_limit(login_key, scope="login")
 # and 20 from one address, so one machine cannot try many accounts
-@password_limit(get_remote_address, TWENTY, "login-address")
+@password_limit(client_key, TWENTY, "login-address")
 def login():
     form = LoginForm()
     if form.validate_on_submit():

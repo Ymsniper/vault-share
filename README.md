@@ -100,7 +100,9 @@ shows up at once:
 ![A record that fails its check](docs/screenshots/web-integrity-failed.png)
 
 At login, five wrong passwords for one username from one address block
-that pair for 15 minutes, and twenty from one address block the address.
+that pair for 15 minutes, and twenty from one address block the address;
+an IPv6 address counts as its whole /48 network, since one subscriber can
+switch among many.
 Wrong tries from somewhere else never lock the owner out. Once logged in,
 the password asked at upload, download, sharing and in the settings has a
 limit of its own, five wrong ones per account, which only that account's
