@@ -120,12 +120,15 @@ def invites():
     return invites_page()
 
 
-@bp.route("/invites/new", methods=("POST",))
+@bp.route("/invites/new", methods=("GET", "POST"))
 @login_required
 @password_limit(current_account)
 def new_invite():
     """An admin makes a code with their password and a code from their phone,
     so a stolen password alone, or a stolen session, cannot let anyone in."""
+    if request.method == "GET":
+        # the address a new code was shown at, reloaded or bookmarked
+        return redirect(url_for("admin.invites"))
     admin_only("invite")
     if g.duress:
         return refuse_decoy("making an invite code")

@@ -127,6 +127,8 @@ def test_the_new_code_never_goes_into_the_cookie(app, alice):
     assert made is not None
     with alice.session_transaction() as s:
         assert made not in str(dict(s))
+    # reloading that address later just goes back to the invites page
+    assert alice.get("/admin/invites/new").headers["Location"] == "/admin/invites"
 
 
 def test_admins_see_and_cancel_only_their_own_codes(app, alice):
