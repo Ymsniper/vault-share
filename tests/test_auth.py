@@ -2,6 +2,7 @@ import time
 
 from flask import g
 
+from app import auth
 from app.auth import new_handle, show_handle
 from app.db import get_db
 
@@ -268,6 +269,16 @@ def test_unknown_usernames_lock_the_same_way(client):
         r = login(client, "ghost#000000", "wrong guess")
         assert b"Incorrect username or password." in r.data
     assert login(client, "ghost#000000", "wrong guess").status_code == 429
+
+
+def test_overlong_login_fields_are_refused_before_any_check(client, monkeypatch):
+    checks = []
+    monkeypatch.setattr(auth, "check_password", lambda *a: checks.append(a) or False)
+    monkeypatch.setattr(auth, "check_password_of_unknown_user", lambda *a: checks.append(a))
+    for username, password in (("a" * 41, PASSWORD), ("alice#000000", "p" * 129)):
+        r = login(client, username, password)
+        assert b"Incorrect username or password." in r.data
+    assert checks == []
 
 
 def from_address(app, address):

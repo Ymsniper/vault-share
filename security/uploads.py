@@ -108,12 +108,13 @@ def check_text(ext, data):
     if ext == "json":
         try:
             json.loads(text)
-        except ValueError:
+        # deep nesting runs the parser out of stack
+        except (ValueError, RecursionError):
             raise ValueError("This .json file is not valid JSON.") from None
     if ext == "toml":
         try:
             tomllib.loads(text)
-        except tomllib.TOMLDecodeError:
+        except (tomllib.TOMLDecodeError, RecursionError):
             raise ValueError("This .toml file is not valid TOML.") from None
 
 

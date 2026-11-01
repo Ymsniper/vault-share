@@ -497,6 +497,12 @@ def test_search_terms_stay_out_of_the_url(alice):
     assert b"contract.txt" not in my_files(alice, "invoice")
 
 
+def test_deeply_nested_json_and_toml_are_refused_cleanly(alice):
+    deep = b"[" * 100_000 + b"]" * 100_000
+    assert b"is not valid JSON" in upload(alice, deep, name="deep.json").data
+    assert b"is not valid TOML" in upload(alice, b"a = " + deep, name="deep.toml").data
+
+
 def test_markdown_config_and_json_files(alice):
     for name, data in (
         ("notes.md", b"# Meeting\n\n- sign the contract\n"),

@@ -70,8 +70,9 @@ class UnlockForm(FlaskForm):
 
 
 class LoginForm(FlaskForm):
-    username = StringField(validators=[DataRequired()])
-    password = PasswordField(validators=[DataRequired()])
+    # no real username or password is longer, so these never reach Argon2
+    username = StringField(validators=[DataRequired(), Length(max=40)])
+    password = PasswordField(validators=[DataRequired(), Length(max=128)])
 
 
 class UploadForm(FlaskForm):
