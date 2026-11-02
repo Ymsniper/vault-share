@@ -5,7 +5,7 @@
 <div class="vs-page-head">
   <div>
     <p class="vs-kicker">File record</p>
-    <h1 class="vs-filename">{{ f['filename'] }}</h1>
+    <h1 class="vs-filename{{ ' vs-filename-long' if f['filename']|length > 60 }}">{{ f['filename'] }}</h1>
     <p class="vs-sub">{% if mine %}In your vault{% else %}Shared with you by <strong>{{ f['owner']|handle }}</strong>{% endif %} · uploaded {{ f['uploaded_at'] }} UTC</p>
   </div>
   <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('files.index') }}">All files</a>

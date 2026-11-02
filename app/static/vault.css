@@ -472,6 +472,13 @@ code {
   letter-spacing: -0.04em;
 }
 
+/* a name of up to 255 characters stays a title, not a wall */
+.vs-page-head h1.vs-filename-long {
+  font-size: clamp(1.15rem, 0.9rem + 1vw, 1.6rem);
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+}
+
 /* a box like a paper form: its title sits in a gap in the top rule */
 .vs-panel {
   position: relative;
@@ -1190,6 +1197,12 @@ code {
   width: 2.6rem;
   height: 2.6rem;
   color: var(--vs-hi);
+}
+
+/* a 39-character username has no place to break: let it break anywhere */
+.vs-seal > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 /* the label is a rubber stamp: a boxed word in wide capitals */
