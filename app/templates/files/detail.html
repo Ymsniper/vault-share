@@ -56,7 +56,8 @@
         <dt>Size</dt>
         <dd>{{ f['size']|filesizeformat }} <span class="vs-meta">({{ f['size'] }} bytes)</span></dd>
         <dt>SHA-256</dt>
-        <dd><span class="vs-hash">{{ f['sha256'] }}</span></dd>
+        {# in groups of 8 for reading; no spaces between them, so it copies as one string #}
+        <dd><span class="vs-hash">{% for i in range(0, f['sha256']|length, 8) %}<span>{{ f['sha256'][i:i + 8] }}</span>{% endfor %}</span></dd>
         <dt>Certificate</dt>
         <dd><span class="vs-mono">serial {{ f['cert_serial'] }}</span><br><span class="vs-meta">valid until {{ f['cert_not_after'] }} UTC</span></dd>
         <dt>Uploaded</dt>

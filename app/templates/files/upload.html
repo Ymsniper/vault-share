@@ -14,7 +14,7 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="mb-3">
         <label for="file" class="form-label">File</label>
-        <input type="file" name="file" id="file" class="form-control" accept="{{ accept }}" required>
+        <input type="file" name="file" id="file" class="form-control vs-drop" accept="{{ accept }}" required>
         <div class="form-text">Documents, images, audio, video and text are checked; archives are accepted, marked Not checked. Up to {{ limit_mb }} MB.</div>
       </div>
       <div class="mb-3">

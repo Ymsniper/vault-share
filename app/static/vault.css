@@ -523,6 +523,70 @@ code {
   content: "]" / "";
 }
 
+/* My files: three counts in a grid of hairlines */
+.vs-tally {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0 0 2.8rem;
+  border: 1px solid var(--vs-line-2);
+  background: var(--vs-line-2);
+}
+
+.vs-tally > div {
+  min-width: 0;
+  padding: 1.1rem 1.4rem 1.25rem;
+  background: var(--vs-bg);
+}
+
+.vs-tally dt {
+  color: var(--vs-mute);
+  font-size: 0.7rem;
+  font-weight: 400;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.vs-tally dd {
+  margin: 0.4rem 0 0;
+  color: var(--vs-hi);
+  font-size: clamp(1.6rem, 1.1rem + 1.6vw, 2.4rem);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* All events / Problems only: two halves, the one shown filled in */
+.vs-switch {
+  display: inline-flex;
+  margin: 0 0 1.8rem;
+  border: 1px solid var(--vs-line-2);
+}
+
+.vs-switch > * {
+  padding: 0.5rem 1rem;
+  color: var(--vs-mute);
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.vs-switch > [aria-current] {
+  background: var(--vs-fg);
+  color: var(--vs-bg);
+  font-weight: 700;
+}
+
+@media (hover: hover) {
+  .vs-switch a:hover {
+    background: var(--vs-raise);
+    color: var(--vs-hi);
+  }
+}
+
 /* Delete and Remove: the title is inverted, the loudest label on the page */
 .vs-panel-danger {
   border-color: #575757;
@@ -744,10 +808,7 @@ code {
   color: var(--vs-soft);
 }
 
-/* the file field is a drop area: a dashed box, its button solid white */
 .form-control[type="file"] {
-  padding: 1.3rem 1rem;
-  border-style: dashed;
   color: var(--vs-mute);
   cursor: pointer;
 }
@@ -755,7 +816,7 @@ code {
 .form-control[type="file"]::file-selector-button {
   margin: 0;
   margin-inline-end: 1rem;
-  padding: 0.55rem 1rem;
+  padding: 0.45rem 0.9rem;
   border: 0;
   border-inline-end-width: 0;
   background-color: var(--vs-fg);
@@ -771,7 +832,14 @@ code {
   background-color: var(--vs-hi);
 }
 
-.form-control[type="file"].is-dragover {
+/* the upload page's file field is a drop area: a large dashed box that
+   lights up while a file is dragged over it (app.js sets the class) */
+.vs-drop {
+  padding: 1.4rem 1rem;
+  border-style: dashed;
+}
+
+.vs-drop.is-dragover {
   border-style: solid;
   border-color: var(--vs-hi);
   background-color: var(--vs-raise);
@@ -1030,6 +1098,25 @@ code {
   color: var(--vs-soft);
 }
 
+/* a file id in the log: its first characters, all of it on hover and in a copy */
+.vs-id {
+  display: inline-block;
+  max-width: 9ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+
+/* six columns of monospace in a narrow box: smaller and closer together */
+.vs-invites > :not(caption) > * > * {
+  padding: 0.55rem 0.45rem;
+  font-size: 0.8rem;
+}
+
+.vs-invites td.vs-meta {
+  font-size: 0.78rem;
+}
+
 .vs-empty {
   padding: 2.4rem 1rem 1.2rem;
   color: var(--vs-mute);
@@ -1181,7 +1268,13 @@ code {
   color: var(--vs-hi);
   font-size: 0.9rem;
   letter-spacing: 0.04em;
-  word-break: break-all;
+}
+
+/* groups of 8 that wrap whole; the gap is a margin, not a space, so the
+   hash copies as one string */
+.vs-hash > span {
+  display: inline-block;
+  margin-right: 0.6em;
 }
 
 .vs-people {
@@ -1420,6 +1513,19 @@ code {
 
   .vs-page-head .vs-search {
     flex: 1 1 100%;
+  }
+
+  .vs-tally {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-bottom: 2.4rem;
+  }
+
+  .vs-tally > div {
+    padding: 0.9rem 1rem 1rem;
+  }
+
+  .vs-tally > div:last-child {
+    grid-column: 1 / -1;
   }
 
   .vs-panel {

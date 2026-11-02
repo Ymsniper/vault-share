@@ -8,9 +8,9 @@
     <p class="vs-lede">200 events at a time, newest first. Times are UTC. Entries are kept {{ config['AUDIT_LOG_DAYS'] }} days, with only the network part of each address.</p>
   </div>
 </div>
-<p>
-  {% if problems %}<a href="{{ url_for('admin.log') }}">All events</a> · <strong>Problems only</strong>{% else %}<strong>All events</strong> · <a href="{{ url_for('admin.log', problems=1) }}">Problems only</a>{% endif %}
-</p>
+<nav class="vs-switch" aria-label="Events shown">
+  {% if problems %}<a href="{{ url_for('admin.log') }}">All events</a><span aria-current="true">Problems only</span>{% else %}<span aria-current="true">All events</span><a href="{{ url_for('admin.log', problems=1) }}">Problems only</a>{% endif %}
+</nav>
 <section class="vs-panel">
   <div class="vs-table-wrap">
     <table class="table table-sm table-hover">
@@ -24,7 +24,7 @@
           <td class="vs-meta">{{ e['at'] }}</td>
           <td class="vs-mono">{{ e['username']|handle if e['username'] else '-' }}</td>
           <td class="vs-mono">{{ e['action'] }}</td>
-          <td class="vs-meta">{{ e['file_id'] or '' }}</td>
+          <td class="vs-meta">{% if e['file_id'] %}<span class="vs-id" title="{{ e['file_id'] }}">{{ e['file_id'] }}</span>{% endif %}</td>
           <td><span class="vs-chip {{ 'vs-chip-ok' if o in ('ok', 'match') else 'vs-chip-bad' if o in ('failed', 'refused', 'denied', 'mismatch', 'locked') else 'vs-chip-warn' if o == 'used' else 'vs-chip-neutral' }}">{{ o }}</span></td>
           <td>{{ e['detail'] or '' }}</td>
           <td class="vs-meta">{{ e['ip'] or '' }}</td>
@@ -34,7 +34,7 @@
     </table>
   </div>
   {% if older %}
-  <p class="mt-3 mb-0"><a href="{{ url_for('admin.log', before=older, problems=1 if problems else None) }}">Older events</a></p>
+  <p class="mt-4 mb-0"><a class="btn btn-outline-secondary btn-sm" href="{{ url_for('admin.log', before=older, problems=1 if problems else None) }}">Older events</a></p>
   {% endif %}
 </section>
 {% endblock %}

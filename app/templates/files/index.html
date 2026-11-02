@@ -17,6 +17,14 @@
   <a class="btn btn-primary" href="{{ url_for('files.upload') }}">Upload</a>
 </div>
 
+{% if not q %}
+<dl class="vs-tally">
+  <div><dt>Stored</dt><dd>{{ '%02d' % files|length }}</dd></div>
+  <div><dt>Received</dt><dd>{{ '%02d' % shared|length }}</dd></div>
+  <div><dt>Space used</dt><dd>{{ files|sum(attribute='size')|filesizeformat }}</dd></div>
+</dl>
+{% endif %}
+
 <section class="vs-panel">
   <h2 class="vs-panel-title">Stored by me <span class="vs-count">{{ files|length }}</span></h2>
   {% if files %}
