@@ -926,6 +926,11 @@ code {
   user-select: all;
 }
 
+.vs-copy {
+  margin-left: 0.75rem;
+  vertical-align: middle;
+}
+
 .vs-search {
   position: relative;
   flex: 0 1 22rem;
@@ -1483,10 +1488,19 @@ code {
 }
 
 @media (max-width: 720px) {
-  /* the menu is one row that scrolls sideways */
+  /* the menu is one row that scrolls sideways, fading out at the right
+     edge as a hint; the empty space at its end lets the last item clear
+     the fade */
   .vs-nav {
     overflow-x: auto;
     scrollbar-width: none;
+    mask-image: linear-gradient(to right, #000 calc(100% - 2.5rem), transparent);
+  }
+
+  .vs-nav::after {
+    content: "";
+    flex: none;
+    width: 1.5rem;
   }
 
   .vs-nav::-webkit-scrollbar {
@@ -1671,7 +1685,75 @@ code {
   }
 }
 
+/* ---- motion: mostly still, a few moments */
+
+/* from one page to the next, the header holds still while the content
+   fades and rises a little (Chrome and Safari; others just change page) */
+@view-transition {
+  navigation: auto;
+}
+
+.vs-mast {
+  view-transition-name: vs-mast;
+}
+
+::view-transition-old(root) {
+  animation: 120ms ease-out both vs-fade-out;
+}
+
+::view-transition-new(root) {
+  animation: 200ms var(--vs-ease) both vs-rise-in;
+}
+
+@keyframes vs-fade-out {
+  to { opacity: 0; }
+}
+
+@keyframes vs-rise-in {
+  from { opacity: 0; transform: translateY(8px); }
+}
+
+/* a message arrives with a short drop into place */
+.vs-flash {
+  transition: opacity 0.2s var(--vs-ease), transform 0.2s var(--vs-ease);
+}
+
+@starting-style {
+  .vs-flash {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+/* the verification label lands like a stamp, once, as the page opens */
+.vs-seal-label {
+  animation: vs-stamp 0.26s var(--vs-ease) 0.12s both;
+}
+
+@keyframes vs-stamp {
+  from { opacity: 0; transform: scale(1.3); }
+}
+
+/* the fold-outs open smoothly where the browser can animate to "auto" */
+:root {
+  interpolate-size: allow-keywords;
+}
+
+.vs-fold::details-content {
+  block-size: 0;
+  overflow: clip;
+  transition: block-size 0.25s var(--vs-ease), content-visibility 0.25s allow-discrete;
+}
+
+.vs-fold[open]::details-content {
+  block-size: auto;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  @view-transition {
+    navigation: none;
+  }
+
   *,
   *::before,
   *::after {

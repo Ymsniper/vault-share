@@ -1,4 +1,4 @@
-// Small additions to the forms. Every page still works without them.
+// Small additions to the pages. Every page still works without them.
 // Served from this site, so the Content-Security-Policy lets it run.
 
 const EYE =
@@ -58,9 +58,130 @@ function addRemoveFileButton(input) {
   render();
 }
 
+// A Copy button after a new invite code and after the two-factor key. Where
+// the page has no clipboard access (plain HTTP), the text is selected
+// instead, ready for Ctrl+C.
+function addCopyButton(el) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "btn btn-outline-secondary btn-sm vs-copy";
+  button.setAttribute("aria-live", "polite");
+  button.textContent = "Copy";
+  el.after(button);
+
+  let timer;
+  button.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(el.textContent.trim());
+      button.textContent = "Copied";
+    } catch {
+      getSelection().selectAllChildren(el);
+      button.textContent = "Selected";
+    }
+    clearTimeout(timer);
+    timer = setTimeout(() => (button.textContent = "Copy"), 1600);
+  });
+}
+
+// The upload page's drop area lights up while a file is dragged over it.
+function addDropHighlight(input) {
+  const on = () => input.classList.add("is-dragover");
+  const off = () => input.classList.remove("is-dragover");
+  input.addEventListener("dragenter", on);
+  input.addEventListener("dragover", on);
+  input.addEventListener("dragleave", off);
+  input.addEventListener("drop", off);
+}
+
+// ASCII art "decrypts": characters taken from the art itself flicker in
+// place and settle from left to right. The text keeps its length, so
+// nothing on the page moves.
+function decrypt(pre) {
+  const text = pre.textContent;
+  const pool = [...new Set(text.replace(/\s/g, ""))];
+  if (pool.length < 2) {
+    return;
+  }
+  const cells = [...text];
+  const cols = Math.max(...text.split("\n").map((line) => line.length));
+  const settle = [];
+  let col = 0;
+  for (const c of cells) {
+    settle.push(c.trim() ? (col / cols) * 0.7 + Math.random() * 0.3 : 0);
+    col = c === "\n" ? 0 : col + 1;
+  }
+  const noise = (t) =>
+    cells.map((c, i) => (t >= settle[i] ? c : pool[(Math.random() * pool.length) | 0])).join("");
+
+  const duration = 750;
+  let start;
+  let last = 0;
+  let finished = false;
+  const finish = () => {
+    finished = true;
+    pre.textContent = text;
+  };
+  // the art never stays scrambled, even where animation frames stop
+  setTimeout(finish, duration + 400);
+  pre.textContent = noise(0);
+  const frame = (now) => {
+    if (finished) {
+      return;
+    }
+    start ??= now;
+    const t = (now - start) / duration;
+    if (t >= 1) {
+      finish();
+      return;
+    }
+    // new noise about 20 times a second: calmer than every frame
+    if (now - last >= 50) {
+      last = now;
+      pre.textContent = noise(t);
+    }
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+}
+
+// the header's wordmark decrypts on the first page of a browser session only
+function firstPageOfSession() {
+  try {
+    if (sessionStorage.getItem("vs-decrypted")) {
+      return false;
+    }
+    sessionStorage.setItem("vs-decrypted", "1");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 for (const input of document.querySelectorAll('input[type="password"], input.masked')) {
   addRevealButton(input);
 }
 for (const input of document.querySelectorAll('input[type="file"]')) {
   addRemoveFileButton(input);
+}
+for (const input of document.querySelectorAll("input.vs-drop")) {
+  addDropHighlight(input);
+}
+for (const el of document.querySelectorAll(".vs-invite-code")) {
+  addCopyButton(el);
+}
+for (const el of document.querySelectorAll("code")) {
+  if (/^[A-Z2-7]{32}$/.test(el.textContent)) {
+    addCopyButton(el);
+  }
+}
+
+// only for someone looking: not with reduced motion, not in a hidden tab
+if (!matchMedia("(prefers-reduced-motion: reduce)").matches && document.visibilityState === "visible") {
+  const shown = [...document.querySelectorAll(".vs-banner .vs-ascii")].filter(
+    (pre) => pre.getClientRects().length > 0,
+  );
+  if (shown.length && firstPageOfSession()) {
+    shown.forEach(decrypt);
+  }
+  document.querySelectorAll(".vs-error-art").forEach(decrypt);
 }
