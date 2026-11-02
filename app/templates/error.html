@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ error.code }}{% endblock %}
 {% block content %}
-<div class="vs-gate">
+<div class="vs-error">
   <span class="vs-error-code" aria-hidden="true">{{ error.code }}</span>
   <h1>{{ error.code }} {{ error.name }}</h1>
   <p class="vs-lede">{{ error.description }}</p>

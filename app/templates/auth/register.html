@@ -2,24 +2,27 @@
 {% block title %}Register{% endblock %}
 {% block content %}
 <div class="vs-gate">
-  <div class="vs-gate-emblem">{% include "partials/emblem.svg" %}</div>
-  <h1>Register</h1>
-  <p class="vs-lede">Registering needs an invite code from an administrator. Pick a name: the server adds a random tag to it, like bob#516850, and the two together are your username.</p>
-  <form method="post" class="vs-panel">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <div class="mb-3">
-      <label for="code" class="form-label">Invite code</label>
-      <input name="code" id="code" class="form-control vs-mono" autocomplete="off" spellcheck="false"
-             placeholder="XXXXX-XXXXX-XXXXX-XXXXX" required autofocus>
-      <div class="form-text">Each code works a limited number of times.</div>
-    </div>
-    <div class="mb-4">
-      <label for="username" class="form-label">Name</label>
-      <input name="username" id="username" class="form-control" autocomplete="nickname" required>
-      <div class="form-text">3 to 32 letters, digits or underscores. Others may pick the same name: the tag tells you apart.</div>
-    </div>
-    <button type="submit" class="btn btn-primary">Next</button>
-  </form>
-  <p class="vs-gate-foot">Already registered? <a href="{{ url_for('auth.login') }}">Log in</a></p>
+  {% include "partials/gate_art.html" %}
+  <div class="vs-gate-copy">
+    <p class="vs-kicker">Invite only</p>
+    <h1>Register</h1>
+    <p class="vs-lede">Registering needs an invite code from an administrator. Pick a name: the server adds a random tag to it, like bob#516850, and the two together are your username.</p>
+    <form method="post" class="vs-panel">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="mb-3">
+        <label for="code" class="form-label">Invite code</label>
+        <input name="code" id="code" class="form-control vs-mono" autocomplete="off" spellcheck="false"
+               placeholder="XXXXX-XXXXX-XXXXX-XXXXX" required autofocus>
+        <div class="form-text">Each code works a limited number of times.</div>
+      </div>
+      <div class="mb-4">
+        <label for="username" class="form-label">Name</label>
+        <input name="username" id="username" class="form-control" autocomplete="nickname" required>
+        <div class="form-text">3 to 32 letters, digits or underscores. Others may pick the same name: the tag tells you apart.</div>
+      </div>
+      <button type="submit" class="btn btn-primary">Next</button>
+    </form>
+    <p class="vs-gate-foot">Already registered? <a href="{{ url_for('auth.login') }}">Log in</a></p>
+  </div>
 </div>
 {% endblock %}

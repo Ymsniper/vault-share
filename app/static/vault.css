@@ -1,241 +1,296 @@
-/* Vault-Share: retro-futurist theme on top of Bootstrap.
-   Navy steel, brass and a little phosphor. Everything is served from this
-   site, so the Content-Security-Policy (default-src 'self') still holds. */
-
-/* Futura: Book, Medium and Bold, and Linotype's Condensed Bold for the
-   wordmark and the big titles. "block": text waits for Futura rather than
-   showing in another font first. */
-@font-face {
-  font-family: "Futura";
-  src: url("fonts/futura-book.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-stretch: 100%;
-  font-display: block;
-}
+/* Vault-Share: black and white, on top of Bootstrap.
+   Typewriter mono for everything, a serif italic for the quiet lines, thin
+   rules instead of shadows. Everything is served from this site, so the
+   Content-Security-Policy (default-src 'self') still holds: no inline styles
+   and no data: URLs, which is also why Bootstrap's check marks are redrawn. */
 
 @font-face {
-  font-family: "Futura";
-  src: url("fonts/futura-book-oblique.woff2") format("woff2");
-  font-weight: 400;
-  font-style: italic;
-  font-stretch: 100%;
-  font-display: block;
-}
-
-@font-face {
-  font-family: "Futura";
-  src: url("fonts/futura-medium.woff2") format("woff2");
-  font-weight: 500;
-  font-style: normal;
-  font-stretch: 100%;
-  font-display: block;
-}
-
-@font-face {
-  font-family: "Futura";
-  src: url("fonts/futura-bold.woff2") format("woff2");
-  font-weight: 700;
-  font-style: normal;
-  font-stretch: 100%;
-  font-display: block;
-}
-
-@font-face {
-  font-family: "Futura";
-  src: url("fonts/futura-bold-condensed.woff2") format("woff2");
-  font-weight: 700;
-  font-style: normal;
-  font-stretch: 75%;
-  font-display: block;
-}
-
-@font-face {
-  font-family: "Share Tech Mono";
-  src: url("fonts/share-tech-mono-latin-400-normal.woff2") format("woff2");
+  font-family: "Cousine";
+  src: url("fonts/cousine-latin-400-normal.woff2") format("woff2");
   font-weight: 400;
   font-style: normal;
   font-display: swap;
 }
 
+@font-face {
+  font-family: "Cousine";
+  src: url("fonts/cousine-latin-700-normal.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Noto Serif";
+  src: url("fonts/noto-serif-latin-400-italic.woff2") format("woff2");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
 :root,
 [data-bs-theme="dark"] {
-  --vs-ink: #0a1628;
-  --vs-ink-2: #0f2038;
-  --vs-ink-3: #152b48;
-  --vs-well: rgba(5, 12, 24, 0.7);
-  --vs-cream: #ece3cc;
-  --vs-bright: #fff6dc;
-  --vs-mute: #8fa1ba;
-  --vs-brass: #f2c53d;
-  --vs-brass-hi: #ffd864;
-  --vs-brass-lo: #c99a17;
-  --vs-phosphor: #72e7a1;
-  --vs-amber: #ffb547;
-  --vs-alert: #ff6f5e;
-  --vs-line: rgba(242, 197, 61, 0.2);
-  --vs-line-soft: rgba(236, 227, 204, 0.1);
-  --vs-rivet: rgba(242, 197, 61, 0.5);
-  --vs-display: "Futura", sans-serif;
-  --vs-mono: "Share Tech Mono", ui-monospace, "DejaVu Sans Mono", monospace;
-  --vs-radius: 12px;
+  --vs-bg: #080808;
+  --vs-panel: #0c0c0c;
+  --vs-raise: #141414;
+  --vs-field: #0e0e0e;
+  --vs-line: #262626;
+  --vs-line-2: #363636;
+  --vs-edge: #6b6b6b;
+  --vs-fg: #e9e9e7;
+  --vs-hi: #ffffff;
+  --vs-soft: #cfcfcd;
+  --vs-mute: #a6a6a4;
+  --vs-mono: "Cousine", "Liberation Mono", "Courier New", ui-monospace, monospace;
+  --vs-serif: "Noto Serif", Georgia, "Times New Roman", serif;
+  --vs-ease: cubic-bezier(0.23, 1, 0.32, 1);
 
-  --bs-body-bg: var(--vs-ink);
-  --bs-body-bg-rgb: 10, 22, 40;
-  --bs-body-color: var(--vs-cream);
-  --bs-body-color-rgb: 236, 227, 204;
-  --bs-body-font-family: var(--vs-display);
-  --bs-body-font-weight: 400;
-  --bs-emphasis-color: var(--vs-bright);
+  --bs-body-bg: var(--vs-bg);
+  --bs-body-bg-rgb: 8, 8, 8;
+  --bs-body-color: var(--vs-fg);
+  --bs-body-color-rgb: 233, 233, 231;
+  --bs-body-font-family: var(--vs-mono);
+  --bs-body-font-size: 1rem;
+  --bs-body-line-height: 1.7;
+  --bs-font-monospace: var(--vs-mono);
+  --bs-emphasis-color: var(--vs-hi);
+  --bs-emphasis-color-rgb: 255, 255, 255;
   --bs-secondary-color: var(--vs-mute);
-  --bs-secondary-color-rgb: 143, 161, 186;
-  --bs-tertiary-bg: var(--vs-ink-2);
-  --bs-border-color: var(--vs-line-soft);
-  --bs-heading-color: var(--vs-bright);
-  --bs-link-color: var(--vs-brass);
-  --bs-link-color-rgb: 242, 197, 61;
-  --bs-link-hover-color: var(--vs-brass-hi);
-  --bs-link-hover-color-rgb: 255, 216, 100;
-  --bs-code-color: var(--vs-phosphor);
-  --bs-primary: var(--vs-brass);
-  --bs-primary-rgb: 242, 197, 61;
-  --bs-focus-ring-color: rgba(242, 197, 61, 0.3);
-  --bs-form-valid-color: var(--vs-phosphor);
-  --bs-form-invalid-color: var(--vs-alert);
+  --bs-secondary-color-rgb: 166, 166, 164;
+  --bs-secondary-bg: var(--vs-raise);
+  --bs-tertiary-bg: var(--vs-raise);
+  --bs-border-color: var(--vs-line);
+  --bs-border-radius: 0;
+  --bs-border-radius-sm: 0;
+  --bs-border-radius-lg: 0;
+  --bs-border-radius-xl: 0;
+  --bs-border-radius-xxl: 0;
+  --bs-border-radius-pill: 0;
+  --bs-heading-color: var(--vs-hi);
+  --bs-link-color: var(--vs-fg);
+  --bs-link-color-rgb: 233, 233, 231;
+  --bs-link-hover-color: var(--vs-hi);
+  --bs-link-hover-color-rgb: 255, 255, 255;
+  --bs-code-color: var(--vs-hi);
+  --bs-highlight-bg: var(--vs-fg);
+  --bs-highlight-color: var(--vs-bg);
+  --bs-primary: var(--vs-fg);
+  --bs-primary-rgb: 233, 233, 231;
+  --bs-focus-ring-color: rgba(255, 255, 255, 0.5);
+  --bs-form-valid-color: var(--vs-fg);
+  --bs-form-valid-border-color: var(--vs-fg);
+  --bs-form-invalid-color: var(--vs-fg);
+  --bs-form-invalid-border-color: var(--vs-fg);
 }
 
 /* ---- page */
 
 html {
   color-scheme: dark;
+  scrollbar-color: #3a3a3a transparent;
 }
 
 body {
-  /* only real Futura weights: the browser never thickens a face itself */
-  font-synthesis: none;
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
-  letter-spacing: 0.01em;
-  background:
-    radial-gradient(1100px 520px at 50% -220px, rgba(242, 197, 61, 0.09), transparent 62%),
-    radial-gradient(900px 600px at 105% -10%, rgba(40, 78, 128, 0.55), transparent 70%),
-    radial-gradient(700px 500px at -10% 110%, rgba(40, 78, 128, 0.35), transparent 70%),
-    var(--vs-ink);
-}
-
-/* faint scanlines, like an old monitor: felt more than seen */
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: 2000;
-  pointer-events: none;
-  background: repeating-linear-gradient(
-    to bottom,
-    rgba(255, 255, 255, 0.022) 0,
-    rgba(255, 255, 255, 0.022) 1px,
-    transparent 1px,
-    transparent 3px
-  );
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 ::selection {
-  background: rgba(242, 197, 61, 0.35);
-  color: var(--vs-bright);
+  background: var(--vs-fg);
+  color: var(--vs-bg);
 }
 
 a {
-  text-underline-offset: 0.2em;
+  text-underline-offset: 0.22em;
+  text-decoration-thickness: 1px;
+}
+
+a,
+button,
+input,
+label,
+select,
+summary,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 :focus-visible {
-  outline: 2px solid var(--vs-brass);
-  outline-offset: 2px;
+  outline: 2px solid var(--vs-hi);
+  outline-offset: 3px;
 }
 
-h1, h2, h3, .h1, .h2, .h3, .h4, .h5 {
-  font-family: var(--vs-display);
+.container {
+  max-width: 1240px;
+  padding-inline: clamp(1rem, 3.5vw, 2.5rem);
+}
+
+.vs-skip {
+  position: absolute;
+  left: 1rem;
+  top: -5rem;
+  z-index: 50;
+  padding: 0.6rem 0.9rem;
+  background: var(--vs-fg);
+  color: var(--vs-bg);
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--vs-bright);
+  text-decoration: none;
 }
 
-/* titles in Futura Condensed Bold, like the old posters */
+.vs-skip:focus {
+  top: 1rem;
+}
+
+/* ---- type */
+
+h1, h2, h3, h4, .h1, .h2, .h3, .h4 {
+  font-family: var(--vs-mono);
+  font-weight: 700;
+  color: var(--vs-hi);
+}
+
 h1, .h1 {
-  font-size: clamp(1.9rem, 3.3vw, 2.65rem);
-  font-weight: 700;
-  font-stretch: condensed;
-  letter-spacing: 0.035em;
-  line-height: 1.05;
+  font-size: clamp(2.2rem, 1.35rem + 3vw, 3.6rem);
+  line-height: 1.04;
+  letter-spacing: -0.055em;
+  word-spacing: -0.15em;
+  margin-bottom: 0.9rem;
 }
 
 h2, .h2 {
-  font-size: 0.95rem;
-  letter-spacing: 0.16em;
-  color: var(--vs-cream);
-  margin-bottom: 1rem;
+  font-size: clamp(1.35rem, 1.1rem + 1vw, 1.85rem);
+  line-height: 1.2;
+  letter-spacing: -0.04em;
 }
 
-code, .vs-mono {
+/* one word of a title in the serif italic */
+h1 em,
+h2 em {
+  font-family: var(--vs-serif);
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: -0.02em;
+}
+
+code,
+kbd,
+.vs-mono {
   font-family: var(--vs-mono);
 }
 
 code {
-  font-size: 0.92em;
-  color: var(--vs-phosphor);
+  color: var(--vs-hi);
+  font-size: 0.94em;
   overflow-wrap: anywhere;
 }
 
-/* ---- header */
-
-.vs-header {
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  background: linear-gradient(180deg, rgba(22, 45, 76, 0.97), rgba(13, 28, 50, 0.97));
-  border-bottom: 1px solid var(--vs-line);
-  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.55), 0 14px 30px -20px rgba(0, 0, 0, 0.9);
-}
-
-/* a thin brass rule under the bar */
-.vs-header::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -3px;
-  height: 2px;
-  background: linear-gradient(90deg, transparent, rgba(242, 197, 61, 0.55) 20%, rgba(242, 197, 61, 0.55) 80%, transparent);
-  opacity: 0.6;
-}
-
-.vs-header-inner {
+/* a short bar before each label, like a redacted line */
+.vs-kicker {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 0.5rem 1.5rem;
-  min-height: 70px;
+  gap: 0.75rem;
+  margin: 0 0 1rem;
+  color: var(--vs-mute);
+  font-size: 0.74rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.vs-kicker::before {
+  content: "";
+  flex: none;
+  width: 1.6rem;
+  height: 0.5rem;
+  background: currentColor;
+}
+
+.vs-lede {
+  max-width: 60ch;
+  margin: 0.5rem 0 0;
+  color: var(--vs-soft);
+  font-family: var(--vs-serif);
+  font-size: 1.14rem;
+  font-style: italic;
+  line-height: 1.6;
+}
+
+.vs-lede strong {
+  color: var(--vs-hi);
+  font-family: var(--vs-mono);
+  font-style: normal;
+}
+
+.vs-sub {
+  margin: 0.75rem 0 0;
+  color: var(--vs-mute);
+  font-family: var(--vs-serif);
+  font-size: 1.04rem;
+  font-style: italic;
+}
+
+.vs-sub strong {
+  color: var(--vs-fg);
+  font-family: var(--vs-mono);
+  font-style: normal;
+  font-weight: 400;
+}
+
+.vs-note {
+  color: var(--vs-mute);
+  font-size: 0.9rem;
+}
+
+.vs-note strong {
+  color: var(--vs-fg);
+}
+
+/* the tag after a username: there, but quieter than the name */
+.vs-tag {
+  opacity: 0.55;
+  font-weight: 400;
+}
+
+/* ---- the masthead */
+
+.vs-mast-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--vs-line);
+  font-size: 0.74rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
 }
 
 .vs-brand {
   display: inline-flex;
   align-items: center;
-  gap: 0.7rem;
-  color: var(--vs-brass);
+  gap: 0.85rem;
+  color: var(--vs-hi);
+  font-weight: 700;
   text-decoration: none;
 }
 
 .vs-brand:hover {
-  color: var(--vs-brass-hi);
+  color: var(--vs-hi);
 }
 
 /* the winged logo is 1000 x 413.8 */
 .vs-brand .vs-logo {
-  width: 116px;
-  height: 48px;
-  filter: drop-shadow(0 0 7px rgba(242, 197, 61, 0.35));
+  width: 70px;
+  height: 29px;
+}
+
+.vs-mast-motto {
+  color: var(--vs-mute);
 }
 
 /* the door turns about its own center: once as a gate page opens, and when
@@ -245,107 +300,141 @@ code {
   transform-origin: center;
 }
 
-.vs-brand:hover .vs-emblem-cog {
-  animation: vs-turn 1.2s cubic-bezier(0.2, 0.75, 0.2, 1);
+@media (hover: hover) {
+  .vs-brand:hover .vs-emblem-cog {
+    animation: vs-turn 1.2s cubic-bezier(0.2, 0.75, 0.2, 1);
+  }
 }
 
-.vs-wordmark {
-  display: inline-block;
-  font-family: var(--vs-display);
-  font-weight: 700;
-  font-stretch: condensed;
-  font-size: 1.95rem;
-  line-height: 1;
-  letter-spacing: 0.055em;
+@keyframes vs-turn {
+  from { transform: rotate(-90deg); }
+  to { transform: rotate(0); }
+}
+
+/* the ASCII wordmark is 148 columns of an 0.6em-wide font: it is sized from
+   the width it has, so it never needs a scrollbar */
+.vs-banner {
+  container-type: inline-size;
+  overflow: hidden;
+  padding: 2.2rem 0 0.2rem;
+}
+
+.vs-ascii {
+  width: max-content;
+  margin: 0 auto;
+  overflow: visible;
+  color: var(--vs-hi);
+  font-family: var(--vs-mono);
+  font-size: min(8.6px, calc(100cqi / 89));
+  line-height: 1.08;
+  white-space: pre;
+  user-select: none;
+}
+
+.vs-tagline {
+  margin: 0;
+  padding: 1rem 0 1.5rem;
+  color: var(--vs-mute);
+  font-size: 0.72rem;
+  letter-spacing: 0.26em;
+  text-align: center;
   text-transform: uppercase;
 }
 
 .vs-nav {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.15rem;
-  margin-left: auto;
+  align-items: stretch;
+  gap: 1rem;
+  border-top: 1px solid var(--vs-line);
+  border-bottom: 1px solid var(--vs-line);
 }
 
-.vs-nav form {
-  display: inline;
+.vs-nav-links {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.vs-nav-links a {
+  padding: 0.95rem 1.1rem;
+  color: #b9b9b7;
+  font-size: 0.86rem;
+  text-decoration: none;
+}
+
+.vs-nav-links a:first-child {
+  padding-left: 0;
+}
+
+.vs-nav-links a[aria-current="page"] {
+  color: var(--vs-hi);
+  box-shadow: inset 0 -2px var(--vs-hi);
+}
+
+.vs-nav-account {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.vs-nav-account form {
   margin: 0;
 }
 
-.vs-nav a,
-.vs-nav button {
-  display: inline-block;
-  padding: 0.5rem 0.7rem;
-  border: 0;
-  border-radius: 7px;
+.vs-nav-account button {
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--vs-line-2);
   background: none;
-  color: var(--vs-cream);
-  opacity: 0.82;
-  font-family: var(--vs-display);
-  font-size: 0.8rem;
-  font-weight: 500;
-  letter-spacing: 0.13em;
+  color: var(--vs-fg);
+  font-size: 0.7rem;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
-  text-decoration: none;
-  transition: color 0.15s, background-color 0.15s, opacity 0.15s;
-}
-
-.vs-nav a:hover,
-.vs-nav button:hover {
-  opacity: 1;
-  color: var(--vs-brass);
-  background: rgba(242, 197, 61, 0.07);
-}
-
-.vs-nav a[aria-current="page"] {
-  opacity: 1;
-  color: var(--vs-brass);
-  box-shadow: inset 0 -2px 0 var(--vs-brass);
-  border-radius: 7px 7px 0 0;
-}
-
-/* the tag after a username: there, but quieter than the name */
-.vs-tag {
-  opacity: 0.6;
-  font-weight: 400;
 }
 
 .vs-user {
   display: inline-flex;
   align-items: center;
-  gap: 0.45rem;
-  margin: 0 0.35rem;
-  padding: 0.3rem 0.75rem;
-  border: 1px solid var(--vs-line-soft);
-  border-radius: 999px;
+  gap: 0.55rem;
   color: var(--vs-mute);
-  font-family: var(--vs-mono);
   font-size: 0.84rem;
 }
 
+/* a lit square: this browser holds a session */
 .vs-dot {
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 50%;
-  background: var(--vs-phosphor);
-  box-shadow: 0 0 8px var(--vs-phosphor);
+  width: 0.45rem;
+  height: 0.45rem;
+  background: var(--vs-hi);
+}
+
+@media (hover: hover) {
+  .vs-nav-links a:hover {
+    color: var(--vs-hi);
+    background: var(--vs-raise);
+  }
+
+  .vs-nav-account button:hover {
+    border-color: var(--vs-hi);
+    color: var(--vs-hi);
+  }
 }
 
 /* ---- layout */
 
 .vs-main {
   flex: 1;
-  padding-top: 2.4rem;
-  padding-bottom: 3.5rem;
+  padding-top: 2.75rem;
+  padding-bottom: 4.5rem;
 }
 
 .vs-page-head {
   display: flex;
   align-items: flex-end;
   flex-wrap: wrap;
-  gap: 1rem;
-  margin-bottom: 1.8rem;
+  gap: 1.25rem 1.5rem;
+  margin-bottom: 2.6rem;
+  padding-bottom: 1.9rem;
+  border-bottom: 1px solid var(--vs-line);
 }
 
 .vs-page-head > :first-child {
@@ -358,67 +447,22 @@ code {
   overflow-wrap: anywhere;
 }
 
-/* a file's name is shown as it is: capitals would change it */
+/* a file's name is shown as it is, a size smaller than other titles */
 .vs-page-head h1.vs-filename {
-  text-transform: none;
-  letter-spacing: 0.01em;
+  font-size: clamp(1.7rem, 1.1rem + 2.3vw, 2.8rem);
+  letter-spacing: -0.04em;
 }
 
-.vs-kicker {
-  margin: 0 0 0.45rem;
-  color: var(--vs-brass);
-  font-family: var(--vs-mono);
-  font-size: 0.76rem;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-}
-
-.vs-kicker::before {
-  content: "\25B8\00a0";
-  opacity: 0.7;
-}
-
-.vs-lede {
-  max-width: 62ch;
-  color: var(--vs-mute);
-  margin: 0.6rem 0 0;
-}
-
-.vs-sub {
-  margin: 0.55rem 0 0;
-  color: var(--vs-mute);
-  font-size: 0.95rem;
-}
-
-.vs-sub strong {
-  color: var(--vs-cream);
-  font-weight: 500;
-}
-
-/* a plate bolted to the vault wall: four rivets in the corners */
+/* a box like a paper form: its title sits in a gap in the top rule */
 .vs-panel {
   position: relative;
-  padding: 1.6rem;
-  border: 1px solid var(--vs-line);
-  border-radius: var(--vs-radius);
-  background: linear-gradient(180deg, rgba(22, 45, 76, 0.86), rgba(13, 29, 52, 0.92));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 24px 44px -28px rgba(0, 0, 0, 0.95);
-}
-
-.vs-panel::before {
-  content: "";
-  position: absolute;
-  inset: 9px;
-  pointer-events: none;
-  background:
-    radial-gradient(circle, var(--vs-rivet) 0 1.4px, transparent 2px) 0 0 / 6px 6px no-repeat,
-    radial-gradient(circle, var(--vs-rivet) 0 1.4px, transparent 2px) 100% 0 / 6px 6px no-repeat,
-    radial-gradient(circle, var(--vs-rivet) 0 1.4px, transparent 2px) 0 100% / 6px 6px no-repeat,
-    radial-gradient(circle, var(--vs-rivet) 0 1.4px, transparent 2px) 100% 100% / 6px 6px no-repeat;
+  padding: 2.1rem 1.75rem 1.75rem;
+  border: 1px solid var(--vs-line-2);
+  background: var(--vs-panel);
 }
 
 .vs-panel + .vs-panel {
-  margin-top: 1.5rem;
+  margin-top: 2.4rem;
 }
 
 .vs-panel > :last-child {
@@ -426,53 +470,99 @@ code {
 }
 
 .vs-panel-title {
+  position: absolute;
+  top: 0;
+  left: 1.25rem;
   display: flex;
   align-items: center;
-  gap: 0.6rem;
-  margin: 0 0 1.1rem;
-  font-size: 0.85rem;
-  letter-spacing: 0.18em;
+  gap: 0.7rem;
+  max-width: calc(100% - 2.5rem);
+  margin: 0;
+  padding: 0 0.7rem;
+  transform: translateY(-50%);
+  background: linear-gradient(var(--vs-bg) 50%, var(--vs-panel) 50%);
+  color: var(--vs-hi);
+  font-size: 0.74rem;
+  line-height: 1.7;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
 }
 
 .vs-panel-title .vs-count {
-  margin-left: auto;
   color: var(--vs-mute);
-  font-family: var(--vs-mono);
   font-weight: 400;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.06em;
 }
 
+.vs-count:not(:has(.vs-chip))::before {
+  content: "[";
+  content: "[" / "";
+}
+
+.vs-count:not(:has(.vs-chip))::after {
+  content: "]";
+  content: "]" / "";
+}
+
+/* Delete and Remove: the title is inverted, the loudest label on the page */
 .vs-panel-danger {
-  border-color: rgba(255, 111, 94, 0.32);
-  --vs-rivet: rgba(255, 111, 94, 0.45);
+  border-color: #575757;
 }
 
-.vs-note {
+.vs-panel-danger .vs-panel-title {
+  background: var(--vs-fg);
+  color: var(--vs-bg);
+}
+
+/* ---- the gate: login, register, codes, unlock, paused */
+
+.vs-gate {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  align-items: center;
+  gap: 2.5rem 5rem;
+  padding: 1rem 0 1.5rem;
+}
+
+.vs-gate-copy {
+  max-width: 34rem;
+}
+
+.vs-gate-copy h1 {
+  margin-bottom: 0.6rem;
+}
+
+.vs-gate-copy .vs-lede {
+  margin: 0 0 2.2rem;
+}
+
+.vs-gate form > .btn {
+  width: 100%;
+}
+
+.vs-gate-foot {
+  margin: 1.3rem 0 0;
   color: var(--vs-mute);
   font-size: 0.9rem;
 }
 
-.vs-note strong {
-  color: var(--vs-cream);
-}
-
-/* ---- the gate: login, register, codes, unlock, errors */
-
-.vs-gate {
-  max-width: 440px;
-  margin: 1.5rem auto 0;
+.vs-gate-art {
+  order: 2;
+  margin: 0;
+  text-align: center;
 }
 
 .vs-gate-emblem {
   display: block;
-  width: min(330px, 80vw);
+  width: 100%;
+  max-width: 30rem;
   aspect-ratio: 1000 / 413.8;
-  margin: 0 auto 1.4rem;
-  color: var(--vs-brass);
-  filter: drop-shadow(0 0 18px rgba(242, 197, 61, 0.28));
+  margin: 0 auto;
+  color: var(--vs-hi);
 }
 
 .vs-gate-emblem .vs-emblem {
+  display: block;
   width: 100%;
   height: 100%;
 }
@@ -481,212 +571,259 @@ code {
   animation: vs-turn 1.6s cubic-bezier(0.2, 0.75, 0.2, 1) both;
 }
 
-@keyframes vs-turn {
-  from { transform: rotate(-90deg); }
-  to { transform: rotate(0); }
-}
-
-.vs-gate h1 {
-  text-align: center;
-  margin-bottom: 0.4rem;
-}
-
-.vs-gate .vs-lede {
-  text-align: center;
-  margin: 0 auto 1.6rem;
-}
-
-.vs-gate form > .btn {
-  width: 100%;
-}
-
-.vs-gate-foot {
-  margin: 1.2rem 0 0;
-  text-align: center;
+.vs-gate-art figcaption {
+  margin-top: 1.8rem;
   color: var(--vs-mute);
-  font-size: 0.92rem;
+  font-family: var(--vs-serif);
+  font-size: 1.02rem;
+  font-style: italic;
+}
+
+/* errors: the code very large and hollow, the words under it */
+.vs-error {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 1rem 0 2rem;
+  text-align: center;
 }
 
 .vs-error-code {
   display: block;
-  text-align: center;
-  font-family: var(--vs-display);
-  font-weight: 700;
-  font-stretch: condensed;
-  font-size: clamp(5rem, 16vw, 8.5rem);
-  line-height: 1;
-  letter-spacing: 0.04em;
+  margin-bottom: 1.2rem;
   color: transparent;
-  -webkit-text-stroke: 2px var(--vs-brass);
-  text-shadow: 0 0 26px rgba(242, 197, 61, 0.25);
-  margin-bottom: 0.6rem;
+  font-size: clamp(6rem, 22vw, 12rem);
+  font-weight: 700;
+  line-height: 0.9;
+  letter-spacing: -0.06em;
+  -webkit-text-stroke: 1.5px var(--vs-fg);
+}
+
+.vs-error .vs-lede {
+  margin: 0 auto;
+}
+
+.vs-error .vs-gate-foot {
+  margin-top: 2rem;
 }
 
 /* ---- buttons */
 
 .btn {
   --bs-btn-padding-x: 1.15rem;
-  --bs-btn-padding-y: 0.64rem;
-  --bs-btn-font-size: 0.8rem;
+  --bs-btn-padding-y: 0.66rem;
+  --bs-btn-font-family: var(--vs-mono);
+  --bs-btn-font-size: 0.78rem;
   --bs-btn-font-weight: 700;
-  --bs-btn-border-radius: 8px;
-  font-family: var(--vs-display);
-  letter-spacing: 0.12em;
+  --bs-btn-line-height: 1.5;
+  --bs-btn-border-radius: 0;
+  --bs-btn-focus-box-shadow: none;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
+  transition: color 0.12s, background-color 0.12s, border-color 0.12s, transform 0.12s var(--vs-ease);
+}
+
+.btn:active {
+  transform: scale(0.97);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--vs-hi);
+  outline-offset: 3px;
 }
 
 .btn-primary {
-  --bs-btn-color: #1a1404;
-  --bs-btn-bg: var(--vs-brass);
-  --bs-btn-border-color: var(--vs-brass);
-  --bs-btn-hover-color: #1a1404;
-  --bs-btn-hover-bg: var(--vs-brass-hi);
-  --bs-btn-hover-border-color: var(--vs-brass-hi);
-  --bs-btn-active-color: #1a1404;
-  --bs-btn-active-bg: var(--vs-brass-lo);
-  --bs-btn-active-border-color: var(--vs-brass-lo);
-  --bs-btn-disabled-color: #1a1404;
-  --bs-btn-disabled-bg: var(--vs-brass-lo);
-  --bs-btn-focus-shadow-rgb: 242, 197, 61;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), inset 0 -2px 0 rgba(0, 0, 0, 0.2),
-    0 8px 20px -10px rgba(242, 197, 61, 0.7);
+  --bs-btn-color: var(--vs-bg);
+  --bs-btn-bg: var(--vs-fg);
+  --bs-btn-border-color: var(--vs-fg);
+  --bs-btn-hover-color: #000;
+  --bs-btn-hover-bg: var(--vs-hi);
+  --bs-btn-hover-border-color: var(--vs-hi);
+  --bs-btn-active-color: #000;
+  --bs-btn-active-bg: #d2d2d0;
+  --bs-btn-active-border-color: #d2d2d0;
+  --bs-btn-disabled-color: var(--vs-bg);
+  --bs-btn-disabled-bg: var(--vs-mute);
+  --bs-btn-disabled-border-color: var(--vs-mute);
 }
 
 .btn-outline-primary,
 .btn-outline-secondary {
-  --bs-btn-color: var(--vs-cream);
-  --bs-btn-border-color: rgba(236, 227, 204, 0.24);
-  --bs-btn-hover-color: var(--vs-brass);
-  --bs-btn-hover-bg: rgba(242, 197, 61, 0.09);
-  --bs-btn-hover-border-color: var(--vs-brass);
-  --bs-btn-active-color: var(--vs-brass);
-  --bs-btn-active-bg: rgba(242, 197, 61, 0.16);
-  --bs-btn-active-border-color: var(--vs-brass);
-  --bs-btn-focus-shadow-rgb: 242, 197, 61;
+  --bs-btn-color: var(--vs-fg);
+  --bs-btn-border-color: var(--vs-edge);
+  --bs-btn-hover-color: var(--vs-hi);
+  --bs-btn-hover-bg: var(--vs-raise);
+  --bs-btn-hover-border-color: var(--vs-hi);
+  --bs-btn-active-color: var(--vs-hi);
+  --bs-btn-active-bg: #1c1c1c;
+  --bs-btn-active-border-color: var(--vs-hi);
 }
 
+/* the actions that destroy something: a full white outline that fills in */
 .btn-outline-danger {
-  --bs-btn-color: var(--vs-alert);
-  --bs-btn-border-color: rgba(255, 111, 94, 0.5);
-  --bs-btn-hover-color: #ffc2ba;
-  --bs-btn-hover-bg: rgba(255, 111, 94, 0.14);
-  --bs-btn-hover-border-color: var(--vs-alert);
-  --bs-btn-active-color: #ffc2ba;
-  --bs-btn-active-bg: rgba(255, 111, 94, 0.22);
-  --bs-btn-active-border-color: var(--vs-alert);
-  --bs-btn-focus-shadow-rgb: 255, 111, 94;
+  --bs-btn-color: var(--vs-hi);
+  --bs-btn-border-color: var(--vs-fg);
+  --bs-btn-hover-color: var(--vs-bg);
+  --bs-btn-hover-bg: var(--vs-hi);
+  --bs-btn-hover-border-color: var(--vs-hi);
+  --bs-btn-active-color: var(--vs-bg);
+  --bs-btn-active-bg: #d2d2d0;
+  --bs-btn-active-border-color: #d2d2d0;
 }
 
 .btn-sm {
   --bs-btn-padding-x: 0.75rem;
-  --bs-btn-padding-y: 0.36rem;
-  --bs-btn-font-size: 0.72rem;
+  --bs-btn-padding-y: 0.38rem;
+  --bs-btn-font-size: 0.7rem;
 }
 
 /* ---- forms */
 
 .form-label {
-  margin-bottom: 0.45rem;
+  margin-bottom: 0.5rem;
   color: var(--vs-mute);
-  font-family: var(--vs-mono);
-  font-size: 0.75rem;
-  letter-spacing: 0.14em;
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
 }
 
 .form-control,
 .form-select {
-  padding: 0.66rem 0.85rem;
-  border: 1px solid rgba(236, 227, 204, 0.15);
-  border-radius: 8px;
-  background-color: var(--vs-well);
-  color: var(--vs-cream);
-  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5);
-  transition: border-color 0.15s, box-shadow 0.15s;
+  padding: 0.72rem 0.9rem;
+  border: 1px solid var(--vs-edge);
+  background-color: var(--vs-field);
+  color: var(--vs-hi);
+  font-size: 1rem;
+  line-height: 1.5;
+  transition: border-color 0.12s, background-color 0.12s;
 }
 
 .form-control:focus,
 .form-select:focus {
-  border-color: var(--vs-brass);
-  background-color: rgba(5, 12, 24, 0.85);
-  color: var(--vs-bright);
-  box-shadow: 0 0 0 3px rgba(242, 197, 61, 0.18), inset 0 1px 3px rgba(0, 0, 0, 0.5);
+  border-color: var(--vs-hi);
+  background-color: #111;
+  color: var(--vs-hi);
+  box-shadow: 0 0 0 1px var(--vs-hi);
 }
 
 .form-control::placeholder {
-  color: rgba(143, 161, 186, 0.7);
+  color: #6e6e6c;
 }
 
-.form-control::file-selector-button {
-  margin-right: 0.9rem;
-  border-right: 1px solid rgba(236, 227, 204, 0.15);
-  background-color: var(--vs-ink-3);
-  color: var(--vs-brass);
-  font-family: var(--vs-display);
-  font-size: 0.75rem;
+.form-control[readonly] {
+  border-style: dashed;
+  background-color: transparent;
+  color: var(--vs-soft);
+}
+
+/* the file field is a drop area: a dashed box, its button solid white */
+.form-control[type="file"] {
+  padding: 1.3rem 1rem;
+  border-style: dashed;
+  color: var(--vs-mute);
+  cursor: pointer;
+}
+
+.form-control[type="file"]::file-selector-button {
+  margin: 0;
+  margin-inline-end: 1rem;
+  padding: 0.55rem 1rem;
+  border: 0;
+  border-inline-end-width: 0;
+  background-color: var(--vs-fg);
+  color: var(--vs-bg);
+  font-family: var(--vs-mono);
+  font-size: 0.72rem;
   font-weight: 700;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
 }
 
-.form-control:hover:not(:disabled):not([readonly])::file-selector-button {
-  background-color: #1d3a60;
+.form-control[type="file"]:hover:not(:disabled):not([readonly])::file-selector-button {
+  background-color: var(--vs-hi);
+}
+
+.form-control[type="file"].is-dragover {
+  border-style: solid;
+  border-color: var(--vs-hi);
+  background-color: var(--vs-raise);
 }
 
 .form-text {
-  margin-top: 0.4rem;
+  margin-top: 0.45rem;
   color: var(--vs-mute);
-  font-size: 0.83rem;
+  font-size: 0.8rem;
+  line-height: 1.55;
 }
 
 .form-check-input {
-  border-color: rgba(236, 227, 204, 0.32);
-  background-color: var(--vs-well);
+  width: 1.1em;
+  height: 1.1em;
+  margin-top: 0.3em;
+  border: 1px solid var(--vs-edge);
+  background-color: var(--vs-field);
 }
 
+.form-check-input[type="checkbox"] {
+  border-radius: 0;
+}
+
+/* a filled square or dot inside a ring of the field color, instead of
+   Bootstrap's data: images */
 .form-check-input:checked {
-  border-color: var(--vs-brass);
-  background-color: var(--vs-brass);
-}
-
-/* Bootstrap draws the dot and the tick with data: images, which the CSP
-   blocks; an inner ring of the page color does the same job */
-.form-check-input[type="radio"]:checked {
-  box-shadow: inset 0 0 0 3px var(--vs-ink-2);
-}
-
-.form-check-input[type="checkbox"]:checked {
-  box-shadow: inset 0 0 0 3px var(--vs-ink-2);
+  border-color: var(--vs-hi);
+  background-color: var(--vs-hi);
+  background-image: none;
+  box-shadow: inset 0 0 0 3px var(--vs-field);
 }
 
 .form-check-input:focus {
-  border-color: var(--vs-brass);
-  box-shadow: 0 0 0 3px rgba(242, 197, 61, 0.2);
+  border-color: var(--vs-hi);
+  box-shadow: 0 0 0 1px var(--vs-hi);
+}
+
+.form-check-input:checked:focus {
+  box-shadow: inset 0 0 0 3px var(--vs-field), 0 0 0 1px var(--vs-hi);
 }
 
 .input-group > .btn {
-  border-color: rgba(236, 227, 204, 0.15);
-  background-color: var(--vs-well);
+  border-color: var(--vs-edge);
+  background-color: var(--vs-field);
   color: var(--vs-mute);
+  letter-spacing: 0;
 }
 
-.input-group > .btn:hover {
-  color: var(--vs-brass);
+.input-group > .btn:active {
+  transform: none;
 }
 
-/* the access code field: big mono digits */
+@media (hover: hover) {
+  .form-control:hover:not(:focus):not([readonly]) {
+    border-color: #8c8c8a;
+  }
+
+  .input-group > .btn:hover {
+    border-color: var(--vs-hi);
+    color: var(--vs-hi);
+  }
+}
+
+/* the access code field: big digits, wide apart */
 .vs-code-input {
-  font-family: var(--vs-mono);
-  font-size: 1.6rem;
-  letter-spacing: 0.5em;
+  padding-left: calc(0.9rem + 0.55em);
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: 0.55em;
   text-align: center;
 }
 
 /* a new invite code, shown once: big enough to read out, easy to select */
 .vs-invite-code {
-  margin: 0.25rem 0 0.75rem;
-  color: var(--vs-brass);
-  font-size: clamp(1.1rem, 4.5vw, 1.7rem);
+  display: inline-block;
+  margin: 0.25rem 0 1rem;
+  padding: 0.7rem 1rem;
+  border: 1px dashed var(--vs-edge);
+  color: var(--vs-hi);
+  font-size: clamp(1.05rem, 4.2vw, 1.6rem);
   letter-spacing: 0.08em;
   overflow-wrap: anywhere;
   user-select: all;
@@ -694,16 +831,16 @@ code {
 
 .vs-search {
   position: relative;
-  max-width: 420px;
+  flex: 0 1 22rem;
 }
 
 .vs-search .form-control {
-  padding-left: 2.4rem;
+  padding-left: 2.5rem;
 }
 
 .vs-search svg {
   position: absolute;
-  left: 0.85rem;
+  left: 0.95rem;
   top: 50%;
   width: 16px;
   height: 16px;
@@ -717,14 +854,13 @@ code {
 .vs-flash {
   display: flex;
   align-items: flex-start;
-  gap: 0.75rem;
-  margin-bottom: 1.4rem;
-  padding: 0.85rem 1.1rem;
-  border: 1px solid var(--vs-line-soft);
-  border-left: 3px solid var(--vs-amber);
-  border-radius: 8px;
-  background: rgba(255, 181, 71, 0.08);
-  color: var(--vs-bright);
+  gap: 0.9rem;
+  margin-bottom: 1.75rem;
+  padding: 0.95rem 1.15rem;
+  border: 1px solid var(--vs-line-2);
+  border-left: 3px solid var(--vs-hi);
+  background: var(--vs-panel);
+  color: var(--vs-hi);
 }
 
 .vs-flash::before {
@@ -732,47 +868,52 @@ code {
   flex: none;
   display: inline-grid;
   place-items: center;
-  width: 1.35rem;
-  height: 1.35rem;
-  border-radius: 50%;
-  background: var(--vs-amber);
-  color: #1a1404;
-  font-family: var(--vs-mono);
-  font-size: 0.85rem;
+  width: 1.5rem;
+  height: 1.5rem;
+  margin-top: 0.1rem;
+  background: var(--vs-fg);
+  color: var(--vs-bg);
+  font-weight: 700;
+  line-height: 1;
 }
 
 .vs-flash-ok {
-  border-left-color: var(--vs-phosphor);
-  background: rgba(114, 231, 161, 0.08);
+  border-left-width: 1px;
 }
 
+/* a check mark drawn with two borders */
 .vs-flash-ok::before {
-  content: "\2713";
-  background: var(--vs-phosphor);
+  content: "";
+  width: 0.5rem;
+  height: 0.9rem;
+  margin: 0.2rem 0.5rem 0 0.55rem;
+  border-right: 2px solid var(--vs-hi);
+  border-bottom: 2px solid var(--vs-hi);
+  background: none;
+  transform: rotate(45deg);
 }
 
 /* ---- tables */
 
 .table {
   --bs-table-bg: transparent;
-  --bs-table-color: var(--vs-cream);
-  --bs-table-border-color: var(--vs-line-soft);
-  --bs-table-hover-bg: rgba(242, 197, 61, 0.05);
-  --bs-table-hover-color: var(--vs-bright);
+  --bs-table-color: var(--vs-fg);
+  --bs-table-border-color: var(--vs-line);
+  --bs-table-hover-bg: var(--vs-raise);
+  --bs-table-hover-color: var(--vs-hi);
   margin-bottom: 0;
 }
 
 .table > :not(caption) > * > * {
-  padding: 0.85rem 0.8rem;
+  padding: 0.9rem 0.75rem;
 }
 
 .table thead th {
-  border-bottom-color: var(--vs-line);
+  border-bottom-color: var(--vs-line-2);
   color: var(--vs-mute);
-  font-family: var(--vs-mono);
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   font-weight: 400;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
   white-space: nowrap;
 }
@@ -781,217 +922,251 @@ code {
   vertical-align: middle;
 }
 
+.table > tbody > tr:last-child > * {
+  border-bottom: 0;
+}
+
 .table-sm > :not(caption) > * > * {
   padding: 0.5rem 0.6rem;
 }
 
 .vs-table-wrap {
   overflow-x: auto;
-  margin: 0 -0.4rem;
+  margin: 0 -0.75rem;
 }
 
 .vs-file {
   display: inline-flex;
   align-items: center;
-  gap: 0.7rem;
-  color: var(--vs-bright);
-  font-weight: 500;
+  gap: 0.85rem;
+  color: var(--vs-fg);
   text-decoration: none;
   overflow-wrap: anywhere;
 }
 
-.vs-file:hover {
-  color: var(--vs-brass);
-}
-
+/* the type as a small sheet of paper with its corner folded */
 .vs-type {
+  position: relative;
   flex: none;
-  min-width: 2.9rem;
-  padding: 0.18rem 0.35rem;
-  border: 1px solid var(--vs-line);
-  border-radius: 5px;
-  color: var(--vs-brass);
-  background: rgba(242, 197, 61, 0.06);
-  font-family: var(--vs-mono);
-  font-size: 0.7rem;
-  letter-spacing: 0.08em;
+  min-width: 3.1rem;
+  padding: 0.18rem 0.55rem 0.14rem 0.45rem;
+  border: 1px solid var(--vs-edge);
+  color: var(--vs-fg);
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+  line-height: 1.5;
   text-align: center;
+  clip-path: polygon(0 0, calc(100% - 0.5rem) 0, 100% 0.5rem, 100% 100%, 0 100%);
+  transition: color 0.12s, background-color 0.12s, border-color 0.12s;
 }
 
-.vs-meta {
+.vs-type::after {
+  content: "";
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  width: calc(0.5rem + 1px);
+  height: calc(0.5rem + 1px);
+  border-left: 1px solid var(--vs-edge);
+  border-bottom: 1px solid var(--vs-edge);
+  background: var(--vs-line-2);
+}
+
+@media (hover: hover) {
+  .vs-file:hover {
+    color: var(--vs-hi);
+  }
+
+  .table-hover > tbody > tr:hover .vs-type {
+    border-color: var(--vs-fg);
+    background: var(--vs-fg);
+    color: var(--vs-bg);
+  }
+
+  .table-hover > tbody > tr:hover .vs-type::after {
+    border-color: var(--vs-fg);
+    background: #a9a9a7;
+  }
+}
+
+/* Bootstrap colors every table cell, so this needs the table in front */
+.vs-meta,
+.table td.vs-meta {
   color: var(--vs-mute);
-  font-family: var(--vs-mono);
-  font-size: 0.86rem;
+  font-size: 0.84rem;
   white-space: nowrap;
 }
 
+.table-hover > tbody > tr:hover > td.vs-meta {
+  color: var(--vs-soft);
+}
+
 .vs-empty {
-  padding: 2.2rem 1rem;
-  text-align: center;
+  padding: 2.4rem 1rem 1.2rem;
   color: var(--vs-mute);
+  text-align: center;
 }
 
 .vs-empty .vs-emblem {
-  width: 140px;
-  height: 58px;
-  margin-bottom: 0.9rem;
-  color: rgba(242, 197, 61, 0.35);
+  width: 9rem;
+  height: auto;
+  aspect-ratio: 1000 / 413.8;
+  margin-bottom: 1.1rem;
+  color: #2f2f2f;
 }
 
 .vs-empty p {
   margin: 0 0 1rem;
 }
 
-/* ---- status chips and the verification seal */
+/* ---- status: chips and the verification stamp */
 
 .vs-chip {
   display: inline-block;
-  padding: 0.12rem 0.5rem;
-  border: 1px solid currentColor;
-  border-radius: 999px;
-  font-family: var(--vs-mono);
-  font-size: 0.72rem;
-  letter-spacing: 0.08em;
+  padding: 0.05rem 0.45rem;
+  border: 1px solid var(--vs-edge);
+  color: var(--vs-fg);
+  font-size: 0.66rem;
+  letter-spacing: 0.12em;
+  line-height: 1.6;
   text-transform: uppercase;
+  vertical-align: middle;
   white-space: nowrap;
 }
 
 .vs-chip-ok {
-  color: var(--vs-phosphor);
+  border-color: var(--vs-fg);
 }
 
 .vs-chip-bad {
-  color: var(--vs-alert);
+  border-color: var(--vs-fg);
+  background: var(--vs-fg);
+  color: var(--vs-bg);
+  font-weight: 700;
 }
 
 .vs-chip-warn {
-  color: var(--vs-amber);
+  border-style: dashed;
+  border-color: var(--vs-fg);
 }
 
 .vs-chip-neutral {
+  border-color: transparent;
   color: var(--vs-mute);
 }
 
 .vs-seal {
   display: flex;
   align-items: flex-start;
-  gap: 1.1rem;
-  padding: 1.25rem 1.35rem;
-  border: 1px solid rgba(114, 231, 161, 0.35);
-  border-radius: var(--vs-radius);
-  background:
-    radial-gradient(400px 140px at 0 0, rgba(114, 231, 161, 0.12), transparent 70%),
-    rgba(6, 22, 20, 0.55);
-  box-shadow: inset 0 0 0 1px rgba(114, 231, 161, 0.05), 0 0 30px -12px rgba(114, 231, 161, 0.35);
+  gap: 1.25rem;
+  padding: 1.4rem 1.5rem;
+  border: 1px solid var(--vs-line-2);
+  background: var(--vs-panel);
 }
 
 .vs-seal svg {
   flex: none;
-  width: 46px;
-  height: 46px;
-  color: var(--vs-phosphor);
-  filter: drop-shadow(0 0 8px rgba(114, 231, 161, 0.6));
+  width: 2.6rem;
+  height: 2.6rem;
+  color: var(--vs-hi);
 }
 
+/* the label is a rubber stamp: a boxed word in wide capitals */
 .vs-seal-label {
-  margin: 0 0 0.25rem;
-  color: var(--vs-phosphor);
-  font-family: var(--vs-mono);
-  font-size: 0.8rem;
-  letter-spacing: 0.24em;
+  display: inline-block;
+  margin: 0 0 0.6rem;
+  padding: 0.12rem 0.3rem 0.12rem 0.6rem;
+  border: 2px solid currentColor;
+  color: var(--vs-hi);
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.32em;
   text-transform: uppercase;
-  text-shadow: 0 0 10px rgba(114, 231, 161, 0.55);
 }
 
 .vs-seal p:last-child {
   margin: 0;
-  color: var(--vs-cream);
+  color: var(--vs-fg);
 }
 
+/* a failed check is the one solid white block on the page */
 .vs-seal-bad {
-  border-color: rgba(255, 111, 94, 0.45);
-  background:
-    radial-gradient(400px 140px at 0 0, rgba(255, 111, 94, 0.14), transparent 70%),
-    rgba(30, 10, 10, 0.5);
-  box-shadow: 0 0 30px -12px rgba(255, 111, 94, 0.4);
-}
-
-/* an archive shared with you: its content was not checked */
-.vs-seal-warn {
-  border-color: rgba(255, 181, 71, 0.45);
-  background:
-    radial-gradient(400px 140px at 0 0, rgba(255, 181, 71, 0.13), transparent 70%),
-    rgba(30, 22, 8, 0.5);
-  box-shadow: 0 0 30px -12px rgba(255, 181, 71, 0.4);
-}
-
-.vs-seal-warn svg,
-.vs-seal-warn .vs-seal-label {
-  color: var(--vs-amber);
-  filter: none;
-  text-shadow: none;
+  border-color: var(--vs-fg);
+  background: var(--vs-fg);
 }
 
 .vs-seal-bad svg,
-.vs-seal-bad .vs-seal-label {
-  color: var(--vs-alert);
-  filter: none;
-  text-shadow: none;
+.vs-seal-bad .vs-seal-label,
+.vs-seal-bad p:last-child {
+  color: var(--vs-bg);
 }
 
-/* ---- the file record: a spec sheet */
+.vs-seal-warn {
+  border: 1px dashed var(--vs-fg);
+  background: transparent;
+}
+
+.vs-seal-warn .vs-seal-label {
+  border-style: dashed;
+}
+
+/* ---- the file record: a typed spec sheet, dots from label to value */
 
 .vs-spec {
   display: grid;
-  grid-template-columns: minmax(7rem, max-content) 1fr;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: baseline;
   margin: 0;
 }
 
 .vs-spec dt,
 .vs-spec dd {
-  padding: 0.72rem 0;
-  border-bottom: 1px dashed var(--vs-line-soft);
   margin: 0;
+  padding: 0.62rem 0;
 }
 
 .vs-spec dt {
-  padding-right: 1.4rem;
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding-right: 1rem;
   color: var(--vs-mute);
-  font-family: var(--vs-mono);
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   font-weight: 400;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
+}
+
+.vs-spec dt::after {
+  content: "";
+  flex: 1 1 auto;
+  min-width: 2rem;
+  border-bottom: 1px dotted #5c5c5a;
 }
 
 .vs-spec dd {
   overflow-wrap: anywhere;
 }
 
-.vs-spec > :nth-last-child(-n + 2) {
-  border-bottom: 0;
-}
-
 .vs-hash {
-  font-family: var(--vs-mono);
-  font-size: 0.92rem;
-  letter-spacing: 0.06em;
-  color: var(--vs-phosphor);
+  color: var(--vs-hi);
+  font-size: 0.9rem;
+  letter-spacing: 0.04em;
   word-break: break-all;
 }
 
 .vs-people {
   list-style: none;
-  margin: 0 0 1.2rem;
+  margin: 0 0 1.5rem;
   padding: 0;
 }
 
 .vs-people li {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.6rem 0;
-  border-bottom: 1px dashed var(--vs-line-soft);
+  gap: 0.85rem;
+  padding: 0.7rem 0;
+  border-bottom: 1px solid var(--vs-line);
 }
 
 .vs-people li:last-child {
@@ -1004,41 +1179,39 @@ code {
   place-items: center;
   width: 2rem;
   height: 2rem;
-  border: 1px solid var(--vs-line);
-  border-radius: 50%;
-  color: var(--vs-brass);
-  background: rgba(242, 197, 61, 0.07);
-  font-family: var(--vs-mono);
+  border: 1px solid var(--vs-edge);
+  color: var(--vs-hi);
+  font-weight: 700;
   text-transform: uppercase;
 }
 
 .vs-people .vs-name {
+  min-width: 0;
   margin-right: auto;
-  font-family: var(--vs-mono);
+  overflow-wrap: anywhere;
 }
 
 /* the upload page's "What happens": three fold-outs of the same shape,
    plain <details>, so no script is needed */
 .vs-folds {
   display: grid;
-  gap: 0.6rem;
+  gap: 0.75rem;
 }
 
 .vs-fold {
-  border: 1px solid var(--vs-line-soft);
-  border-radius: 10px;
-  background: var(--vs-well);
+  border: 1px solid var(--vs-line-2);
+  background: var(--vs-bg);
 }
 
 .vs-fold[open] {
-  border-color: var(--vs-line);
+  border-color: var(--vs-edge);
 }
 
 .vs-fold summary {
   display: flex;
   align-items: flex-start;
-  gap: 0.9rem;
-  padding: 0.8rem 1rem;
+  gap: 1rem;
+  padding: 0.9rem 1.05rem;
   cursor: pointer;
   list-style: none;
 }
@@ -1047,53 +1220,46 @@ code {
   display: none;
 }
 
-/* a chevron that turns when the fold opens */
+/* a plus that turns into a cross when the fold opens */
 .vs-fold summary::after {
-  content: "";
+  content: "+";
   flex: none;
-  align-self: center;
-  width: 0.5rem;
-  height: 0.5rem;
-  margin: 0 0.2rem 0 auto;
-  border-right: 2px solid var(--vs-brass);
-  border-bottom: 2px solid var(--vs-brass);
-  transform: rotate(45deg);
-  transition: transform 0.2s;
+  margin-left: auto;
+  color: var(--vs-hi);
+  font-size: 1.25rem;
+  line-height: 1.15;
+  transition: transform 0.2s var(--vs-ease);
 }
 
 .vs-fold[open] summary::after {
-  transform: rotate(-135deg);
+  transform: rotate(45deg);
 }
 
 .vs-fold summary:focus-visible {
-  outline: 2px solid var(--vs-brass);
-  outline-offset: 2px;
-  border-radius: 10px;
+  outline-offset: -2px;
 }
 
 .vs-fold-num {
   padding-top: 0.1rem;
-  color: var(--vs-brass);
-  font-family: var(--vs-mono);
+  color: var(--vs-hi);
   font-size: 0.85rem;
-  letter-spacing: 0.08em;
+  font-weight: 700;
 }
 
 .vs-fold-head {
   color: var(--vs-mute);
-  font-size: 0.92rem;
+  font-size: 0.9rem;
 }
 
 .vs-fold-head strong {
   display: block;
-  color: var(--vs-cream);
-  font-weight: 700;
+  color: var(--vs-hi);
 }
 
 .vs-fold-body {
-  padding: 0 1rem 1rem 3.1rem;
+  padding: 0 1.05rem 1.1rem 3.25rem;
   color: var(--vs-mute);
-  font-size: 0.9rem;
+  font-size: 0.88rem;
 }
 
 .vs-fold-body ul {
@@ -1101,39 +1267,30 @@ code {
 }
 
 .vs-fold-body strong {
-  color: var(--vs-cream);
+  color: var(--vs-fg);
 }
 
 .vs-fold-types {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 0.25rem 0.9rem;
+  gap: 0.3rem 1rem;
   margin: 0 0 1rem;
 }
 
 .vs-fold-types dt {
-  color: var(--vs-cream);
+  color: var(--vs-fg);
   font-weight: 700;
 }
 
 .vs-fold-types dd {
   margin: 0;
-  font-family: var(--vs-mono);
-  font-size: 0.82rem;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .vs-fold summary::after {
-    transition: none;
-  }
+  font-size: 0.8rem;
 }
 
 .vs-qr {
   display: inline-block;
-  padding: 0.75rem;
-  border-radius: 10px;
+  padding: 0.8rem;
   background: #fff;
-  box-shadow: 0 0 0 1px var(--vs-line), 0 12px 30px -14px rgba(0, 0, 0, 0.9);
 }
 
 .vs-qr img {
@@ -1143,34 +1300,109 @@ code {
 /* ---- footer */
 
 .vs-footer {
-  border-top: 1px solid var(--vs-line-soft);
-  background: rgba(5, 12, 24, 0.45);
+  border-top: 1px solid var(--vs-line);
   color: var(--vs-mute);
-  font-family: var(--vs-mono);
-  font-size: 0.74rem;
-  letter-spacing: 0.12em;
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
 }
 
-.vs-footer .container {
+.vs-footer-inner {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   justify-content: space-between;
-  gap: 0.5rem 1.5rem;
-  padding-top: 1.1rem;
-  padding-bottom: 1.1rem;
+  gap: 0.75rem 2rem;
+  padding-top: 1.6rem;
+  padding-bottom: 1.6rem;
 }
 
-.vs-footer .vs-footer-brand {
-  color: var(--vs-brass);
+.vs-footer-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--vs-fg);
+  font-weight: 700;
 }
 
-/* ---- small screens and reduced motion */
+.vs-footer-brand .vs-logo {
+  width: 46px;
+  height: 19px;
+}
+
+/* ---- small screens */
+
+@media (max-width: 860px) {
+  .vs-mast-motto {
+    display: none;
+  }
+
+  .vs-gate {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.75rem;
+    padding-top: 0;
+  }
+
+  .vs-gate-art {
+    order: -1;
+  }
+
+  .vs-gate-emblem {
+    max-width: 16rem;
+  }
+
+  .vs-gate-art figcaption {
+    display: none;
+  }
+
+  .vs-gate-copy {
+    max-width: none;
+  }
+}
 
 @media (max-width: 720px) {
-  /* the fold-outs' text uses the whole width, the type list stacks */
+  /* the menu is one row that scrolls sideways */
+  .vs-nav {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .vs-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .vs-nav-links {
+    flex-wrap: nowrap;
+  }
+
+  .vs-nav-links a {
+    padding: 0.85rem 0.8rem;
+    white-space: nowrap;
+  }
+
+  .vs-main {
+    padding-top: 2rem;
+  }
+
+  .vs-page-head {
+    margin-bottom: 2.2rem;
+    padding-bottom: 1.4rem;
+  }
+
+  .vs-page-head .vs-search {
+    flex: 1 1 100%;
+  }
+
+  .vs-panel {
+    padding: 1.9rem 1.15rem 1.25rem;
+  }
+
+  .vs-panel-title {
+    left: 0.85rem;
+  }
+
   .vs-fold-body {
-    padding-left: 1rem;
+    padding-left: 1.05rem;
   }
 
   .vs-fold-types {
@@ -1181,18 +1413,22 @@ code {
     margin-bottom: 0.4rem;
   }
 
-  .vs-wordmark {
-    font-size: 1.6rem;
+  .vs-spec {
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .vs-brand .vs-logo {
-    width: 97px;
-    height: 40px;
+  .vs-spec dt {
+    padding-bottom: 0;
+  }
+
+  .vs-spec dt::after {
+    display: none;
   }
 
   /* file lists as cards: the name gets the whole width, size and date go
      on a line under it, instead of three columns squeezing the name */
-  .vs-files thead {
+  .vs-files thead,
+  .vs-invites thead {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -1209,8 +1445,8 @@ code {
   }
 
   .vs-files tr {
-    padding: 0.85rem 0.4rem;
-    border-bottom: 1px solid var(--vs-line-soft);
+    padding: 0.9rem 0.75rem;
+    border-bottom: 1px solid var(--vs-line);
   }
 
   .vs-files tr:last-child {
@@ -1224,24 +1460,18 @@ code {
 
   .vs-files td.vs-meta {
     display: inline-block;
-    margin-top: 0.35rem;
+    margin-top: 0.4rem;
     font-size: 0.78rem;
   }
 
   /* lines up with the name, after the type tag */
   .vs-files td:nth-child(2) {
-    margin-left: 3.6rem;
+    margin-left: 3.95rem;
   }
 
   .vs-files td:nth-child(3)::before {
     content: "\00b7";
-    /* the space between the cells already sits on the left */
     margin: 0 0.45rem 0 0.15rem;
-  }
-
-  .vs-page-head .vs-search {
-    flex: 1 1 100%;
-    max-width: none;
   }
 
   .vs-files td[data-prefix]::before {
@@ -1250,15 +1480,6 @@ code {
 
   /* invite codes the same way: one wrapped line per code, each value
      labelled, the cancel button at the end */
-  .vs-invites thead {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
-
   .vs-invites,
   .vs-invites tbody {
     display: block;
@@ -1269,8 +1490,8 @@ code {
     flex-wrap: wrap;
     align-items: center;
     gap: 0.35rem 0.9rem;
-    padding: 0.8rem 0.4rem;
-    border-bottom: 1px solid var(--vs-line-soft);
+    padding: 0.8rem 0.75rem;
+    border-bottom: 1px solid var(--vs-line);
   }
 
   .vs-invites tr:last-child {
@@ -1295,23 +1516,16 @@ code {
     content: attr(data-prefix) "\00a0";
     color: var(--vs-mute);
   }
+}
 
-  .vs-nav {
-    margin-left: 0;
-    width: 100%;
-    padding-bottom: 0.6rem;
+/* phones: the 148-column wordmark would shrink to a few pixels */
+@media (max-width: 560px) {
+  .vs-banner,
+  .vs-tagline {
+    display: none;
   }
 
-  .vs-panel {
-    padding: 1.2rem;
-  }
-
-  .vs-spec {
-    grid-template-columns: 1fr;
-  }
-
-  .vs-spec dt {
-    padding-bottom: 0;
+  .vs-mast-meta {
     border-bottom: 0;
   }
 }

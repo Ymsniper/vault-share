@@ -4,22 +4,33 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#080808">
   <title>{% block title %}{% endblock %} · Vault-Share</title>
   <link rel="icon" href="{{ url_for('static', filename='img/emblem.svg') }}" type="image/svg+xml">
+  <link rel="preload" href="{{ url_for('static', filename='fonts/cousine-latin-400-normal.woff2') }}" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="{{ url_for('static', filename='bootstrap.min.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='vault.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
   <script src="{{ url_for('static', filename='app.js') }}" defer></script>
 </head>
 <body>
+  <a class="vs-skip" href="#main">Skip to content</a>
   {% set here = request.endpoint %}
-  <header class="vs-header">
-    <div class="container vs-header-inner">
-      <a class="vs-brand" href="{{ url_for('files.index') }}">
-        {% include "partials/emblem.svg" %}
-        <span class="vs-wordmark">Vault-Share</span>
-      </a>
+  <header class="vs-mast">
+    <div class="container">
+      <div class="vs-mast-meta">
+        <a class="vs-brand" href="{{ url_for('files.index') }}">
+          {% include "partials/emblem.svg" %}
+          <span class="vs-wordmark">Vault-Share</span>
+        </a>
+        <span class="vs-mast-motto">Invite-only · Encrypted · Signed</span>
+      </div>
+      <div class="vs-banner">
+        <pre class="vs-ascii" role="img" aria-label="Vault-Share">{% include "partials/wordmark.txt" %}</pre>
+      </div>
+      <p class="vs-tagline">Private files, sealed for the people you choose</p>
       <nav class="vs-nav" aria-label="Main">
+        <div class="vs-nav-links">
         {% if g.user %}
           <a href="{{ url_for('files.index') }}" {% if here == 'files.index' %}aria-current="page"{% endif %}>Files</a>
           <a href="{{ url_for('files.upload') }}" {% if here == 'files.upload' %}aria-current="page"{% endif %}>Upload</a>
@@ -30,27 +41,32 @@
           <a href="{{ url_for('admin.log') }}" {% if here == 'admin.log' %}aria-current="page"{% endif %}>Audit log</a>
           <a href="{{ url_for('admin.invites') }}" {% if here == 'admin.invites' %}aria-current="page"{% endif %}>Invites</a>
           {% endif %}
+        {% else %}
+          <a href="{{ url_for('auth.login') }}" {% if here == 'auth.login' %}aria-current="page"{% endif %}>Log in</a>
+          <a href="{{ url_for('auth.register') }}" {% if here == 'auth.register' %}aria-current="page"{% endif %}>Register</a>
+        {% endif %}
+        </div>
+        {% if g.user %}
+        <div class="vs-nav-account">
           <span class="vs-user"><span class="vs-dot" aria-hidden="true"></span><span>{{ g.user['username']|handle }}</span></span>
           <form method="post" action="{{ url_for('auth.logout') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit">Log out</button>
           </form>
-        {% else %}
-          <a href="{{ url_for('auth.login') }}" {% if here == 'auth.login' %}aria-current="page"{% endif %}>Log in</a>
-          <a href="{{ url_for('auth.register') }}" {% if here == 'auth.register' %}aria-current="page"{% endif %}>Register</a>
+        </div>
         {% endif %}
       </nav>
     </div>
   </header>
-  <main class="container vs-main">
+  <main class="container vs-main" id="main">
     {% for category, message in get_flashed_messages(with_categories=true) %}
       <div class="vs-flash{{ ' vs-flash-ok' if category == 'success' }}" role="status">{{ message }}</div>
     {% endfor %}
     {% block content %}{% endblock %}
   </main>
   <footer class="vs-footer">
-    <div class="container">
-      <span class="vs-footer-brand">Vault-Share</span>
+    <div class="container vs-footer-inner">
+      <span class="vs-footer-brand">{% include "partials/emblem.svg" %}Vault-Share</span>
       <span>AES-256-GCM · HPKE X25519 · ECDSA P-256 · Argon2id</span>
     </div>
   </footer>

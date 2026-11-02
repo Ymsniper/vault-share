@@ -2,8 +2,11 @@
 {% block title %}Paused{% endblock %}
 {% block content %}
 <div class="vs-gate">
-  <div class="vs-gate-emblem">{% include "partials/emblem.svg" %}</div>
-  <h1>Service paused</h1>
-  <p class="vs-lede">This service is paused. Try again later.</p>
+  {% include "partials/gate_art.html" %}
+  <div class="vs-gate-copy">
+    <p class="vs-kicker">Server</p>
+    <h1>Service <em>paused</em></h1>
+    <p class="vs-lede">This service is paused. Try again later.</p>
+  </div>
 </div>
 {% endblock %}

@@ -2,16 +2,19 @@
 {% block title %}Unlock{% endblock %}
 {% block content %}
 <div class="vs-gate">
-  <div class="vs-gate-emblem">{% include "partials/emblem.svg" %}</div>
-  <h1>Unlock</h1>
-  <p class="vs-lede">The server's passphrase rebuilds the master key. It is kept in memory only.</p>
-  <form method="post" class="vs-panel">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <div class="mb-4">
-      <label for="passphrase" class="form-label">Passphrase</label>
-      <input type="password" name="passphrase" id="passphrase" class="form-control" autocomplete="off" required autofocus>
-    </div>
-    <button type="submit" class="btn btn-primary">Unlock</button>
-  </form>
+  {% include "partials/gate_art.html" %}
+  <div class="vs-gate-copy">
+    <p class="vs-kicker">This machine only</p>
+    <h1>Unlock</h1>
+    <p class="vs-lede">The server's passphrase rebuilds the master key. It is kept in memory only.</p>
+    <form method="post" class="vs-panel">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="mb-4">
+        <label for="passphrase" class="form-label">Passphrase</label>
+        <input type="password" name="passphrase" id="passphrase" class="form-control" autocomplete="off" required autofocus>
+      </div>
+      <button type="submit" class="btn btn-primary">Unlock</button>
+    </form>
+  </div>
 </div>
 {% endblock %}
