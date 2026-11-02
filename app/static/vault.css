@@ -20,6 +20,17 @@
   font-display: swap;
 }
 
+/* the box-drawing lines of the compact wordmark, cut from the same font;
+   declared after the Latin file so it is the one asked for those lines */
+@font-face {
+  font-family: "Cousine";
+  src: url("fonts/cousine-box-400-normal.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+2500-257F;
+}
+
 @font-face {
   font-family: "Noto Serif";
   src: url("fonts/noto-serif-latin-400-italic.woff2") format("woff2");
@@ -331,6 +342,14 @@ code {
   user-select: none;
 }
 
+/* 32 columns of box-drawing lines, for phones; its lines are a full line
+   tall, so a line height under 1.13 joins them */
+.vs-ascii-compact {
+  display: none;
+  font-size: min(18px, calc(100cqi / 19.6));
+  line-height: 1.1;
+}
+
 .vs-tagline {
   margin: 0;
   padding: 1rem 0 1.5rem;
@@ -579,14 +598,24 @@ code {
   font-style: italic;
 }
 
-/* errors: the code very large and hollow, the words under it */
+/* errors: the code in ASCII art, the words under it */
 .vs-error {
+  container-type: inline-size;
   max-width: 40rem;
   margin: 0 auto;
   padding: 1rem 0 2rem;
   text-align: center;
 }
 
+/* the widest code is 42 columns */
+.vs-error-art {
+  margin-bottom: 1.8rem;
+  font-size: min(15px, calc(100cqi / 25.6));
+  line-height: 1.15;
+  text-align: left;
+}
+
+/* a code without its own art: very large and hollow */
 .vs-error-code {
   display: block;
   margin-bottom: 1.2rem;
@@ -1518,15 +1547,21 @@ code {
   }
 }
 
-/* phones: the 148-column wordmark would shrink to a few pixels */
+/* phones: the 148-column wordmark would shrink to a few pixels, so the
+   compact one takes its place and the name is not said twice */
 @media (max-width: 560px) {
-  .vs-banner,
-  .vs-tagline {
+  .vs-mast-meta,
+  .vs-tagline,
+  .vs-ascii-full {
     display: none;
   }
 
-  .vs-mast-meta {
-    border-bottom: 0;
+  .vs-ascii-compact {
+    display: block;
+  }
+
+  .vs-banner {
+    padding: 1.6rem 0 1.3rem;
   }
 }
 

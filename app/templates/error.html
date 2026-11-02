@@ -2,7 +2,11 @@
 {% block title %}{{ error.code }}{% endblock %}
 {% block content %}
 <div class="vs-error">
+  {% if error.code in (400, 403, 404, 405, 413, 429, 500) %}
+  <pre class="vs-ascii vs-error-art" aria-hidden="true">{% include "partials/errors/" ~ error.code ~ ".txt" %}</pre>
+  {% else %}
   <span class="vs-error-code" aria-hidden="true">{{ error.code }}</span>
+  {% endif %}
   <h1>{{ error.code }} {{ error.name }}</h1>
   <p class="vs-lede">{{ error.description }}</p>
   <p class="vs-gate-foot">
