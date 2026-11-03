@@ -134,10 +134,12 @@ is written as soon as the password is typed. Every account has a duress
 slot, used or not, its mode is stored encrypted, and setting or removing
 one is not logged, so neither the database nor the audit log shows who
 set one. An admin's decoy session still shows the Audit log and Invites
-pages, without the duress entries, but making or cancelling a code, like
-changing a setting, answers that it could not be saved. Someone who tries
-that every time may notice, and an admin who is the coercer sees the
-alert.
+pages. The log leaves out the duress entries and whatever shows the
+account's real activity: what anyone did with its files, and its own file
+actions and invite codes. The Invites page lists no codes. Making or
+cancelling a code, like changing a setting, answers that it could not be
+saved. Someone who tries that every time may notice, and an admin who is
+the coercer sees the alert.
 
 ![Setting a duress password](docs/screenshots/web-duress.png)
 

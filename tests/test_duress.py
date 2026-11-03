@@ -4,6 +4,7 @@ import re
 
 from app import auth
 from app.db import get_db
+from app.invites import create_admin_invite
 
 from .conftest import register
 from .test_files import CONTRACT, download, new_file, share, shared_with_me, stored_path
@@ -116,6 +117,49 @@ def test_a_decoy_admin_sees_the_admin_pages_without_the_alarm(app, alice):
     with app.app_context():
         made = get_db().execute("SELECT COUNT(*) FROM invites WHERE created_by IS NOT NULL")
         assert made.fetchone()[0] == 0
+
+
+def action_cell(name):
+    return f'<td class="vs-mono">{name}</td>'.encode()
+
+
+def test_a_decoy_admin_sees_nothing_of_the_account_s_files_or_codes(app, alice, bob):
+    app.test_cli_runner().invoke(args=["admin", "grant", alice.handle])
+    url = new_file(alice)
+    share(alice, url, bob.handle)
+    bob.get(url)
+    with app.app_context():
+        create_admin_invite(alice_id(app, alice))
+        number = get_db().execute("SELECT MAX(id) FROM invites").fetchone()[0]
+    her_code = f"code {number}, ".encode()
+    # admins see their allowance once two-factor login is on
+    secret = turn_on(alice)
+    set_duress(alice)
+    forced, _ = log_in(app, alice, DURESS)
+    forced.post("/auth/login/code", data={"code": code(secret, 1)})
+    forced.post(
+        "/upload",
+        data={"file": (io.BytesIO(CONTRACT), "contract.txt"), "password": DURESS},
+        content_type="multipart/form-data",
+    )
+
+    page = forced.get("/admin/log").data
+    assert url.rsplit("/", 1)[1].encode() not in page
+    for action in ("upload", "share", "verify"):
+        assert action_cell(action) not in page
+    assert her_code not in page
+    assert b"duress session" not in page
+    # its own login stays: a log without it would give the decoy away
+    assert action_cell("login") in page
+
+    codes = forced.get("/admin/invites").data
+    assert b'Your codes <span class="vs-count">0</span>' in codes
+    assert b"Your codes may create 5 more accounts" in codes
+
+    # the real account still sees all of it
+    page = alice.get("/admin/log").data
+    assert url.rsplit("/", 1)[1].encode() in page and her_code in page
+    assert b'Your codes <span class="vs-count">1</span>' in alice.get("/admin/invites").data
 
 
 def test_the_decoy_never_sees_the_alarm_filtered_or_paged(app, alice):

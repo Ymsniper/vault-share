@@ -264,8 +264,9 @@ def upload():
             return upload_page()
 
         if g.duress:
-            # the decoy account accepts nothing, and says nothing about why
-            audit("upload", "refused", detail="duress session")
+            # the decoy account accepts nothing, and says nothing about why;
+            # logged as a duress event, which the decoy's view never shows
+            audit("duress", "refused", detail="upload")
             flash("The upload failed. Try again later.")
             return upload_page()
 

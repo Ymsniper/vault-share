@@ -56,20 +56,29 @@ def refuse_decoy(tried):
 PAGE = 200
 
 
-def log_entries(hide_duress=False, problems=False, before=None):
+def log_entries(decoy_of=None, problems=False, before=None):
     """Up to 200 audit entries, newest first, older than entry number before
     if given. With problems, only failures and refusals, and the duress
-    alarm. A decoy session never sees the duress events: the silent alarm,
-    and what the decoy itself was refused."""
+    alarm.
+
+    decoy_of is the user of a decoy session. It never sees the duress
+    events (the silent alarm, and what the decoy itself was refused), nor
+    anything that shows the account's real activity: what anyone did with
+    its files, and its own file actions and invite codes. Its logins stay,
+    the decoy's own among them."""
     # one fixed query: the parameters switch each condition on or off
     return get_db().execute(
         "SELECT a.*, u.username FROM audit_log a LEFT JOIN users u ON u.id = a.user_id"
-        " WHERE (? = 0 OR a.action != 'duress')"
+        " WHERE (? IS NULL OR (a.action != 'duress'"
+        "  AND NOT (a.user_id IS ? AND a.action IN ('upload', 'renew_certificate', 'verify',"
+        "   'download', 'download_proof', 'check_copy', 'share', 'revoke', 'delete', 'access',"
+        "   'invite'))"
+        "  AND NOT EXISTS (SELECT 1 FROM files f WHERE f.id = a.file_id AND f.owner_id IS ?)))"
         " AND (? = 0 OR a.outcome IN ('failed', 'refused', 'denied', 'locked', 'mismatch')"
         " OR a.action = 'duress')"
         " AND (? IS NULL OR a.id < ?)"
         " ORDER BY a.id DESC LIMIT ?",
-        (int(hide_duress), int(problems), before, before, PAGE),
+        (decoy_of, decoy_of, decoy_of, int(problems), before, before, PAGE),
     ).fetchall()
 
 
@@ -80,14 +89,17 @@ def log():
     reach."""
     admin_only("read_log")
     problems = request.args.get("problems") == "1"
-    entries = log_entries(g.duress, problems, request.args.get("before", type=int))
+    decoy_of = g.user["id"] if g.duress else None
+    entries = log_entries(decoy_of, problems, request.args.get("before", type=int))
     older = entries[-1]["id"] if len(entries) == PAGE else None
     return render_template("admin/log.html", entries=entries, problems=problems, older=older)
 
 
 def accounts_left():
-    """How many more accounts this admin's codes may create today."""
-    return max(0, defaults()["admin_per_day"] - places_today(g.user["id"]))
+    """How many more accounts this admin's codes may create today. A decoy
+    session lists no codes, so it counts none either."""
+    used = 0 if g.duress else places_today(g.user["id"])
+    return max(0, defaults()["admin_per_day"] - used)
 
 
 def over_the_limit(d, left):
@@ -100,7 +112,8 @@ def invites_page(new_code=None):
     left = accounts_left()
     page = render_template(
         "admin/invites.html",
-        invites=list_invites(created_by=g.user["id"]),
+        # the codes and who used them are the account's real activity
+        invites=[] if g.duress else list_invites(created_by=g.user["id"]),
         new_code=new_code,
         defaults=d,
         people=people(d["uses"]),
