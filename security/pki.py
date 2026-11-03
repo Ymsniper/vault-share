@@ -109,7 +109,9 @@ def certificate_problem(cert, ca_cert, username, at=None):
 def make_crl(ca_cert, ca_key, revoked, days=30):
     """A certificate revocation list signed by the CA.
 
-    revoked is a list of (serial number, revocation date) pairs.
+    revoked is a list of (serial number, revocation date, invalid from):
+    the last is the time from which the key can no longer be trusted, kept
+    as the entry's invalidity date (RFC 5280, 5.3.2).
     """
     now = datetime.datetime.now(datetime.UTC)
     builder = (
@@ -118,10 +120,14 @@ def make_crl(ca_cert, ca_key, revoked, days=30):
         .last_update(now)
         .next_update(now + datetime.timedelta(days=days))
     )
-    for serial, when in revoked:
-        builder = builder.add_revoked_certificate(
-            x509.RevokedCertificateBuilder().serial_number(serial).revocation_date(when).build()
+    for serial, when, invalid_from in revoked:
+        entry = (
+            x509.RevokedCertificateBuilder()
+            .serial_number(serial)
+            .revocation_date(when)
+            .add_extension(x509.InvalidityDate(invalid_from), critical=False)
         )
+        builder = builder.add_revoked_certificate(entry.build())
     return builder.sign(ca_key, hashes.SHA256())
 
 
@@ -129,8 +135,10 @@ def crl_to_pem(crl):
     return crl.public_bytes(serialization.Encoding.PEM)
 
 
-def listed_in_crl(cert, crl_pem, ca_cert):
-    """True if the CA's revocation list names cert.
+def revoked_since(cert, crl_pem, ca_cert):
+    """From when the CA's revocation list says cert can no longer be
+    trusted, or None when the list does not name it: the entry's invalidity
+    date, else its revocation date.
 
     Raises ValueError if the list was not signed by the CA, so a forged or
     swapped list cannot quietly un-revoke a certificate.
@@ -138,4 +146,10 @@ def listed_in_crl(cert, crl_pem, ca_cert):
     crl = x509.load_pem_x509_crl(crl_pem)
     if crl.issuer != ca_cert.subject or not crl.is_signature_valid(ca_cert.public_key()):
         raise ValueError("the revocation list is not signed by the local CA")
-    return crl.get_revoked_certificate_by_serial_number(cert.serial_number) is not None
+    entry = crl.get_revoked_certificate_by_serial_number(cert.serial_number)
+    if entry is None:
+        return None
+    try:
+        return entry.extensions.get_extension_for_class(x509.InvalidityDate).value.invalidity_date_utc
+    except x509.ExtensionNotFound:
+        return entry.revocation_date_utc

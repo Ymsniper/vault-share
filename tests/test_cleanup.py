@@ -5,7 +5,7 @@ import pytest
 from app.db import get_db
 from app.invites import code_hash, create_invite, to_local
 
-from .test_files import user_id
+from .test_files import new_file, user_id
 from .test_invites import step_one, step_two
 
 
@@ -153,6 +153,23 @@ def test_revoke_admin_after_a_stolen_password(app, crowd):
             " WHERE u.username = ?", (alice.handle,)
         ).fetchone()[0] is not None
     assert os.path.exists(app.config["CA_CRL"])
+
+
+def test_revoke_admin_fails_the_files_uploaded_since_the_theft(app, crowd):
+    alice = crowd[0]
+    url = new_file(alice)
+    since = to_local(certificate_start(app, alice))
+    r = admin(app, "revoke-admin", alice.handle, "--revoke-since", since, "--yes")
+    assert "their certificate revoked." in r.output, r.output
+    assert b"the certificate was revoked" in alice.get(url).data
+
+
+def certificate_start(app, client):
+    with app.app_context():
+        return get_db().execute(
+            "SELECT not_before FROM certificates WHERE user_id = ?",
+            (user_id(app, client.handle),),
+        ).fetchone()[0]
 
 
 def test_revoke_admin_checks_its_target(app, crowd):

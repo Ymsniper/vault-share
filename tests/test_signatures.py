@@ -88,7 +88,8 @@ def test_revoked_certificate_is_refused(app, alice):
     url = new_file(alice)
     with app.app_context():
         db = get_db()
-        db.execute("UPDATE certificates SET revoked_at = datetime('now')")
+        # revoked for every file it signed
+        db.execute("UPDATE certificates SET revoked_at = datetime('now'), invalid_from = not_before")
         db.commit()
     assert b"the certificate was revoked" in page(alice, url)
 

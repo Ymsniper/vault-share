@@ -57,6 +57,7 @@ from app.invites import (
     create_invite,
     defaults,
     describe_defaults,
+    from_local,
     list_invites,
     parse_duration,
     people,
@@ -835,7 +836,31 @@ class Console(App):
     def revoke_pressed(self):
         user = self.selected_user()
         if user:
-            self.run_task(f"Revoked {user}'s certificate.", revoke_certificate, user)
+            self.push_screen(
+                Choose(f"Revoke {user}'s certificate", [
+                    "Fail the files uploaded from now on",
+                    "Fail the files uploaded since a date and time",
+                    "Fail all its files: the key was stolen at an unknown time",
+                ], "Files uploaded before that time stay valid."),
+                lambda choice: self.revoke_from(user, choice),
+            )
+
+    def revoke_from(self, user, choice):
+        if choice is None:
+            return
+        if "since a date" in choice:
+            self.push_screen(Ask("Uploaded since", [(TIME, False)]),
+                             lambda v: v and self.revoke_now(user, since=v[0]))
+        else:
+            self.revoke_now(user, all_files=choice.startswith("Fail all"))
+
+    def revoke_now(self, user, since=None, all_files=False):
+        def revoke(user, since, all_files):
+            return revoke_certificate(user, from_local(since) if since else None, all_files)
+
+        # the revocation list is signed with the CA key
+        self.with_ca_passphrase(partial(
+            self.run_task, f"Revoked {user}'s certificate.", revoke, user, since, all_files))
 
     @on(Button.Pressed, "#ban")
     def ban_pressed(self):
@@ -883,12 +908,16 @@ class Console(App):
         try:
             with self.flask_app.app_context():
                 admin, accounts, codes = plan_revoke_admin(user, since, all_invited)
+            # the time their login was stolen, when it was given: the files
+            # uploaded since then stop passing verification too
+            revoke_since = from_local(since) if since and revoke_cert else None
         except ValueError as e:
             self.notify(str(e), severity="error")
             return
         go = partial(self.run_and_report, apply_revoke_admin, admin, accounts, codes, ban,
-                     revoke_cert)
-        lines = describe_revoke(admin, accounts, codes, ban, revoke_cert, shown=8)
+                     revoke_cert, revoke_since)
+        lines = describe_revoke(admin, accounts, codes, ban, revoke_cert, shown=8,
+                                revoke_since=revoke_since)
         self.push_screen(
             Ask(f"Revoke {user}", [("Type revoke to confirm", False)], "\n".join(lines)),
             # the certificate's revocation list is signed with the CA key

@@ -26,9 +26,9 @@ from security.passwords import check_password
 from security.keys import subkey
 from security.pki import (
     certificate_problem,
-    listed_in_crl,
     load_ca_certificate,
     load_certificate,
+    revoked_since,
 )
 from security.signing import sign_digest, unlock_private_key, verify_digest
 from security.uploads import (
@@ -85,8 +85,8 @@ def get_file(id, owner_only=False):
     db = get_db()
     f = db.execute(
         "SELECT f.*, u.username AS owner, u.banned_at AS owner_banned_at,"
-        " c.pem AS cert_pem, c.serial AS cert_serial,"
-        " c.not_after AS cert_not_after, c.revoked_at AS cert_revoked_at"
+        " c.pem AS cert_pem, c.serial AS cert_serial, c.not_after AS cert_not_after,"
+        " COALESCE(c.invalid_from, c.revoked_at) AS cert_invalid_from"
         " FROM files f JOIN users u ON u.id = f.owner_id"
         " JOIN certificates c ON c.id = f.cert_id WHERE f.id = ?",
         (id,),
@@ -191,17 +191,21 @@ def signature_problem(f, digest):
     problem = certificate_problem(cert, ca_cert, f["owner"], at=signed_at)
     if problem is not None:
         return problem
-    if f["cert_revoked_at"] is not None:
+    # a revocation counts from the time it gives: files uploaded before it,
+    # while the key was trusted, stay valid
+    if f["cert_invalid_from"] is not None and f["uploaded_at"] >= f["cert_invalid_from"]:
         return "the certificate was revoked"
-    # the CA-signed list also catches a revocation erased from the database
+    # the CA-signed list also catches a revocation erased or moved later in
+    # the database
     crl_path = current_app.config["CA_CRL"]
     if os.path.exists(crl_path):
         with open(crl_path, "rb") as fp:
             try:
-                if listed_in_crl(cert, fp.read(), ca_cert):
-                    return "the certificate was revoked"
+                since = revoked_since(cert, fp.read(), ca_cert)
             except ValueError as e:
                 return str(e)
+        if since is not None and signed_at >= since:
+            return "the certificate was revoked"
     if not verify_digest(cert.public_key(), f["signature"], digest):
         return "the signature is not valid"
     return None

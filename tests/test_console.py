@@ -146,6 +146,29 @@ def test_clean_up_from_the_invites_tab(app, alice):
         assert get_db().execute("SELECT banned_at FROM users").fetchone()[0] is not None
 
 
+def test_revoke_a_certificate_for_all_its_files(app, alice):
+    async def scenario():
+        console = Console(app, start_server=False)
+        async with console.run_test(size=(140, 45)) as pilot:
+            await pilot.press("enter")
+            await pilot.pause()
+            console.screen.query_one("#tabs").active = "users-tab"
+            await pilot.pause()
+            await pilot.click("#revoke")
+            await pilot.pause()
+            assert "stay valid" in console.screen.note
+            await choose(pilot, console, 2)  # the key was stolen at an unknown time
+            await console.workers.wait_for_complete()
+            await pilot.pause()
+
+    run(scenario)
+    with app.app_context():
+        cert = get_db().execute("SELECT revoked_at, invalid_from, not_before FROM certificates").fetchone()
+    assert cert["revoked_at"] is not None
+    assert cert["invalid_from"] == cert["not_before"]
+    assert os.path.exists(app.config["CA_CRL"])
+
+
 def test_revoke_an_admin_from_the_users_tab(app, alice):
     from .test_cleanup import code_from, join_with
 

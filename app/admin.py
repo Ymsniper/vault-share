@@ -269,17 +269,25 @@ def unban_user(username):
         raise ValueError(f"{username} is not banned.")
 
 
-def revoke_certificate(username):
+def revoke_certificate(username, since=None, all_files=False):
     """Revoke the user's certificate and publish a new revocation list.
 
-    Returns the list's path. Raises ValueError when there is nothing to
-    revoke or the list cannot be written.
+    The files uploaded with it from since on (UTC text, by default now)
+    stop passing verification; earlier ones, signed while the key was
+    trusted, stay valid. all_files is for a key stolen at an unknown time:
+    every file it signed fails. Returns the list's path. Raises ValueError
+    when there is nothing to revoke or the list cannot be written.
     """
     db = get_db()
+    if since is not None and since > db.execute("SELECT datetime('now')").fetchone()[0]:
+        raise ValueError("The time files fail from cannot be in the future.")
+    # never before the certificate's own start, which is what all_files means
     cur = db.execute(
-        "UPDATE certificates SET revoked_at = datetime('now')"
+        "UPDATE certificates SET revoked_at = datetime('now'),"
+        " invalid_from = CASE WHEN ? THEN not_before"
+        "  ELSE max(not_before, COALESCE(?, datetime('now'))) END"
         " WHERE revoked_at IS NULL AND user_id = (SELECT id FROM users WHERE username = ?)",
-        (username,),
+        (int(all_files), since, username),
     )
     if cur.rowcount == 0:
         raise ValueError(f"{username} has no certificate to revoke.")
@@ -440,16 +448,19 @@ def plan_revoke_admin(username, invited_since=None, all_invited=False):
     return admin, accounts, codes_made(inviter=admin["id"])
 
 
-def describe_revoke(admin, accounts, codes, ban=False, revoke_cert=False, shown=SHOWN):
+def describe_revoke(admin, accounts, codes, ban=False, revoke_cert=False, shown=SHOWN,
+                    revoke_since=None):
     lines = [f"{admin['username']} loses admin rights.", *describe(accounts, codes, shown=shown)]
     if ban:
         lines.append(f"{admin['username']} is banned too.")
     if revoke_cert:
-        lines.append("Their certificate is revoked: files they signed stop passing verification.")
+        start = f"since {to_local(revoke_since)}" if revoke_since else "from now on"
+        lines.append(f"Their certificate is revoked: files they upload {start} stop passing"
+                     " verification.")
     return lines
 
 
-def apply_revoke_admin(admin, accounts, codes, ban=False, revoke_cert=False):
+def apply_revoke_admin(admin, accounts, codes, ban=False, revoke_cert=False, revoke_since=None):
     db = get_db()
     db.execute("UPDATE users SET is_admin = 0 WHERE id = ?", (admin["id"],))
     db.commit()
@@ -464,7 +475,7 @@ def apply_revoke_admin(admin, accounts, codes, ban=False, revoke_cert=False):
     if revoke_cert:
         # last: the rest already holds if this fails
         try:
-            revoke_certificate(admin["username"])
+            revoke_certificate(admin["username"], since=revoke_since)
             done.append("their certificate revoked")
         except ValueError as e:
             done.append(f"certificate not revoked: {e}")
@@ -510,22 +521,29 @@ def unban_command(username):
     click.echo(f"{username} can log in again.")
 
 
+TIME = "YYYY-MM-DD HH:MM, local time"
+
+
 @bp.cli.command("revoke")
 @click.argument("username")
-def revoke_command(username):
+@click.option("--since", metavar="TIME",
+              help=f"Fail the files uploaded from TIME on ({TIME}), not only from now.")
+@click.option("--all", "all_files", is_flag=True,
+              help="Fail every file signed with it: for a key stolen at an unknown time.")
+def revoke_command(username, since, all_files):
     """Revoke USERNAME's certificate and publish a new revocation list.
 
-    Files signed with it stop passing verification; the user's next upload
-    gives them a new key and certificate.
+    Files uploaded with it from now on, or from --since, stop passing
+    verification; earlier ones stay valid. The user's next upload gives them
+    a new key and certificate.
     """
+    if since and all_files:
+        raise click.UsageError("Use --since or --all, not both.")
     try:
-        path = revoke_certificate(username)
+        path = revoke_certificate(username, from_local(since) if since else None, all_files)
     except ValueError as e:
         raise click.ClickException(str(e)) from None
     click.echo(f"Revoked {username}'s certificate. Revocation list: {path}")
-
-
-TIME = "YYYY-MM-DD HH:MM, local time"
 
 
 def show_and_confirm(lines, yes):
@@ -545,22 +563,29 @@ def show_and_confirm(lines, yes):
 @click.option("--revoke-certificate", "revoke_cert", is_flag=True,
               help="Revoke their certificate too: with their password, a thief could sign "
                    "files as them. Needs CA_PASSPHRASE.")
+@click.option("--revoke-since", metavar="TIME",
+              help=f"Revoke it for the files uploaded from TIME on ({TIME}), when the "
+                   "password was stolen, rather than from now. Implies --revoke-certificate.")
 @click.option("--yes", is_flag=True, help="Do not ask before going ahead.")
-def revoke_admin_command(username, ban_invited_since, ban_all_invited, ban, revoke_cert, yes):
+def revoke_admin_command(username, ban_invited_since, ban_all_invited, ban, revoke_cert,
+                         revoke_since, yes):
     """Take admin rights from USERNAME and cancel their open invite codes.
 
     Shows what it will do first.
     """
     if ban_invited_since and ban_all_invited:
         raise click.UsageError("Use --ban-invited-since or --ban-all-invited, not both.")
+    revoke_cert = revoke_cert or bool(revoke_since)
     if revoke_cert and not current_app.config.get("CA_PASSPHRASE"):
         raise click.ClickException("Revoking the certificate needs CA_PASSPHRASE.")
     try:
+        since = from_local(revoke_since) if revoke_since else None
         admin, accounts, codes = plan_revoke_admin(username, ban_invited_since, ban_all_invited)
     except ValueError as e:
         raise click.ClickException(str(e)) from None
-    show_and_confirm(describe_revoke(admin, accounts, codes, ban, revoke_cert), yes)
-    click.echo(apply_revoke_admin(admin, accounts, codes, ban, revoke_cert))
+    show_and_confirm(describe_revoke(admin, accounts, codes, ban, revoke_cert,
+                                     revoke_since=since), yes)
+    click.echo(apply_revoke_admin(admin, accounts, codes, ban, revoke_cert, since))
 
 
 @bp.cli.command("cleanup")

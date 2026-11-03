@@ -101,18 +101,20 @@ def unlock_encryption_key(user_id, username, password):
     )
 
 
+def utc(text):
+    """A time from the database, which keeps UTC text."""
+    return datetime.datetime.strptime(text, "%Y-%m-%d %H:%M:%S").replace(tzinfo=datetime.UTC)
+
+
 def write_crl():
-    """Publish every revoked certificate in a list signed by the CA."""
+    """Publish every revoked certificate in a list signed by the CA, each
+    with the time its files fail from."""
     ca_cert, ca_key = load_app_ca()
     revoked = [
-        (
-            int(row["serial"], 16),
-            datetime.datetime.strptime(row["revoked_at"], "%Y-%m-%d %H:%M:%S").replace(
-                tzinfo=datetime.UTC
-            ),
-        )
+        (int(row["serial"], 16), utc(row["revoked_at"]), utc(row["invalid_from"]))
         for row in get_db().execute(
-            "SELECT serial, revoked_at FROM certificates WHERE revoked_at IS NOT NULL"
+            "SELECT serial, revoked_at, COALESCE(invalid_from, revoked_at) AS invalid_from"
+            " FROM certificates WHERE revoked_at IS NOT NULL"
         )
     ]
     path = current_app.config["CA_CRL"]

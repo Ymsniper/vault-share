@@ -99,7 +99,10 @@ CREATE TABLE certificates (
     pem TEXT NOT NULL,
     not_before TEXT NOT NULL,
     not_after TEXT NOT NULL,
-    revoked_at TEXT
+    revoked_at TEXT,
+    -- files uploaded from this time on fail; earlier ones, signed while the
+    -- key was trusted, stay valid. Set with revoked_at, often to the same time
+    invalid_from TEXT
 );
 
 CREATE TABLE files (

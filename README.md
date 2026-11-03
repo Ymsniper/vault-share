@@ -224,9 +224,10 @@ Both list what they will touch and ask before going ahead (`--yes` skips
 the question). Times are in local time:
 
     # take the admin rights and cancel their open codes; also ban the
-    # accounts their codes made since then, ban them, and revoke their certificate
+    # accounts their codes made since then, ban them, and revoke their
+    # certificate for the files uploaded since then
     vault-share admin revoke-admin 'bob#516850' --ban-invited-since '2026-10-02 17:00' \
-        --ban --revoke-certificate
+        --ban --revoke-since '2026-10-02 17:00'
 
     # ban the accounts created in a window and cancel the codes made in it,
     # from anyone's codes, one admin's (--admin) or the server's (--server)
@@ -234,9 +235,11 @@ the question). Times are in local time:
     vault-share admin cleanup --from '2026-10-02 17:00' --to '2026-10-04 01:00' --unban
 
 The console does the same with "Revoke admin..." in the Users tab and
-"Clean up..." in the Invites tab. Revoking the certificate needs
+"Clean up..." in the Invites tab; there the certificate is revoked from the
+time typed for the accounts, if one was. Revoking the certificate needs
 `CA_PASSPHRASE`, like `admin revoke` below; with the stolen password, the
-thief could sign files as the admin. The app has no password change, so the
+thief could sign files as the admin (`--revoke-certificate` alone revokes
+it from now on). The app has no password change, so the
 real person gets a new account.
 
 ## File keys
@@ -415,14 +418,21 @@ written once, when it starts, not for every request it refuses.
 To revoke a user's certificate, for example after their key leaked:
 
     .venv/bin/flask --app app admin revoke '<username>'
+    .venv/bin/flask --app app admin revoke '<username>' --since '2026-10-03 09:00'
+    .venv/bin/flask --app app admin revoke '<username>' --all
 
 This needs `CA_PASSPHRASE`: it also writes `instance/ca/crl.pem`, a
-revocation list signed by the CA. Files signed with the revoked certificate
-stop passing verification, and the user's next upload gives them a new key
-and certificate. Expiry is different: a certificate lasts a year, and a
-file is judged by whether it was valid at its upload time, which the
-record HMAC covers, so files keep verifying after it expires. OpenSSL can
-check a certificate against the list:
+revocation list signed by the CA. A revocation counts from a time: now by
+default, `--since` when the key was stolen, in local time, or `--all` when
+nobody knows, which fails every file the certificate signed. Files uploaded
+before that time stay valid, since the key was still trusted then. The list
+keeps the time as each entry's invalidity date, so moving it in the
+database changes nothing, and the user's next upload gives them a new key
+and certificate. The console's "Revoke certificate" asks the same
+question. Expiry works the same way: a certificate lasts a year, and a file
+is judged by whether it was valid at its upload time, which the record HMAC
+covers, so files keep verifying after it expires. OpenSSL can check a
+certificate against the list:
 
     openssl verify -crl_check -CAfile instance/ca/ca.crt -CRLfile instance/ca/crl.pem <certificate>
 
