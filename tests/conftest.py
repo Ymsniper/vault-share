@@ -91,6 +91,7 @@ def app(tmp_path, ca_dir):
     # and so do the count of password checks in flight and the locks logged
     limiter.reset()
     auth._in_flight.clear()
+    auth._waiting.clear()
     auth._reported.clear()
     return app
 

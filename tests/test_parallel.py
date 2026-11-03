@@ -2,11 +2,12 @@
 import threading
 import time
 
-from app import auth
+from app import auth, files
 from app.db import get_db
 from security import passwords
 
 from .conftest import register
+from .test_files import download, new_file
 
 
 def run_together(target, n, settled):
@@ -39,25 +40,86 @@ def test_parallel_wrong_passwords_stay_under_the_limit(app, monkeypatch):
         r = app.test_client().post("/auth/login", data={"username": handle, "password": "a guess"})
         answers.append((r.status_code, r.data))
 
-    threads = run_together(guess, 12, lambda: len(reached) + len(answers) >= 12)
+    threads = run_together(guess, 12, lambda: len(reached) == 5 and waiting() == 7)
+    # five checks at once at most; the other seven wait for a place
+    assert len(reached) == 5 and answers == []
     release.set()
     for t in threads:
         t.join()
-    # five checks at once at most; the others were turned away without one
+    # the five failed, so the seven that waited were locked out without a check
     assert len(reached) == 5
     refused = [data for code, data in answers if code == 429]
     assert len(refused) == 7
-    assert all(b"Too many attempts at once" in data for data in refused)
+    assert all(b"Too many failed attempts" in data for data in refused)
     with app.app_context():
         rows = [tuple(r) for r in get_db().execute("SELECT action, outcome FROM audit_log")]
     assert rows.count(("login", "failed")) == 5
-    # nobody was locked out: they were only too many at the same time
-    assert ("password", "locked") not in rows
+    assert rows.count(("password", "locked")) == 1
 
-    # the five failures are recorded now, so the next try is a real lock
-    r = app.test_client().post("/auth/login", data={"username": handle, "password": "a guess"})
+
+def waiting():
+    with auth._gate:
+        return max(auth._waiting.values(), default=0)
+
+
+def slow_unlock(monkeypatch, release, reached):
+    real = files.unlock_encryption_key
+
+    def slow(*args):
+        reached.add(threading.get_ident())
+        release.wait(10)
+        return real(*args)
+
+    monkeypatch.setattr(files, "unlock_encryption_key", slow)
+
+
+def test_parallel_right_passwords_wait_for_a_place(app, alice, monkeypatch):
+    url = new_file(alice)
+    release, reached, answers = threading.Event(), set(), []
+    slow_unlock(monkeypatch, release, reached)
+
+    def fetch():
+        answers.append(download(alice, url).status_code)
+
+    # five run, eight wait their turn, and the rest are told to come back
+    threads = run_together(fetch, 16, lambda: len(reached) == 5 and len(answers) == 3)
+    assert answers == [429, 429, 429] and waiting() == 8
+    release.set()
+    for t in threads:
+        t.join()
+    assert sorted(answers) == [200] * 13 + [429] * 3
+
+
+def test_a_wait_has_an_end(app, alice, monkeypatch):
+    url = new_file(alice)
+    release, reached, answers = threading.Event(), set(), []
+    slow_unlock(monkeypatch, release, reached)
+    monkeypatch.setattr(auth, "WAIT_SECONDS", 0.5)
+
+    def fetch():
+        answers.append(download(alice, url))
+
+    threads = run_together(fetch, 6, lambda: len(answers) == 1)
+    release.set()
+    for t in threads:
+        t.join()
+    late = [r for r in answers if r.status_code == 429]
+    assert len(late) == 1 and b"Too many attempts at once" in late[0].data
+
+
+def test_every_password_check_counts_toward_sixty(app, alice):
+    url = new_file(alice)
+    # the upload was one check
+    for _ in range(59):
+        assert download(alice, url).status_code == 200
+    r = download(alice, url)
     assert r.status_code == 429
-    assert b"Too many failed attempts" in r.data
+    assert b"Too many password checks" in r.data
+    with app.app_context():
+        rows = get_db().execute(
+            "SELECT COUNT(*) FROM audit_log WHERE action = 'password' AND outcome = 'locked'"
+        ).fetchone()[0]
+    assert rows == 1
 
 
 def test_at_most_four_argon2_calls_run_at_once(monkeypatch):

@@ -90,48 +90,88 @@ def end_session(token):
 
 LOCKED = "Too many failed attempts. Try again in 15 minutes."
 BUSY = "Too many attempts at once. Try again in a moment."
+TOO_MANY = "Too many password checks. Try again in 15 minutes."
 
 FIVE = parse("5 per 15 minutes")
 TWENTY = parse("20 per 15 minutes")
+SIXTY = parse("60 per 15 minutes")
 TEN_AN_HOUR = parse("10 per hour")
+
+# the scope that counts every check of a logged-in account, right or wrong
+EVERY_CHECK = "checks"
 
 # Flask-Limiter's deduct_when records a failure only once the response is
 # built, so requests sent together would all pass the check before any of
 # them counted. A password check therefore counts as in flight from the
 # moment it is let through until it is settled.
-_gate = threading.Lock()
+_gate = threading.Condition()
 _in_flight = Counter()
+# requests waiting for a check in flight to end, per key
+_waiting = Counter()
+WAIT_SECONDS = 10
+MAX_WAITING = 8
+
+
+def verdict_now(limits):
+    """Under _gate: None, LOCKED when the failures recorded in a window fill
+    its limit (TOO_MANY for the count of every check), or BUSY when the
+    checks in flight do."""
+    verdict = None
+    for item, scope, key in limits:
+        remaining = limiter.limiter.get_window_stats(item, scope, key).remaining
+        if remaining <= 0:
+            return TOO_MANY if scope == EVERY_CHECK else LOCKED
+        if remaining <= _in_flight[scope, key]:
+            verdict = BUSY
+    return verdict
 
 
 def admit(limits):
     """None if a password check may run under limits, a list of (item,
-    scope, key), else LOCKED when the failures recorded in a window fill
-    its limit, or BUSY when the checks in flight do."""
+    scope, key), else why not: LOCKED, TOO_MANY or BUSY.
+
+    A request held back only by the checks in flight waits for one of them
+    to end, up to WAIT_SECONDS and at most MAX_WAITING per key, so a few
+    downloads started together all go through. It is then refused if those
+    checks failed and filled the limit."""
+    deadline = time.monotonic() + WAIT_SECONDS
     with _gate:
-        verdict = None
-        for item, scope, key in limits:
-            remaining = limiter.limiter.get_window_stats(item, scope, key).remaining
-            if remaining <= 0:
-                return LOCKED
-            if remaining <= _in_flight[scope, key]:
-                verdict = BUSY
+        verdict = verdict_now(limits)
+        if verdict == BUSY and all(_waiting[s, k] < MAX_WAITING for _, s, k in limits):
+            for _, scope, key in limits:
+                _waiting[scope, key] += 1
+            try:
+                while verdict == BUSY and _gate.wait(max(0, deadline - time.monotonic())):
+                    verdict = verdict_now(limits)
+                # the wait is over: a last look
+                verdict = verdict_now(limits)
+            finally:
+                for _, scope, key in limits:
+                    _waiting[scope, key] -= 1
+                    if not _waiting[scope, key]:
+                        del _waiting[scope, key]
         if verdict is None:
             for _, scope, key in limits:
                 _in_flight[scope, key] += 1
         return verdict
 
 
-def settle(limits, failed):
-    """Record a failed check, then stop counting it as in flight: in this
-    order, so it is never counted nowhere."""
+def settle(limits, failed, every=()):
+    """Record a failed check, and the check against the limits in every,
+    which count right ones too; then stop counting it as in flight, in this
+    order, so it is never counted nowhere, and let the waiting requests
+    look again."""
     if failed:
         for item, scope, key in limits:
             limiter.limiter.hit(item, scope, key)
+    for item, scope, key in every:
+        limiter.limiter.hit(item, scope, key)
     with _gate:
-        for _, scope, key in limits:
+        for _, scope, key in [*limits, *every]:
             _in_flight[scope, key] -= 1
             if not _in_flight[scope, key]:
                 del _in_flight[scope, key]
+        _gate.notify_all()
 
 
 # locks already written to the audit log, with the time each one ends
@@ -181,11 +221,12 @@ def login_key():
 
 
 def password_limit(key_func, item=FIVE, scope="account", log=True):
-    """Wrong passwords sent with POST count toward item for key_func();
-    right ones cost nothing, and a key of None counts nowhere. The view sets
-    g.wrong_password when it refused a password. By default 5 wrong
-    passwords in a logged-in account, at upload, download, share, revoke,
-    delete or in its settings, block its password checks for 15 minutes.
+    """Wrong passwords sent with POST count toward item for key_func(), and
+    a key of None counts nowhere. The view sets g.wrong_password when it
+    refused a password. By default 5 wrong passwords in a logged-in account,
+    at upload, download, share, revoke, delete or in its settings, block its
+    password checks for 15 minutes, and so do 60 checks of any kind: each
+    one holds an Argon2 slot, which the account must not keep to itself.
     """
     def decorator(view):
         @functools.wraps(view)
@@ -194,15 +235,17 @@ def password_limit(key_func, item=FIVE, scope="account", log=True):
                 return view(*args, **kwargs)
             key = key_func()
             limits = [] if key is None else [(item, scope, key)]
-            verdict = admit(limits)
-            if verdict == LOCKED and log and first_sight_of_lock(limits):
-                audit("password", "locked", user_id=None)
+            every = [(SIXTY, EVERY_CHECK, key)] if key is not None and scope == "account" else []
+            verdict = admit(limits + every)
+            if verdict in (LOCKED, TOO_MANY) and log and first_sight_of_lock(limits + every):
+                detail = "too many checks" if verdict == TOO_MANY else None
+                audit("password", "locked", detail=detail, user_id=None)
             if verdict is not None:
                 abort(429, verdict)
             try:
                 return view(*args, **kwargs)
             finally:
-                settle(limits, g.get("wrong_password", False))
+                settle(limits, g.get("wrong_password", False), every)
         return wrapped
     return decorator
 

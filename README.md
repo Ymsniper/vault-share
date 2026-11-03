@@ -113,8 +113,11 @@ sessions can use up. Sharing with a username that does not exist counts
 too, ten an hour, since each one is a guess at someone's tag. The counters
 live in memory (Flask-Limiter), so restarting the app clears them. A
 password check counts from the moment it starts, so requests sent at the
-same time cannot all slip under a limit, and at most four checks run at
-once: each one takes 64 MiB of memory.
+same time cannot all slip under a limit: one that finds the limit filled by
+checks still running waits up to 10 seconds for them, and is refused only
+if they failed. Right passwords count too, sixty checks in 15 minutes per
+account, and at most four checks run at once: each one takes 64 MiB of
+memory.
 
 Two-factor login is optional, per user, from the "Two-factor" page: scan
 the QR code with an authenticator app such as Aegis or FreeOTP and confirm
