@@ -84,7 +84,7 @@
     {% if not error %}
     <section class="vs-panel">
       <h2 class="vs-panel-title">Open</h2>
-      <form method="post" action="{{ url_for('files.download', id=f['id']) }}">
+      <form method="post" action="{{ url_for('files.download', id=f['id']) }}" data-download>
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="mb-3">
           <label for="download-password" class="form-label">Your password</label>
@@ -99,7 +99,7 @@
         {% endif %}
         <button type="submit" class="btn btn-primary w-100">Download</button>
       </form>
-      <a class="btn btn-outline-secondary w-100 mt-2" href="{{ url_for('files.proof', id=f['id']) }}">Signature proof</a>
+      <a class="btn btn-outline-secondary w-100 mt-2" href="{{ url_for('files.proof', id=f['id']) }}" data-download>Signature proof</a>
     </section>
     {% endif %}
 

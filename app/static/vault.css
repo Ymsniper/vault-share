@@ -738,9 +738,10 @@ code {
   --bs-btn-hover-color: #000;
   --bs-btn-hover-bg: var(--vs-hi);
   --bs-btn-hover-border-color: var(--vs-hi);
+  /* pressed, it keeps its color and only sinks a little (.btn:active) */
   --bs-btn-active-color: #000;
-  --bs-btn-active-bg: #d2d2d0;
-  --bs-btn-active-border-color: #d2d2d0;
+  --bs-btn-active-bg: var(--vs-hi);
+  --bs-btn-active-border-color: var(--vs-hi);
   --bs-btn-disabled-color: var(--vs-bg);
   --bs-btn-disabled-bg: var(--vs-mute);
   --bs-btn-disabled-border-color: var(--vs-mute);
@@ -758,16 +759,17 @@ code {
   --bs-btn-active-border-color: var(--vs-hi);
 }
 
-/* the actions that destroy something: a full white outline that fills in */
+/* the actions that destroy something: a full white outline; pointed at,
+   it darkens a little like the others instead of filling with white */
 .btn-outline-danger {
   --bs-btn-color: var(--vs-hi);
   --bs-btn-border-color: var(--vs-fg);
-  --bs-btn-hover-color: var(--vs-bg);
-  --bs-btn-hover-bg: var(--vs-hi);
+  --bs-btn-hover-color: var(--vs-hi);
+  --bs-btn-hover-bg: var(--vs-raise);
   --bs-btn-hover-border-color: var(--vs-hi);
-  --bs-btn-active-color: var(--vs-bg);
-  --bs-btn-active-bg: #d2d2d0;
-  --bs-btn-active-border-color: #d2d2d0;
+  --bs-btn-active-color: var(--vs-hi);
+  --bs-btn-active-bg: #1c1c1c;
+  --bs-btn-active-border-color: var(--vs-hi);
 }
 
 .btn-sm {
@@ -1714,30 +1716,31 @@ code {
 
 /* ---- motion: mostly still, a few moments */
 
-/* from one page to the next, the header holds still while the content
-   fades and rises a little (Chrome and Safari; others just change page) */
-@view-transition {
-  navigation: auto;
+/* pages change at once, with no fade; while the next one loads, a thin
+   line grows along the menu's bottom rule (app.js sets vs-loading). It waits
+   a moment first, so a page that opens at once never shows it, and it never
+   reaches the end: the new page replaces it */
+.vs-nav-wrap {
+  position: relative;
 }
 
-.vs-mast {
-  view-transition-name: vs-mast;
+.vs-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--vs-hi);
+  opacity: 0;
+  transform: scaleX(0);
+  transform-origin: left center;
+  pointer-events: none;
 }
 
-::view-transition-old(root) {
-  animation: 120ms ease-out both vs-fade-out;
-}
-
-::view-transition-new(root) {
-  animation: 200ms var(--vs-ease) both vs-rise-in;
-}
-
-@keyframes vs-fade-out {
-  to { opacity: 0; }
-}
-
-@keyframes vs-rise-in {
-  from { opacity: 0; transform: translateY(8px); }
+.vs-loading .vs-progress {
+  opacity: 1;
+  transform: scaleX(0.9);
+  transition: opacity 0.15s linear 0.12s, transform 2.4s cubic-bezier(0.1, 0.6, 0.2, 1) 0.12s;
 }
 
 /* a message arrives with a short drop into place */
@@ -1777,14 +1780,15 @@ code {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  @view-transition {
-    navigation: none;
-  }
-
   *,
   *::before,
   *::after {
     animation: none !important;
     transition: none !important;
+  }
+
+  /* still a sign that something is loading: the whole line, at once */
+  .vs-loading .vs-progress {
+    transform: scaleX(1);
   }
 }

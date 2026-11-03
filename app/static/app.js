@@ -175,6 +175,39 @@ for (const el of document.querySelectorAll("code")) {
   }
 }
 
+// While the next page loads, a line grows under the menu (vault.css). A
+// download stays on this page, so its form and link are marked
+// data-download and left out.
+const loading = () => document.documentElement.classList.add("vs-loading");
+
+document.addEventListener("submit", (e) => {
+  if (!e.defaultPrevented && !e.target.hasAttribute("data-download")) {
+    loading();
+  }
+});
+
+document.addEventListener("click", (e) => {
+  const a = e.target.closest("a[href]");
+  if (!a || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
+    return;
+  }
+  if (a.target || a.hasAttribute("download") || a.hasAttribute("data-download")) {
+    return;
+  }
+  const url = new URL(a.href, location.href);
+  const samePage = url.pathname === location.pathname && url.search === location.search;
+  if (url.origin === location.origin && !(samePage && url.hash)) {
+    loading();
+  }
+});
+
+// a page shown again by Back starts without the line
+addEventListener("pageshow", (e) => {
+  if (e.persisted) {
+    document.documentElement.classList.remove("vs-loading");
+  }
+});
+
 // only for someone looking: not with reduced motion, not in a hidden tab
 if (!matchMedia("(prefers-reduced-motion: reduce)").matches && document.visibilityState === "visible") {
   const shown = [...document.querySelectorAll(".vs-banner .vs-ascii")].filter(
