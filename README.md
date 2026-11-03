@@ -62,7 +62,10 @@ code: make the first one with `vault-share invite new` (see below).
 ![Logging in](docs/screenshots/web-login.png)
 
 Uploading asks for your password again: it unlocks your private key to sign
-the file. Each file page also offers a signature proof, a zip with the
+the file. Each file's record carries an HMAC over all of its fields, from
+the owner and the hash to the name, the description and the signature, so a
+record edited in the database fails its check on the file page. Each file
+page also offers a signature proof, a zip with the
 signature, the signer's certificate, the CA certificate and the OpenSSL
 commands that check the file without the app. They check the certificate
 as it was at the upload time, and name your copy FILE rather than using
@@ -444,8 +447,6 @@ certificate against the list:
 - Public encryption keys are read from the database, not certified by the
   CA: someone holding the master key could swap a user's public key and
   receive the next file shared with them.
-- The record HMAC does not cover a file's name and description, so those
-  could be changed in the database without the check noticing.
 - There is no password change: a leaked password stays valid until the
   account is banned.
 

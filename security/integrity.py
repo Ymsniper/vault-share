@@ -6,15 +6,26 @@ def sha256(data):
     return hashlib.sha256(data).digest()
 
 
-def record_mac(key, file_id, owner_id, digest_hex, size, mime, checked, uploaded_at):
-    """HMAC-SHA256 over the fields of a file record that must never change.
+# every column of a file record but the HMAC itself
+FIELDS = (
+    "id", "owner_id", "sha256", "size", "mime", "checked", "uploaded_at",
+    "filename", "description", "signature", "cert_id",
+)
 
-    The type and the checked mark are in it too, so an archive cannot be
-    turned into a checked file in the database, and so is the upload time,
-    which the signature is judged at. None of the fields can contain "|",
-    so the joined message is unambiguous.
+
+def record_mac(key, record):
+    """HMAC-SHA256 over every field of a file record, so editing any of
+    them in the database is detected: the owner, the hash, the type and the
+    checked mark (an archive cannot pass for a checked file), the upload
+    time the signature is judged at, the name, the description, the
+    signature and the certificate.
+
+    Each field goes in as its length, a colon and its bytes, so no value
+    can run into the next, whatever a name or a description holds.
     """
-    message = (
-        f"{file_id}|{owner_id}|{digest_hex}|{size}|{mime}|{int(checked)}|{uploaded_at}".encode()
-    )
-    return hmac.new(key, message, hashlib.sha256).digest()
+    mac = hmac.new(key, digestmod=hashlib.sha256)
+    for name in FIELDS:
+        value = record[name]
+        data = value if isinstance(value, bytes) else str(value).encode()
+        mac.update(b"%d:" % len(data) + data)
+    return mac.digest()

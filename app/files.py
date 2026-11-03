@@ -67,10 +67,7 @@ def mac_key():
 
 
 def mac_of(f):
-    return record_mac(
-        mac_key(), f["id"], f["owner_id"], f["sha256"], f["size"], f["mime"], f["checked"],
-        f["uploaded_at"],
-    )
+    return record_mac(mac_key(), f)
 
 
 def get_file(id, owner_only=False):
@@ -338,32 +335,30 @@ def upload():
         with open(storage_path(file_id), "wb") as out:
             out.write(encrypt(file_key, data, file_id.encode()))
         owner_public_key = ensure_encryption_key(g.user["id"], username, password)
-        # after the certificate was chosen or renewed, which starts at the
-        # second it was issued; SQLite's own format, which the pages slice
-        uploaded_at = datetime.datetime.now(datetime.UTC).strftime(TIME_FORMAT)
-        mac = record_mac(
-            mac_key(), file_id, g.user["id"], digest.hex(), len(data), mime, checked, uploaded_at
-        )
-
+        record = {
+            "id": file_id,
+            "owner_id": g.user["id"],
+            "filename": name,
+            "description": form.description.data or "",
+            "mime": mime,
+            "checked": int(checked),
+            "size": len(data),
+            "sha256": digest.hex(),
+            "signature": signature,
+            "cert_id": cert_id,
+            # after the certificate was chosen or renewed, which starts at the
+            # second it was issued; SQLite's own format, which the pages slice
+            "uploaded_at": datetime.datetime.now(datetime.UTC).strftime(TIME_FORMAT),
+        }
+        # over exactly the values stored
+        record["record_mac"] = record_mac(mac_key(), record)
         db.execute(
             "INSERT INTO files"
-            " (id, owner_id, filename, description, mime, checked, size, sha256, record_mac,"
-            " signature, cert_id, uploaded_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                file_id,
-                g.user["id"],
-                name,
-                form.description.data or "",
-                mime,
-                int(checked),
-                len(data),
-                digest.hex(),
-                mac,
-                signature,
-                cert_id,
-                uploaded_at,
-            ),
+            " (id, owner_id, filename, description, mime, checked, size, sha256, signature,"
+            " cert_id, uploaded_at, record_mac)"
+            " VALUES (:id, :owner_id, :filename, :description, :mime, :checked, :size, :sha256,"
+            " :signature, :cert_id, :uploaded_at, :record_mac)",
+            record,
         )
         db.execute(
             "INSERT INTO file_keys (file_id, user_id, wrapped_key) VALUES (?, ?, ?)",

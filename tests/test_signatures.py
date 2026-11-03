@@ -6,6 +6,8 @@ from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
 
 from app.db import get_db
+from app.files import mac_key
+from security.integrity import record_mac
 from security.signing import sign_digest, unlock_private_key
 
 from .test_files import CONTRACT, download, file_id, new_file
@@ -23,12 +25,16 @@ def private_key_of(app, username, password="contract-2026"):
 
 def resign(app, url, key, cert_pem=None):
     """Replace a file's signature, and maybe its certificate, as an attacker
-    with write access to the database would."""
+    with write access to the database and the master key would: the record
+    gets a valid HMAC, so only the certificate checks are left to catch it."""
     with app.app_context():
         db = get_db()
-        f = db.execute("SELECT sha256, cert_id FROM files WHERE id = ?", (file_id(url),)).fetchone()
-        signature = sign_digest(key, bytes.fromhex(f["sha256"]))
-        db.execute("UPDATE files SET signature = ? WHERE id = ?", (signature, file_id(url)))
+        f = dict(db.execute("SELECT * FROM files WHERE id = ?", (file_id(url),)).fetchone())
+        f["signature"] = sign_digest(key, bytes.fromhex(f["sha256"]))
+        db.execute(
+            "UPDATE files SET signature = ?, record_mac = ? WHERE id = ?",
+            (f["signature"], record_mac(mac_key(), f), file_id(url)),
+        )
         if cert_pem is not None:
             db.execute("UPDATE certificates SET pem = ? WHERE id = ?", (cert_pem, f["cert_id"]))
         db.commit()
@@ -55,6 +61,17 @@ def test_signature_by_another_user_is_refused(app, alice, bob):
     url = new_file(alice)
     resign(app, url, private_key_of(app, bob.handle))
     assert b"the signature is not valid" in page(alice, url)
+
+
+def test_a_signature_swapped_without_the_master_key_breaks_the_record(app, alice, bob):
+    url = new_file(alice)
+    with app.app_context():
+        db = get_db()
+        f = db.execute("SELECT sha256 FROM files").fetchone()
+        signature = sign_digest(private_key_of(app, bob.handle), bytes.fromhex(f["sha256"]))
+        db.execute("UPDATE files SET signature = ?", (signature,))
+        db.commit()
+    assert b"record of this file was changed in the database" in page(alice, url)
 
 
 def test_certificate_of_another_user_is_refused(app, alice, bob):

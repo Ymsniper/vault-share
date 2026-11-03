@@ -15,9 +15,11 @@ from sqlcipher3 import dbapi2 as sqlcipher
 
 from app import create_app
 from app.db import get_db
+from app.files import mac_key
 from app.identity import unlock_encryption_key
 from security.crypto import decrypt
 from security.hybrid import unwrap_file_key
+from security.integrity import record_mac
 from security.pki import load_certificate
 
 from .samples import CHECKED, ELF, EXE, zipped
@@ -260,6 +262,40 @@ def test_changed_hash_fails_verification(app, alice):
     assert b"record of this file was changed in the database" in alice.get(url).data
 
 
+def test_every_field_of_a_record_is_under_its_hmac(app, alice, bob):
+    with app.app_context():
+        bob_cert = get_db().execute(
+            "SELECT id FROM certificates WHERE user_id = ?", (user_id(app, bob.handle),)
+        ).fetchone()[0]
+    for column, value in (
+        ("filename", "contract-final.txt"),
+        ("description", "Signed by both sides"),
+        ("signature", b"\x30" * 70),
+        ("cert_id", bob_cert),
+        ("mime", "application/pdf"),
+        ("checked", 0),
+    ):
+        url = new_file(alice)
+        with app.app_context():
+            db = get_db()
+            db.execute(f"UPDATE files SET {column} = ? WHERE id = ?", (value, file_id(url)))
+            db.commit()
+        page = alice.get(url).data
+        assert b"record of this file was changed in the database" in page, column
+
+
+def test_fields_of_a_record_cannot_run_into_each_other():
+    key = bytes(32)
+    record = {
+        "id": "8b5d", "owner_id": 1, "sha256": "ab" * 32, "size": 3, "mime": "text/plain",
+        "checked": 1, "uploaded_at": "2026-11-12 10:00:00", "signature": b"sig", "cert_id": 1,
+    }
+    # joined with "|", these two would be the same message
+    one = record_mac(key, {**record, "filename": "q3|final", "description": "draft"})
+    two = record_mac(key, {**record, "filename": "q3", "description": "final|draft"})
+    assert one != two
+
+
 def test_share_then_revoke(app, alice, bob):
     url = new_file(alice)
     r = share(alice, url, bob.handle, follow_redirects=True)
@@ -344,9 +380,16 @@ def test_changed_signature_fails_verification(app, alice):
     url = new_file(alice)
     with app.app_context():
         db = get_db()
-        signature = bytearray(db.execute("SELECT signature FROM files").fetchone()[0])
+        f = dict(db.execute("SELECT * FROM files").fetchone())
+        signature = bytearray(f["signature"])
         signature[-1] ^= 1
-        db.execute("UPDATE files SET signature = ?", (bytes(signature),))
+        f["signature"] = bytes(signature)
+        # with the master key, the record can get a valid HMAC; the
+        # signature itself still does not check out
+        db.execute(
+            "UPDATE files SET signature = ?, record_mac = ?",
+            (f["signature"], record_mac(mac_key(), f)),
+        )
         db.commit()
 
     assert b"the signature is not valid" in alice.get(url).data

@@ -116,8 +116,8 @@ CREATE TABLE files (
     checked INTEGER NOT NULL CHECK (checked IN (0, 1)),
     size INTEGER NOT NULL,
     sha256 TEXT NOT NULL,
-    -- HMAC of id, owner_id, sha256, size, mime, checked and uploaded_at,
-    -- so editing them is detected
+    -- HMAC of every other column (security/integrity.py), so editing any
+    -- of them is detected
     record_mac BLOB NOT NULL,
     signature BLOB NOT NULL,
     cert_id INTEGER NOT NULL REFERENCES certificates (id),
