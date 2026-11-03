@@ -88,9 +88,10 @@ def app(tmp_path, ca_dir):
     with app.app_context():
         init_db()
     # the limiter keeps its counters in memory, shared by every test app,
-    # and so does the count of password checks in flight
+    # and so do the count of password checks in flight and the locks logged
     limiter.reset()
     auth._in_flight.clear()
+    auth._reported.clear()
     return app
 
 

@@ -264,6 +264,31 @@ def test_lock_is_written_to_the_audit_log(app, client):
     assert ("password", "locked") in actions
 
 
+def locked_rows(app):
+    with app.app_context():
+        return get_db().execute(
+            "SELECT COUNT(*) FROM audit_log WHERE action = 'password' AND outcome = 'locked'"
+        ).fetchone()[0]
+
+
+def test_a_lock_is_logged_once_however_often_it_refuses(app, client, monkeypatch):
+    handle = register(client)
+    for _ in range(5):
+        login(client, handle, "wrong guess")
+    for _ in range(50):
+        assert login(client, handle, "wrong guess").status_code == 429
+    assert locked_rows(app) == 1
+
+    # once the window is over, the next lock is a new entry
+    later = time.time() + 16 * 60
+    monkeypatch.setattr(time, "time", lambda: later)
+    for _ in range(5):
+        login(client, handle, "wrong guess")
+    for _ in range(10):
+        assert login(client, handle, "wrong guess").status_code == 429
+    assert locked_rows(app) == 2
+
+
 def test_unknown_usernames_lock_the_same_way(client):
     for _ in range(5):
         r = login(client, "ghost#000000", "wrong guess")

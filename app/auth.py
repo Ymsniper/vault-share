@@ -134,6 +134,26 @@ def settle(limits, failed):
                 del _in_flight[scope, key]
 
 
+# locks already written to the audit log, with the time each one ends
+_reported = {}
+
+
+def first_sight_of_lock(limits):
+    """True the first time a lock is refused in its window. Later refusals
+    are not logged, so a locked visitor cannot fill the audit log."""
+    now = time.time()
+    with _gate:
+        for item, scope, key in limits:
+            stats = limiter.limiter.get_window_stats(item, scope, key)
+            if stats.remaining > 0 or _reported.get((scope, key), 0) > now:
+                continue
+            for old in [k for k, ends in _reported.items() if ends <= now]:
+                del _reported[old]
+            _reported[scope, key] = stats.reset_time
+            return True
+    return False
+
+
 def current_account():
     """The logged-in user's id: only their own session can count toward the
     limit of their password checks."""
@@ -175,7 +195,7 @@ def password_limit(key_func, item=FIVE, scope="account", log=True):
             key = key_func()
             limits = [] if key is None else [(item, scope, key)]
             verdict = admit(limits)
-            if verdict == LOCKED and log:
+            if verdict == LOCKED and log and first_sight_of_lock(limits):
                 audit("password", "locked", user_id=None)
             if verdict is not None:
                 abort(429, verdict)

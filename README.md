@@ -404,7 +404,8 @@ The audit log shows 200 events at a time, with a link to older ones, and
 can show only the problems: failures, refusals, locks and the duress alert.
 The console's Audit log tab has the same filter and shows 200 more rows at a
 time. So a user who fills the log cannot push an entry out of reach, and an
-owner's own visits to their file pages are not logged at all.
+owner's own visits to their file pages are not logged at all. A lock is
+written once, when it starts, not for every request it refuses.
 
 ![The audit log](docs/screenshots/web-audit-log.png)
 
