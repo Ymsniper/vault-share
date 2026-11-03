@@ -18,7 +18,7 @@
 {% endif %}
 
 <div class="row g-4">
-  <div class="col-lg-5">
+  <div class="col-lg-4">
     <section class="vs-panel">
       <h2 class="vs-panel-title">Make a code</h2>
       {% if not g.user['totp_secret'] %}
@@ -46,7 +46,7 @@
       {% endif %}
     </section>
   </div>
-  <div class="col-lg-7">
+  <div class="col-lg-8">
     <section class="vs-panel">
       <h2 class="vs-panel-title">Your codes <span class="vs-count">{{ invites|length }}</span></h2>
       {% if invites %}

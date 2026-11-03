@@ -1136,8 +1136,11 @@ code {
   font-size: 0.8rem;
 }
 
+/* the made and expires dates may break between day and time, so the
+   Cancel button never runs past the box */
 .vs-invites td.vs-meta {
   font-size: 0.78rem;
+  white-space: normal;
 }
 
 .vs-empty {
