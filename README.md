@@ -29,7 +29,7 @@ by a local CA.
 - The master key can also require a USB stick and a passphrase; pulling the
   stick locks the service.
 - A terminal console to run and manage the server.
-- A Fallout-inspired interface.
+- A black-and-white interface in typewriter type, with an ASCII-art wordmark.
 
 ## Run
 
