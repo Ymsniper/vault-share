@@ -76,8 +76,7 @@ def pages(app, alice, bob):
             exceptions.InternalServerError(),
         ):
             out.append((f"error {error.code}", render_template("error.html", error=error).encode()))
-        for name in ("locked.html", "unlock.html"):
-            out.append((name, render_template(name).encode()))
+        out.append(("locked.html", render_template("locked.html").encode()))
     return out
 
 

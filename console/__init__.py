@@ -51,6 +51,7 @@ from app.admin import (
     revoke_certificate,
     unban_user,
 )
+from app.audit import audit
 from app.db import get_db, init_db
 from app.invites import (
     cancel_invite,
@@ -817,6 +818,8 @@ class Console(App):
         except Exception as e:
             self.call_from_thread(self.notify, str(e), severity="error")
             return
+        with self.flask_app.app_context():
+            audit("unlock", "ok", user_id=None)
         self.call_from_thread(self.notify, "Unlocked.")
         self.call_from_thread(self.refresh_all)
 

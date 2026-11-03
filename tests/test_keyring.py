@@ -11,6 +11,7 @@ from app.db import get_db
 from app.duress import DECOY, mode_of
 from app.keyring import USB_KEY_FILE, connect
 from app.totp import unseal
+from app.unlock import unlock_from_terminal, wants_passphrase
 
 from .samples import ARCHIVES
 from .test_duress import set_duress
@@ -144,47 +145,51 @@ def test_a_passphrase_is_asked_after_every_start(app, alice):
     assert r.exit_code == 0, r.output
 
     started = restart(app)
-    assert started.extensions["keyring"].locked
+    assert started.extensions["keyring"].locked and wants_passphrase(started.extensions["keyring"])
     client = started.test_client()
     page = client.get("/")
     assert page.status_code == 503 and b'name="passphrase"' not in page.data
-    assert b'name="passphrase"' in client.get("/unlock").data
 
-    r = client.post("/unlock", data={"passphrase": "not the passphrase"})
-    assert b"Wrong passphrase" in r.data
-    client.post("/unlock", data={"passphrase": PASSPHRASE})
+    # what vault-share serve does on its terminal
+    typed, said = iter(["not the passphrase", PASSPHRASE]), []
+    assert unlock_from_terminal(started, ask=lambda: next(typed), say=said.append)
+    assert [str(e) for e in said] == ["Wrong passphrase, or not the right USB stick."]
     assert not started.extensions["keyring"].locked
     client.post("/auth/login", data={"username": alice.handle, "password": "contract-2026"})
     assert download(client, url).data == CONTRACT
 
 
-def test_unlock_guesses_are_limited(app):
+def test_unlocking_stops_when_the_terminal_input_ends(app):
     keys(app, "set-passphrase", input=f"{PASSPHRASE}\n{PASSPHRASE}\n")
-    client = restart(app).test_client()
-    for _ in range(5):
-        client.post("/unlock", data={"passphrase": "not the passphrase"})
-    assert client.post("/unlock", data={"passphrase": PASSPHRASE}).status_code == 429
+    started = restart(app)
+
+    def nothing_more():
+        raise EOFError
+
+    assert not unlock_from_terminal(started, ask=nothing_more)
+    assert started.extensions["keyring"].locked
 
 
 @pytest.mark.parametrize("behind_proxy", [False, True])
-def test_unlock_only_from_this_machine(app, behind_proxy):
+def test_there_is_no_unlock_page(app, behind_proxy):
     keys(app, "set-passphrase", input=f"{PASSPHRASE}\n{PASSPHRASE}\n")
     started = restart(app, BEHIND_PROXY=behind_proxy)
+    local = started.test_client()
     remote = started.test_client()
     remote.environ_base["REMOTE_ADDR"] = "203.0.113.9"
-    # what a visitor through Tailscale Funnel looks like: the proxy runs here
+    # what a visitor through a proxy on this machine looks like
     proxied = started.test_client()
     proxied.environ_base["HTTP_X_FORWARDED_FOR"] = "203.0.113.9"
-    for visitor in (remote, proxied):
+    # while locked, every visitor only learns that the service is paused,
+    # and nobody can try a passphrase over the network
+    for visitor in (local, remote, proxied):
         r = visitor.post("/unlock", data={"passphrase": PASSPHRASE})
-        assert r.status_code == 503
-        assert b"passphrase" not in r.data.lower()
+        assert r.status_code == 503 and b"passphrase" not in r.data.lower()
     assert started.extensions["keyring"].locked
 
-    started.test_client().post("/unlock", data={"passphrase": PASSPHRASE})
-    assert not started.extensions["keyring"].locked
-    assert remote.get("/unlock").status_code == 404
-    assert proxied.get("/unlock").status_code == 404
+    unlock_from_terminal(started, ask=lambda: PASSPHRASE)
+    for visitor in (local, remote, proxied):
+        assert visitor.get("/unlock").status_code == 404
 
 
 def test_a_weak_passphrase_is_refused(app):

@@ -80,14 +80,11 @@ def create_app(test_config=None):
     keyring = Keyring(app.config["SECRETS_DIR"], app.config["USB_MOUNT_ROOTS"])
     app.extensions["keyring"] = keyring
 
-    # first of the checks, so nothing touches the database while locked
+    # first of the checks, so nothing touches the database while locked;
+    # there is no unlock page, the console or the server's terminal unlocks
     @app.before_request
     def stop_when_locked():
-        # the unlock page answers only on this machine (unlock is imported below)
-        if keyring.locked and not (
-            request.endpoint == "static"
-            or (request.endpoint == "unlock.unlock" and unlock.from_this_machine())
-        ):
+        if keyring.locked and request.endpoint != "static":
             raise Locked(keyring.missing())
 
     from . import admin, auth, db, files, invites, settings, totp, unlock
@@ -99,7 +96,6 @@ def create_app(test_config=None):
     app.register_blueprint(admin.bp)
     app.register_blueprint(totp.bp)
     app.register_blueprint(settings.bp)
-    app.register_blueprint(unlock.bp)
     app.cli.add_command(unlock.keys_cli)
     app.cli.add_command(invites.invite_cli)
     app.cli.add_command(server_settings.settings_command)

@@ -1,26 +1,15 @@
+import getpass
 import glob
 import hashlib
 import os
 
 import click
-from flask import (
-    Blueprint,
-    abort,
-    current_app,
-    flash,
-    g,
-    redirect,
-    render_template,
-    request,
-    url_for,
-)
+from flask import current_app
 from flask.cli import AppGroup
 
 from security.passwords import derive_key, passphrase_problem
 
 from .audit import audit
-from .auth import password_limit
-from .forms import UnlockForm, first_error
 from .keyring import (
     USB_KEY_FILE,
     Locked,
@@ -31,7 +20,6 @@ from .keyring import (
     share_from_recovery_code,
 )
 
-bp = Blueprint("unlock", __name__)
 keys_cli = AppGroup("keys", help="The factors the master key is made of. Stop the app first.")
 
 
@@ -178,7 +166,8 @@ def remove_usb_command():
 
 @keys_cli.command("set-passphrase")
 def set_passphrase_command():
-    """Require a passphrase, typed at /unlock after every start."""
+    """Require a passphrase after every start, typed in the console or in
+    the terminal running the server."""
     if get_keyring().needs_passphrase:
         raise click.ClickException("a passphrase is already required; run remove-passphrase first")
     passphrase = click.prompt("New passphrase", hide_input=True, confirmation_prompt=True)
@@ -195,40 +184,32 @@ def remove_passphrase_command():
     click.echo("The passphrase is no longer required.")
 
 
-def from_this_machine():
-    """A request straight from this machine. Behind Tailscale Funnel every
-    visitor arrives from 127.0.0.1 too, unless BEHIND_PROXY is set, but the
-    proxy always adds X-Forwarded-For."""
-    return request.remote_addr in ("127.0.0.1", "::1") and (
-        "X-Forwarded-For" not in request.headers
+def wants_passphrase(keyring):
+    """Locked, and only the passphrase is missing: the stick, if one is
+    needed, is in."""
+    return keyring.locked and keyring.needs_passphrase and (
+        not keyring.needs_usb or keyring.find_usb_share() is not None
     )
 
 
-# for the operator only, on this machine: no page links here, and other
-# visitors of a locked app only see that the service is paused
-@bp.route("/unlock", methods=("GET", "POST"))
-# one count for everyone, since only this machine gets here; nothing goes to
-# the audit log, the database is closed while locked
-@password_limit(lambda: "all", scope="unlock", log=False)
-def unlock():
-    if not from_this_machine():
-        abort(404)
-    keyring = get_keyring()
-    if not keyring.locked:
-        return redirect(url_for("files.index"))
-    form = UnlockForm()
-    if not form.is_submitted():
-        return render_template("unlock.html")
-    if not form.validate():
-        flash(first_error(form))
-        return render_template("unlock.html")
-    try:
-        keyring.unlock(form.passphrase.data)
-    except Locked as e:
-        # a missing stick is not a guess, a wrong passphrase with the stick in is
-        g.wrong_password = not keyring.needs_usb or keyring.find_usb_share() is not None
-        flash(str(e))
-        return render_template("unlock.html")
-    audit("unlock", "ok", user_id=None)
-    flash("Unlocked. Everyone has to log in again.", "success")
-    return redirect(url_for("auth.login"))
+def unlock_from_terminal(app, ask=None, say=print):
+    """Ask for the passphrase on this terminal until it unlocks the app.
+
+    For `vault-share serve`; the console has its own dialog. There is no
+    unlock page, so only whoever runs the server can try a passphrase,
+    whatever proxy the app sits behind. Returns False when the input ends.
+    """
+    keyring = app.extensions["keyring"]
+    ask = ask or (lambda: getpass.getpass("Passphrase: "))
+    while keyring.locked:
+        try:
+            passphrase = ask()
+        except EOFError:
+            return False
+        try:
+            keyring.unlock(passphrase)
+        except Locked as e:
+            say(e)
+    with app.app_context():
+        audit("unlock", "ok", user_id=None)
+    return True

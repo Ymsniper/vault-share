@@ -65,10 +65,6 @@ class RemoveDuressForm(FlaskForm):
     password = PasswordField(validators=[DataRequired("Type your password.")])
 
 
-class UnlockForm(FlaskForm):
-    passphrase = PasswordField(validators=[DataRequired("Type the passphrase.")])
-
-
 class LoginForm(FlaskForm):
     # no real username or password is longer, so these never reach Argon2
     username = StringField(validators=[DataRequired(), Length(max=40)])
