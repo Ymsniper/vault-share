@@ -112,14 +112,24 @@
         <li>
           <span class="vs-avatar" aria-hidden="true">{{ s['username'][:1] }}</span>
           <span class="vs-name">{{ s['username']|handle }}</span>
-          <form method="post" action="{{ url_for('files.revoke', id=f['id']) }}">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <input type="hidden" name="recipient_id" value="{{ s['id'] }}">
-            <button type="submit" class="btn btn-sm btn-outline-secondary">Revoke</button>
-          </form>
         </li>
         {% endfor %}
       </ul>
+      <form method="post" action="{{ url_for('files.revoke', id=f['id']) }}" class="mb-4">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="text" autocomplete="username" value="{{ g.user['username'] }}" hidden>
+        <div class="mb-3">
+          <label for="revoke-recipient" class="form-label">Revoke a share</label>
+          <select name="recipient_id" id="revoke-recipient" class="form-select" required>
+            {% for s in shares %}<option value="{{ s['id'] }}">{{ s['username'] }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="mb-3">
+          <label for="revoke-password" class="form-label">Your password</label>
+          <input type="password" name="password" id="revoke-password" class="form-control" autocomplete="current-password" required>
+        </div>
+        <button type="submit" class="btn btn-sm btn-outline-secondary">Revoke</button>
+      </form>
       {% else %}
       <p class="vs-note">Nobody yet.</p>
       {% endif %}
@@ -151,6 +161,11 @@
       <p class="vs-note">Removes the file, every copy of its key and every share. This cannot be undone.</p>
       <form method="post" action="{{ url_for('files.delete', id=f['id']) }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="text" autocomplete="username" value="{{ g.user['username'] }}" hidden>
+        <div class="mb-3">
+          <label for="delete-password" class="form-label">Your password</label>
+          <input type="password" name="password" id="delete-password" class="form-control" autocomplete="current-password" required>
+        </div>
         <button type="submit" class="btn btn-outline-danger w-100">Delete</button>
       </form>
     </section>

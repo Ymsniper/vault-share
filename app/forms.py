@@ -1,6 +1,6 @@
 from flask_wtf import FlaskForm
 from flask_wtf.file import FileField, FileRequired
-from wtforms import BooleanField, HiddenField, PasswordField, RadioField, StringField, TextAreaField
+from wtforms import BooleanField, PasswordField, RadioField, StringField, TextAreaField
 from wtforms.validators import DataRequired, Length, Regexp, ValidationError
 
 from security.passwords import password_problem
@@ -104,7 +104,13 @@ class ShareForm(FlaskForm):
 
 
 class RevokeForm(FlaskForm):
-    recipient_id = HiddenField(validators=[Regexp(r"^\d+$")])
+    recipient_id = StringField(validators=[Regexp(r"^\d+$")])
+    # so a stolen session cookie alone cannot cut anyone off
+    password = PasswordField(validators=[DataRequired("Type your password to revoke the share.")])
+
+
+class DeleteForm(FlaskForm):
+    password = PasswordField(validators=[DataRequired("Type your password to delete the file.")])
 
 
 def first_error(form):

@@ -184,8 +184,8 @@ def password_limit(key_func, item=FIVE, scope="account", log=True):
     """Wrong passwords sent with POST count toward item for key_func();
     right ones cost nothing, and a key of None counts nowhere. The view sets
     g.wrong_password when it refused a password. By default 5 wrong
-    passwords in a logged-in account, at upload, download, share or in its
-    settings, block its password checks for 15 minutes.
+    passwords in a logged-in account, at upload, download, share, revoke,
+    delete or in its settings, block its password checks for 15 minutes.
     """
     def decorator(view):
         @functools.wraps(view)

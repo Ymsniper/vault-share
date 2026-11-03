@@ -6,7 +6,7 @@ from app import create_app
 from app.audit import network_of
 from app.db import get_db
 
-from .test_files import download, share
+from .test_files import delete, download, share
 
 
 def log_rows(app):
@@ -31,7 +31,7 @@ def test_file_actions_are_logged(app, alice, bob):
     share(alice, url, bob.handle)
     bob.get(url)
     download(bob, url)
-    alice.post(f"{url}/delete")
+    delete(alice, url)
 
     rows = log_rows(app)
     # an owner's own visits would only fill the log; a recipient's count

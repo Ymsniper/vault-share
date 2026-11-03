@@ -44,6 +44,7 @@ from .auth import TEN_AN_HOUR, admit, current_account, login_required, password_
 from .db import get_db
 from .forms import (
     CheckCopyForm,
+    DeleteForm,
     DownloadForm,
     RevokeForm,
     SearchForm,
@@ -565,13 +566,31 @@ def share(id):
     return redirect(url_for("files.detail", id=f["id"]))
 
 
+def owner_password_ok(f, password, action, refusal):
+    """Check the owner's password before a share is revoked or a file
+    deleted, so a stolen session cookie alone cannot do either. A wrong one
+    counts toward the account's limit."""
+    if check_password(g.user["password_hash"], password):
+        return True
+    g.wrong_password = True
+    audit(action, "refused", file_id=f["id"], detail="wrong password")
+    flash(refusal)
+    return False
+
+
 @bp.route("/files/<uuid:id>/revoke", methods=("POST",))
 @login_required
+@password_limit(current_account)
 def revoke(id):
     f = get_file(id, owner_only=True)
     form = RevokeForm()
     if not form.validate():
-        abort(400)
+        if form.recipient_id.errors:
+            abort(400)
+        flash(first_error(form))
+        return redirect(url_for("files.detail", id=f["id"]))
+    if not owner_password_ok(f, form.password.data, "revoke", "Wrong password: the share stays."):
+        return redirect(url_for("files.detail", id=f["id"]))
     recipient_id = int(form.recipient_id.data)
     db = get_db()
     db.execute(
@@ -593,8 +612,15 @@ def revoke(id):
 
 @bp.route("/files/<uuid:id>/delete", methods=("POST",))
 @login_required
+@password_limit(current_account)
 def delete(id):
     f = get_file(id, owner_only=True)
+    form = DeleteForm()
+    if not form.validate():
+        flash(first_error(form))
+        return redirect(url_for("files.detail", id=f["id"]))
+    if not owner_password_ok(f, form.password.data, "delete", "Wrong password: nothing was deleted."):
+        return redirect(url_for("files.detail", id=f["id"]))
     try:
         os.remove(storage_path(f["id"]))
     except FileNotFoundError:

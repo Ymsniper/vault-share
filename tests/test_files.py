@@ -50,6 +50,15 @@ def share(client, url, username, password=PASSWORD, **kwargs):
     return client.post(f"{url}/share", data={"username": username, "password": password}, **kwargs)
 
 
+def revoke(client, url, recipient_id, password=PASSWORD, **kwargs):
+    data = {"recipient_id": recipient_id, "password": password}
+    return client.post(f"{url}/revoke", data=data, **kwargs)
+
+
+def delete(client, url, password=PASSWORD, **kwargs):
+    return client.post(f"{url}/delete", data={"password": password}, **kwargs)
+
+
 def file_id(url):
     return url.rsplit("/", 1)[-1]
 
@@ -258,7 +267,7 @@ def test_share_then_revoke(app, alice, bob):
     assert b"contract.txt" in shared_with_me(bob)
     assert download(bob, url).data == CONTRACT
 
-    alice.post(f"{url}/revoke", data={"recipient_id": user_id(app, bob.handle)})
+    revoke(alice, url, user_id(app, bob.handle))
     assert b"contract.txt" not in shared_with_me(bob)
 
     share(alice, url, bob.handle)
@@ -284,11 +293,42 @@ def test_search_filters_my_files(alice):
 def test_delete_removes_file_and_shares(app, alice, bob):
     url = new_file(alice)
     share(alice, url, bob.handle)
-    alice.post(f"{url}/delete")
+    delete(alice, url)
 
     assert not os.path.exists(stored_path(app, url))
     assert alice.get(url).status_code == 404
     assert b"contract.txt" not in shared_with_me(bob)
+
+
+def test_delete_and_revoke_ask_for_the_password(app, alice, bob):
+    url = new_file(alice)
+    share(alice, url, bob.handle)
+    bob_id = user_id(app, bob.handle)
+
+    # a stolen session cookie alone destroys nothing and cuts nobody off
+    r = delete(alice, url, "a guess", follow_redirects=True)
+    assert b"Wrong password: nothing was deleted." in r.data
+    r = alice.post(f"{url}/delete", follow_redirects=True)
+    assert b"Type your password to delete the file." in r.data
+    r = revoke(alice, url, bob_id, "a guess", follow_redirects=True)
+    assert b"Wrong password: the share stays." in r.data
+    r = alice.post(f"{url}/revoke", data={"recipient_id": bob_id}, follow_redirects=True)
+    assert b"Type your password to revoke the share." in r.data
+    assert download(bob, url).data == CONTRACT
+    assert os.path.exists(stored_path(app, url))
+
+    revoke(alice, url, bob_id)
+    assert download(bob, url).status_code == 403
+    delete(alice, url)
+    assert alice.get(url).status_code == 404
+
+
+def test_wrong_passwords_at_delete_count_toward_the_lock(alice):
+    url = new_file(alice)
+    for _ in range(5):
+        delete(alice, url, "a guess")
+    assert delete(alice, url).status_code == 429
+    assert alice.get(url).status_code == 200
 
 
 def test_unknown_file_is_404(alice):
@@ -390,8 +430,8 @@ def test_other_users_get_403(app, alice, bob):
     )
     assert r.status_code == 403
     assert share(bob, url, bob.handle).status_code == 403
-    assert bob.post(f"{url}/revoke", data={"recipient_id": "1"}).status_code == 403
-    assert bob.post(f"{url}/delete").status_code == 403
+    assert revoke(bob, url, "1").status_code == 403
+    assert delete(bob, url).status_code == 403
 
     assert download(alice, url).data == CONTRACT
     with app.app_context():
@@ -406,13 +446,13 @@ def test_recipient_can_read_but_not_manage(alice, bob):
     share(alice, url, bob.handle)
     assert download(bob, url).data == CONTRACT
     assert share(bob, url, bob.handle).status_code == 403
-    assert bob.post(f"{url}/delete").status_code == 403
+    assert delete(bob, url).status_code == 403
 
 
 def test_revoked_recipient_loses_access(app, alice, bob):
     url = new_file(alice)
     share(alice, url, bob.handle)
-    alice.post(f"{url}/revoke", data={"recipient_id": user_id(app, bob.handle)})
+    revoke(alice, url, user_id(app, bob.handle))
     assert download(bob, url).status_code == 403
 
 
@@ -485,7 +525,7 @@ def test_forms_refuse_bad_input(alice):
     url = new_file(alice)
     r = share(alice, url, "", follow_redirects=True)
     assert b"Type a username." in r.data
-    assert alice.post(f"{url}/revoke", data={"recipient_id": "1 OR 1=1"}).status_code == 400
+    assert revoke(alice, url, "1 OR 1=1").status_code == 400
 
 
 def test_search_terms_stay_out_of_the_url(alice):
@@ -617,7 +657,7 @@ def test_every_reader_has_their_own_copy(app, alice, bob):
 def test_a_revoked_share_stays_closed_even_if_the_row_comes_back(app, alice, bob):
     url = new_file(alice)
     share(alice, url, bob.handle)
-    alice.post(f"{url}/revoke", data={"recipient_id": user_id(app, bob.handle)})
+    revoke(alice, url, user_id(app, bob.handle))
     assert user_id(app, bob.handle) not in copies_of(app, url)
 
     # someone with write access to the database brings the share back
@@ -632,7 +672,7 @@ def test_a_revoked_share_stays_closed_even_if_the_row_comes_back(app, alice, bob
 
 def test_revoking_the_owner_changes_nothing(app, alice):
     url = new_file(alice)
-    alice.post(f"{url}/revoke", data={"recipient_id": user_id(app, alice.handle)})
+    revoke(alice, url, user_id(app, alice.handle))
     assert download(alice, url).data == CONTRACT
 
 

@@ -104,8 +104,8 @@ that pair for 15 minutes, and twenty from one address block the address;
 an IPv6 address counts as its whole /48 network, since one subscriber can
 switch among many.
 Wrong tries from somewhere else never lock the owner out. Once logged in,
-the password asked at upload, download, sharing and in the settings has a
-limit of its own, five wrong ones per account, which only that account's
+the password asked at upload, download, sharing, revoking, deleting and in
+the settings has a limit of its own, five wrong ones per account, which only that account's
 sessions can use up. Sharing with a username that does not exist counts
 too, ten an hour, since each one is a guess at someone's tag. The counters
 live in memory (Flask-Limiter), so restarting the app clears them. A
@@ -253,7 +253,8 @@ That is why download and share ask for your password, like upload: it
 unlocks your key for that one request, so a stolen session cookie alone
 downloads nothing. Sharing opens your copy and encrypts the key again for
 the recipient; revoking deletes their copy, so bringing the share back in
-the database gives them nothing.
+the database gives them nothing. Revoking and deleting ask for the password
+too, so a stolen cookie cannot destroy files or cut anyone off either.
 
 ![A file shared with you](docs/screenshots/web-shared-file.png)
 
