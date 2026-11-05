@@ -447,8 +447,12 @@ certificate against the list:
 ## Known limits
 
 - The server is Werkzeug's development server, with each TLS handshake in
-  its connection's own thread. It starts one thread per connection, without
-  a cap; Argon2, the part that needs memory, runs at most four at once.
+  its connection's own thread. It serves at most 64 connections at once,
+  one thread each; more wait for a free thread, and a silent connection
+  gives its thread back after 30 seconds. Many slow connections can still
+  fill the 64 threads and make everyone wait, but not pile up threads or
+  memory. Waitress, which reads requests without holding a thread, does not
+  speak TLS. Argon2, the part that needs memory, runs at most four at once.
 - Public encryption keys are read from the database, not certified by the
   CA: someone holding the master key could swap a user's public key and
   receive the next file shared with them.

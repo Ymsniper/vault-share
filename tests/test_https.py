@@ -117,6 +117,29 @@ def test_a_silent_client_does_not_freeze_the_server(ca_dir, https_port):
         silent.close()
 
 
+def test_connections_over_the_cap_wait_for_a_thread(app):
+    server = make_app_server(app, port=0, max_threads=2)
+    thread = threading.Thread(target=server.serve_forever)
+    thread.start()
+    idle = [socket.create_connection(("127.0.0.1", server.port)) for _ in range(2)]
+    late = socket.create_connection(("127.0.0.1", server.port))
+    try:
+        # both threads are held by connections that send nothing
+        late.sendall(b"GET /auth/login HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        late.settimeout(1)
+        with pytest.raises(TimeoutError):
+            late.recv(64)
+        # one of them goes away, and the waiting connection gets its thread
+        idle[0].close()
+        late.settimeout(5)
+        assert late.recv(64).startswith(b"HTTP/1.1 200")
+    finally:
+        for s in (*idle, late):
+            s.close()
+        server.shutdown()
+        thread.join()
+
+
 @pytest.fixture
 def csrf_on(https_app):
     # Flask-WTF reads this on every request, as in test_csrf.py
