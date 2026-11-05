@@ -709,3 +709,27 @@ def test_a_first_click_only_highlights(app, alice, bob):
 
     run(scenario)
     assert seen == [(True, bob.handle), True]
+
+
+def test_clear_two_factor_from_the_users_tab(app, alice):
+    from .test_totp import turn_on
+
+    turn_on(alice)
+
+    async def scenario():
+        console = Console(app, start_server=False)
+        async with console.run_test(size=(140, 45)) as pilot:
+            await pilot.press("enter")
+            await pilot.pause()
+            console.screen.query_one("#tabs").active = "users-tab"
+            await pilot.pause()
+            await pilot.click("#clear-totp")
+            await pilot.pause()
+            assert "lost phone" in console.screen.note
+            await answer(pilot, console, "clear")
+            await console.workers.wait_for_complete()
+            await pilot.pause()
+
+    run(scenario)
+    with app.app_context():
+        assert get_db().execute("SELECT totp_secret FROM users").fetchone()[0] is None

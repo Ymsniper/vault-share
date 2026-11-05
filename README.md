@@ -129,7 +129,12 @@ Two-factor login is optional, per user, from the "Two-factor" page: scan
 the QR code with an authenticator app such as Aegis or FreeOTP and confirm
 with a first code. Wrong codes count toward the same limit as wrong
 passwords, and each code works only once, even when two requests carry it
-at the same moment. Until it is confirmed, the new secret stays on the
+at the same moment. Turning it on also gives ten recovery codes, shown once
+in that page: each one logs in once instead of a code from the phone, and
+"New codes" replaces them. Someone who lost both the phone and the codes
+asks the operator, who can turn their two-factor login off with
+`vault-share admin clear-totp '<username>'` or "Clear two-factor" in the
+console's Users tab. Until it is confirmed, the new secret stays on the
 server with the session that asked for it: it never goes into the
 browser's cookie, and another session of the account cannot see it. An
 admin's new invite code is shown the same way, in the page that made it.

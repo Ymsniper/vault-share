@@ -8,11 +8,36 @@
   </div>
 </div>
 {% if enabled %}
+{% if recovery_codes %}
+<section class="vs-panel mb-4">
+  <h2 class="vs-panel-title">Recovery codes</h2>
+  <p class="vs-note">Each of these codes logs you in once instead of a code from your phone, if you lose it. Write them down or print them now and keep them away from your phone: they are not shown again.</p>
+  <ul class="vs-recovery vs-mono">
+    {% for c in recovery_codes %}<li>{{ c }}</li>{% endfor %}
+  </ul>
+</section>
+{% endif %}
 <div class="row g-4">
   <div class="col-lg-6">
     <section class="vs-panel">
       <h2 class="vs-panel-title">Status <span class="vs-count"><span class="vs-chip vs-chip-ok">On</span></span></h2>
-      <p class="vs-note">Two-factor login is on: after your password, the app asks for the 6-digit code from your authenticator app.</p>
+      <p class="vs-note">Two-factor login is on: after your password, the app asks for the 6-digit code from your authenticator app, or one of your recovery codes.</p>
+    </section>
+    <section class="vs-panel">
+      <h2 class="vs-panel-title">New recovery codes</h2>
+      <p class="vs-note">Replaces your recovery codes with ten new ones; the old ones stop working.</p>
+      <form method="post" action="{{ url_for('totp.new_recovery') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="mb-3">
+          <label for="recovery-password" class="form-label">Your password</label>
+          <input type="password" name="password" id="recovery-password" class="form-control" autocomplete="current-password" required>
+        </div>
+        <div class="mb-4">
+          <label for="recovery-code" class="form-label">Current code</label>
+          <input name="code" id="recovery-code" class="form-control vs-code-input" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required>
+        </div>
+        <button type="submit" class="btn btn-outline-secondary">New codes</button>
+      </form>
     </section>
   </div>
   <div class="col-lg-6">

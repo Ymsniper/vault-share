@@ -173,3 +173,111 @@ def test_a_decoy_session_gets_its_own_secret(app, alice):
             "SELECT totp_secret FROM users WHERE username = ?", (alice.handle,)
         ).fetchone()
     assert row["totp_secret"] is None
+
+
+# letters and digits of the invite code alphabet, in four groups of four
+RECOVERY_SHAPE = rb"\b[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}\b"
+
+
+def recovery_codes(page):
+    return [c.decode() for c in re.findall(RECOVERY_SHAPE, page)]
+
+
+def turn_on_with_codes(client):
+    secret = secret_on_page(client)
+    r = client.post("/auth/totp", data={"password": PASSWORD, "code": code(secret)})
+    assert b"Two-factor login is on." in r.data
+    return secret, recovery_codes(r.data)
+
+
+def test_turning_it_on_gives_ten_recovery_codes_once(app, alice):
+    secret = secret_on_page(alice)
+    r = alice.post("/auth/totp", data={"password": PASSWORD, "code": code(secret)})
+    codes = recovery_codes(r.data)
+    assert len(set(codes)) == 10
+    assert r.headers["Cache-Control"] == "no-store"
+    # shown in that answer only, and stored as hashes
+    assert recovery_codes(alice.get("/auth/totp").data) == []
+    with app.app_context():
+        stored = " ".join(row[0] for row in get_db().execute("SELECT code_hash FROM totp_recovery"))
+    assert len(stored.split()) == 10
+    assert not any(c in stored or c.replace("-", "") in stored for c in codes)
+
+
+def test_a_recovery_code_stands_in_for_the_phone_once(alice):
+    _, codes = turn_on_with_codes(alice)
+    log_out_and_in(alice)
+    assert alice.post("/auth/login/code", data={"recovery": codes[0]}).headers["Location"] == "/"
+
+    log_out_and_in(alice)
+    r = alice.post("/auth/login/code", data={"recovery": codes[0]})
+    assert b"Wrong code." in r.data
+    # typed in any case, with or without the dashes
+    typed = codes[1].lower().replace("-", "")
+    assert alice.post("/auth/login/code", data={"recovery": typed}).headers["Location"] == "/"
+
+
+def test_wrong_recovery_codes_count_toward_the_lock(alice):
+    _, codes = turn_on_with_codes(alice)
+    log_out_and_in(alice)
+    for _ in range(5):
+        alice.post("/auth/login/code", data={"recovery": "AAAA-BBBB-CCCC-DDDD"})
+    assert alice.post("/auth/login/code", data={"recovery": codes[0]}).status_code == 429
+
+
+def test_new_recovery_codes_replace_the_old_ones(alice):
+    secret, old = turn_on_with_codes(alice)
+    r = alice.post("/auth/totp/recovery", data={"password": PASSWORD, "code": code(secret, 1)})
+    new = recovery_codes(r.data)
+    assert len(new) == 10 and not set(new) & set(old)
+    assert r.headers["Cache-Control"] == "no-store"
+
+    log_out_and_in(alice)
+    assert b"Wrong code." in alice.post("/auth/login/code", data={"recovery": old[0]}).data
+    assert alice.post("/auth/login/code", data={"recovery": new[0]}).headers["Location"] == "/"
+
+
+def test_new_codes_need_the_password_and_a_code(alice):
+    secret, old = turn_on_with_codes(alice)
+    r = alice.post(
+        "/auth/totp/recovery",
+        data={"password": "a guess", "code": code(secret, 1)},
+        follow_redirects=True,
+    )
+    assert b"Wrong password." in r.data and recovery_codes(r.data) == []
+    log_out_and_in(alice)
+    assert alice.post("/auth/login/code", data={"recovery": old[0]}).headers["Location"] == "/"
+
+
+def test_the_server_can_turn_off_a_lost_phone(app, alice):
+    _, codes = turn_on_with_codes(alice)
+    r = app.test_cli_runner().invoke(args=["admin", "clear-totp", alice.handle])
+    assert r.exit_code == 0, r.output
+    assert "Two-factor login is off" in r.output
+    # her password alone logs her in again
+    assert log_out_and_in(alice).headers["Location"] == "/"
+    with app.app_context():
+        db = get_db()
+        assert db.execute("SELECT COUNT(*) FROM totp_recovery").fetchone()[0] == 0
+        rows = [tuple(row) for row in db.execute("SELECT action, outcome FROM audit_log")]
+    assert ("totp", "cleared") in rows
+    r = app.test_cli_runner().invoke(args=["admin", "clear-totp", alice.handle])
+    assert r.exit_code != 0 and "two-factor login is not on" in r.output
+
+
+def test_a_decoy_cannot_renew_the_recovery_codes(app, alice):
+    from .test_duress import DURESS, set_duress
+
+    secret, old = turn_on_with_codes(alice)
+    set_duress(alice)
+    forced = app.test_client()
+    forced.post("/auth/login", data={"username": alice.handle, "password": DURESS})
+    forced.post("/auth/login/code", data={"code": code(secret, 1)})
+    r = forced.post(
+        "/auth/totp/recovery",
+        data={"password": DURESS, "code": code(secret, 2)},
+        follow_redirects=True,
+    )
+    assert b"could not be saved" in r.data and recovery_codes(r.data) == []
+    log_out_and_in(alice)
+    assert alice.post("/auth/login/code", data={"recovery": old[0]}).headers["Location"] == "/"

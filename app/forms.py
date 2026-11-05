@@ -46,6 +46,10 @@ class TotpForm(CodeForm):
     password = PasswordField(validators=[DataRequired("Type your password.")])
 
 
+class RecoveryForm(FlaskForm):
+    recovery = StringField(validators=[DataRequired("Type a recovery code."), Length(max=40)])
+
+
 class DuressForm(FlaskForm):
     password = PasswordField(validators=[DataRequired("Type your password.")])
     duress_password = PasswordField(

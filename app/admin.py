@@ -269,6 +269,22 @@ def unban_user(username):
         raise ValueError(f"{username} is not banned.")
 
 
+def clear_totp(username):
+    """Turn off a user's two-factor login, for a lost phone and lost
+    recovery codes: their password alone logs them in again, and they can
+    turn it back on. Raises ValueError."""
+    user = user_by_handle(username)
+    if user["totp_secret"] is None:
+        raise ValueError(f"{username}'s two-factor login is not on.")
+    db = get_db()
+    db.execute(
+        "UPDATE users SET totp_secret = NULL, totp_last_step = NULL WHERE id = ?", (user["id"],)
+    )
+    db.execute("DELETE FROM totp_recovery WHERE user_id = ?", (user["id"],))
+    db.commit()
+    audit("totp", "cleared", user_id=user["id"], detail="at the server")
+
+
 def revoke_certificate(username, since=None, all_files=False):
     """Revoke the user's certificate and publish a new revocation list.
 
@@ -519,6 +535,18 @@ def unban_command(username):
     except ValueError as e:
         raise click.ClickException(str(e)) from None
     click.echo(f"{username} can log in again.")
+
+
+@bp.cli.command("clear-totp")
+@click.argument("username")
+def clear_totp_command(username):
+    """Turn off USERNAME's two-factor login, after they lost their phone and
+    their recovery codes. Their password alone logs them in again."""
+    try:
+        clear_totp(username)
+    except ValueError as e:
+        raise click.ClickException(str(e)) from None
+    click.echo(f"Two-factor login is off for {username}: their password alone logs them in.")
 
 
 TIME = "YYYY-MM-DD HH:MM, local time"

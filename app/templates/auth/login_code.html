@@ -15,6 +15,14 @@
       </div>
       <button type="submit" class="btn btn-primary">Log in</button>
     </form>
+    <form method="post" class="vs-panel">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="mb-4">
+        <label for="recovery" class="form-label">Lost your phone? A recovery code</label>
+        <input name="recovery" id="recovery" class="form-control vs-mono" autocomplete="off" spellcheck="false" autocapitalize="characters" maxlength="40" required>
+      </div>
+      <button type="submit" class="btn btn-outline-secondary">Log in with it</button>
+    </form>
   </div>
 </div>
 {% endblock %}

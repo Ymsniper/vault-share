@@ -6,6 +6,7 @@ DROP TABLE IF EXISTS certificates;
 DROP TABLE IF EXISTS encryption_keys;
 DROP TABLE IF EXISTS user_keys;
 DROP TABLE IF EXISTS sessions;
+DROP TABLE IF EXISTS totp_recovery;
 DROP TABLE IF EXISTS users;
 DROP TABLE IF EXISTS invites;
 DROP TABLE IF EXISTS invite_defaults;
@@ -30,6 +31,16 @@ CREATE TABLE users (
     -- hidden from everyone; nothing is deleted, so a ban can be lifted
     banned_at TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- codes that stand in for the phone at login, once each, for a lost phone;
+-- only their SHA-256 is kept, and they are random, 80 bits, so a copy of the
+-- database gives none of them away
+CREATE TABLE totp_recovery (
+    user_id INTEGER NOT NULL REFERENCES users (id),
+    code_hash TEXT NOT NULL,
+    used_at TEXT,
+    PRIMARY KEY (user_id, code_hash)
 );
 
 -- one-time codes needed to register; only a SHA-256 of each code is kept,

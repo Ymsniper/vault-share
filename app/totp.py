@@ -1,3 +1,4 @@
+import secrets
 import time
 
 from flask import (
@@ -10,6 +11,7 @@ from flask import (
     make_response,
     redirect,
     render_template,
+    request,
     session,
     url_for,
 )
@@ -23,8 +25,9 @@ from .audit import audit
 from .auth import current_account, finish_login, login_required, password_limit
 from .db import get_db
 from .duress import WIPE, login_flag, mode_of, wipe_account
+from .invites import ALPHABET, code_hash
 from .keyring import master_key
-from .forms import CodeForm, TotpForm, first_error
+from .forms import CodeForm, RecoveryForm, TotpForm, first_error
 
 bp = Blueprint("totp", __name__, url_prefix="/auth")
 
@@ -56,6 +59,47 @@ def use_step(user_id, step):
     )
     db.commit()
     return cur.rowcount == 1
+
+
+def recovery_code():
+    """16 symbols of the invite code alphabet, 80 bits, in groups of four."""
+    raw = "".join(secrets.choice(ALPHABET) for _ in range(16))
+    return "-".join(raw[i : i + 4] for i in range(0, 16, 4))
+
+
+def new_recovery_codes(user_id):
+    """Ten single-use codes that stand in for the phone at login, replacing
+    any earlier ones; the caller commits, then shows them once. Only their
+    SHA-256 is kept: they are random, so the hashes give none of them away."""
+    codes = [recovery_code() for _ in range(10)]
+    db = get_db()
+    db.execute("DELETE FROM totp_recovery WHERE user_id = ?", (user_id,))
+    db.executemany(
+        "INSERT INTO totp_recovery (user_id, code_hash) VALUES (?, ?)",
+        [(user_id, code_hash(c)) for c in codes],
+    )
+    return codes
+
+
+def use_recovery_code(user_id, code):
+    """Mark one of the user's recovery codes used, if it is one and was not
+    used yet: one statement, so two requests cannot both use it."""
+    db = get_db()
+    cur = db.execute(
+        "UPDATE totp_recovery SET used_at = datetime('now')"
+        " WHERE user_id = ? AND code_hash = ? AND used_at IS NULL",
+        (user_id, code_hash(code)),
+    )
+    db.commit()
+    return cur.rowcount == 1
+
+
+def codes_page(codes):
+    # in this answer only, like a new invite code: never in the cookie, and
+    # never on the page again
+    return no_store(render_template(
+        "auth/totp.html", enabled=True, form=TotpForm(), recovery_codes=codes
+    ))
 
 
 def pending_secret(create=True):
@@ -125,10 +169,11 @@ def setup():
             db.execute(
                 "UPDATE sessions SET totp_pending = NULL WHERE token_hash = ?", (g.session_hash,)
             )
+            codes = new_recovery_codes(g.user["id"])
             db.commit()
             audit("totp", "enabled")
             flash("Two-factor login is on.", "success")
-            return redirect(url_for("totp.setup"))
+            return codes_page(codes)
         audit("totp", "failed")
     elif form.is_submitted():
         flash(first_error(form))
@@ -166,10 +211,41 @@ def disable():
         "UPDATE users SET totp_secret = NULL, totp_last_step = NULL WHERE id = ?",
         (g.user["id"],),
     )
+    db.execute("DELETE FROM totp_recovery WHERE user_id = ?", (g.user["id"],))
     db.commit()
     audit("totp", "disabled")
     flash("Two-factor login is off.", "success")
     return redirect(url_for("totp.setup"))
+
+
+@bp.route("/totp/recovery", methods=("POST",))
+@login_required
+@password_limit(current_account)
+def new_recovery():
+    """New recovery codes, with the password and a code from the phone."""
+    if g.user["totp_secret"] is None:
+        return redirect(url_for("totp.setup"))
+    if g.duress:
+        flash("This setting could not be saved. Try again later.")
+        return redirect(url_for("totp.setup"))
+    form = TotpForm()
+    if not form.validate():
+        flash(first_error(form))
+        return redirect(url_for("totp.setup"))
+    secret = unseal(g.user["id"], g.user["totp_secret"])
+    step = check_password_and_code(form, secret, g.user["totp_last_step"])
+    if step is not None and not use_step(g.user["id"], step):
+        g.wrong_password = True
+        flash(WRONG_CODE)
+        step = None
+    if step is None:
+        audit("totp", "failed")
+        return redirect(url_for("totp.setup"))
+    codes = new_recovery_codes(g.user["id"])
+    get_db().commit()
+    audit("totp", "new recovery codes")
+    flash("New recovery codes: the old ones no longer work.", "success")
+    return codes_page(codes)
 
 
 def pending_user():
@@ -193,11 +269,19 @@ def login_code():
         flash("Log in again.")
         return redirect(url_for("auth.login"))
 
-    form = CodeForm()
+    # a code from the phone, or one of the recovery codes for a lost phone
+    recovery = "recovery" in request.form
+    form = RecoveryForm() if recovery else CodeForm()
     if form.validate_on_submit():
-        secret = unseal(user["id"], user["totp_secret"])
-        step = matching_step(secret, form.code.data, user["totp_last_step"])
-        if step is not None and use_step(user["id"], step):
+        if recovery:
+            right = use_recovery_code(user["id"], form.recovery.data)
+        else:
+            secret = unseal(user["id"], user["totp_secret"])
+            step = matching_step(secret, form.code.data, user["totp_last_step"])
+            right = step is not None and use_step(user["id"], step)
+        if right:
+            if recovery:
+                audit("totp", "recovery code used", user_id=user["id"])
             duress = login_flag(user["id"], session["totp_mode"])
             if duress and mode_of(user) == WIPE:
                 # the wipe the duress password asked for, now that the code is right

@@ -40,6 +40,7 @@ from app.admin import (
     apply_cleanup,
     apply_revoke_admin,
     ban_user,
+    clear_totp,
     cancel_and_ban,
     describe,
     describe_cancel,
@@ -303,6 +304,7 @@ class Main(Screen):
                     yield Button("Revoke certificate", id="revoke", variant="error", compact=True)
                     yield Button("Ban", id="ban", variant="error", compact=True)
                     yield Button("Unban", id="unban", compact=True)
+                    yield Button("Clear two-factor", id="clear-totp", compact=True)
                     yield Button("Revoke admin...", id="revoke-admin", compact=True)
                 yield DataTable(id="users", cursor_type="row")
             with TabPane("Invites", id="invites-tab"):
@@ -534,6 +536,7 @@ class Console(App):
             ("#revoke", not k.locked),
             ("#ban", not k.locked),
             ("#unban", not k.locked),
+            ("#clear-totp", not k.locked),
             ("#revoke-admin", not k.locked),
             ("#new-invite", not k.locked),
             ("#special-invite", not k.locked),
@@ -876,6 +879,17 @@ class Console(App):
         user = self.selected_user()
         if user:
             self.run_task(f"{user} can log in again.", unban_user, user)
+
+    @on(Button.Pressed, "#clear-totp")
+    def clear_totp_pressed(self):
+        user = self.selected_user()
+        if user:
+            self.push_screen(
+                Ask(f"Clear {user}'s two-factor login", [("Type clear to confirm", False)],
+                    "For a lost phone: their password alone logs them in again."),
+                lambda v: v and v[0] == "clear" and self.run_task(
+                    f"Two-factor login is off for {user}.", clear_totp, user),
+            )
 
     # after a stolen admin login: each choice in its own dialog, then a
     # preview to confirm
