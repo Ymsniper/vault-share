@@ -105,8 +105,14 @@ shows up at once:
 At login, five wrong passwords for one username from one address block
 that pair for 15 minutes, and twenty from one address block the address;
 an IPv6 address counts as its whole /48 network, since one subscriber can
-switch among many.
-Wrong tries from somewhere else never lock the owner out. Once logged in,
+switch among many. A browser that logged in as someone keeps a signed
+cookie for a year that says so, holding a keyed digest rather than the
+name; browsers without it share fifty wrong tries an hour per username,
+wherever they come from, so many addresses together get about 1,200
+guesses a day at one account instead of no limit at all.
+Wrong tries from somewhere else never lock the owner out of a browser they
+have logged in from before; during such an attack, a browser they never
+used has to wait for the hour to pass. Once logged in,
 the password asked at upload, download, sharing, revoking, deleting and in
 the settings has a limit of its own, five wrong ones per account, which only that account's
 sessions can use up. Sharing with a username that does not exist counts

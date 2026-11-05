@@ -1,5 +1,6 @@
 import functools
 import hashlib
+import hmac
 import ipaddress
 import secrets
 import threading
@@ -19,9 +20,11 @@ from flask import (
     url_for,
 )
 from flask_limiter.util import get_remote_address
+from itsdangerous import BadSignature, URLSafeTimedSerializer
 from limits import parse
 from markupsafe import Markup, escape
 
+from security.keys import subkey
 from security.passwords import check_password, check_password_of_unknown_user, hash_password
 
 from . import limiter
@@ -79,7 +82,53 @@ def finish_login(user, duress=False):
         samesite="Lax",
         secure=current_app.config["SESSION_COOKIE_SECURE"],
     )
+    remember_browser(response, user["username"])
     return response
+
+
+# A browser that logged in as someone gets a cookie saying so, kept a year:
+# guesses from browsers without one share a single budget per username, so
+# many addresses together cannot try an account endlessly, while its owner
+# is never locked out of a browser they have used.
+DEVICE_COOKIE = "device"
+DEVICE_SECONDS = 365 * 24 * 3600
+DEVICE_NAMES = 5
+
+
+def device_serializer():
+    return URLSafeTimedSerializer(current_app.secret_key, salt="device")
+
+
+def device_digest(username):
+    """A keyed digest of the username, so the cookie names nobody."""
+    key = subkey(current_app.secret_key, "device")
+    return hmac.new(key, username.encode(), hashlib.sha256).hexdigest()[:32]
+
+
+def known_here():
+    """The digests of the usernames that logged in from this browser; none
+    for a cookie that is missing, expired or not signed by this server."""
+    value = request.cookies.get(DEVICE_COOKIE)
+    if not value:
+        return []
+    try:
+        digests = device_serializer().loads(value, max_age=DEVICE_SECONDS)
+    except BadSignature:
+        return []
+    return [d for d in digests if isinstance(d, str)] if isinstance(digests, list) else []
+
+
+def remember_browser(response, username):
+    mine = device_digest(username)
+    digests = [mine, *(d for d in known_here() if d != mine)][:DEVICE_NAMES]
+    response.set_cookie(
+        DEVICE_COOKIE,
+        device_serializer().dumps(digests),
+        max_age=DEVICE_SECONDS,
+        httponly=True,
+        samesite="Lax",
+        secure=current_app.config["SESSION_COOKIE_SECURE"],
+    )
 
 
 def end_session(token):
@@ -96,6 +145,7 @@ FIVE = parse("5 per 15 minutes")
 TWENTY = parse("20 per 15 minutes")
 SIXTY = parse("60 per 15 minutes")
 TEN_AN_HOUR = parse("10 per hour")
+FIFTY_AN_HOUR = parse("50 per hour")
 
 # the scope that counts every check of a logged-in account, right or wrong
 EVERY_CHECK = "checks"
@@ -218,6 +268,13 @@ def login_key():
     # one username from one address, so wrong tries elsewhere never lock the
     # owner out; cut, since the field is not validated yet and the key is kept
     return f"{request.form.get('username', '')[:40]}|{client_key()}"
+
+
+def stranger_key():
+    """The username alone, for a browser that never logged in with it:
+    those browsers share one budget per account, wherever they are."""
+    username = request.form.get("username", "")[:40]
+    return None if device_digest(username) in known_here() else username
 
 
 def password_limit(key_func, item=FIVE, scope="account", log=True):
@@ -360,8 +417,11 @@ def register_password():
 # 5 wrong passwords for one username from one address; usernames that do
 # not exist count the same way, so the block says nothing about which are real
 @password_limit(login_key, scope="login")
-# and 20 from one address, so one machine cannot try many accounts
+# 20 from one address, so one machine cannot try many accounts
 @password_limit(client_key, TWENTY, "login-address")
+# and 50 an hour for one username from all the browsers it never logged in
+# from, so many addresses together cannot either
+@password_limit(stranger_key, FIFTY_AN_HOUR, "login-username")
 def login():
     form = LoginForm()
     if form.validate_on_submit():

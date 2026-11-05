@@ -342,3 +342,40 @@ def test_one_address_cannot_spray_many_accounts(client):
         login(client, f"user{i}#000000", "wrong guess")
     handle = register(client)
     assert login(client, handle).status_code == 429
+
+
+def test_guesses_from_many_addresses_share_one_budget(app):
+    owner = from_address(app, "198.51.100.7")
+    handle = register(owner)
+    assert login(owner, handle).headers["Location"] == "/"
+    # fifty guesses at one account, from ten addresses: none of them is
+    # over its own limit
+    for i in range(50):
+        attacker = from_address(app, f"203.0.113.{i // 5}")
+        assert login(attacker, handle, "a guess").status_code == 200
+
+    # a browser that never logged in as her is turned away now...
+    stranger = from_address(app, "192.0.2.80")
+    r = login(stranger, handle)
+    assert r.status_code == 429 and LOCKED in r.data
+    # ...but hers still logs in, from any address
+    owner.environ_base["REMOTE_ADDR"] = "192.0.2.81"
+    assert login(owner, handle).headers["Location"] == "/"
+
+
+def test_the_device_cookie_names_nobody(app, client):
+    handle = register(client)
+    login(client, handle)
+    cookie = client.get_cookie("device")
+    assert cookie is not None and cookie.http_only and cookie.same_site == "Lax"
+    name, _, tag = handle.partition("#")
+    assert name not in cookie.value and tag not in cookie.value
+
+
+def test_a_forged_device_cookie_counts_for_nothing(app):
+    handle = register(app.test_client())
+    for i in range(50):
+        login(from_address(app, f"203.0.113.{i // 5}"), handle, "a guess")
+    stranger = from_address(app, "192.0.2.80")
+    stranger.set_cookie("device", "W10.forged.signature")
+    assert login(stranger, handle).status_code == 429
