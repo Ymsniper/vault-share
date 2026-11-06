@@ -18,11 +18,10 @@ from flask import (
 
 from security.crypto import decrypt, encrypt
 from security.keys import subkey
-from security.passwords import check_password
 from security.totp import matching_step, new_secret, qr_svg
 
 from .audit import audit
-from .auth import current_account, finish_login, login_required, password_limit
+from .auth import current_account, finish_login, login_required, password_limit, password_ok
 from .db import get_db
 from .duress import WIPE, login_flag, mode_of, wipe_account
 from .invites import ALPHABET, code_hash
@@ -134,7 +133,7 @@ def check_password_and_code(form, secret, last_step):
 
     A wrong password or code counts toward the same limit as a failed login.
     """
-    if not check_password(g.user["password_hash"], form.password.data):
+    if not password_ok(form.password.data):
         g.wrong_password = True
         flash("Wrong password.")
         return None

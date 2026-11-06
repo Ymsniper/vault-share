@@ -22,7 +22,6 @@ from flask import (
 from security.crypto import decrypt, encrypt, new_key
 from security.hybrid import unwrap_file_key, wrap_file_key
 from security.integrity import record_mac, sha256
-from security.passwords import check_password
 from security.keys import subkey
 from security.pki import (
     certificate_problem,
@@ -40,7 +39,15 @@ from security.uploads import (
 )
 
 from .audit import audit
-from .auth import TEN_AN_HOUR, admit, current_account, login_required, password_limit, settle
+from .auth import (
+    TEN_AN_HOUR,
+    admit,
+    current_account,
+    login_required,
+    password_limit,
+    password_ok,
+    settle,
+)
 from .db import get_db
 from .forms import (
     CheckCopyForm,
@@ -129,12 +136,12 @@ def my_file_key(f, password):
     try:
         private_key = unlock_encryption_key(user["id"], user["username"], password)
     except InvalidTag:
-        private_key, password_ok = None, False
+        private_key, right = None, False
     else:
         # no encryption key at all (only after a duress wipe): the password
         # is still checked, so it cannot be guessed here for free
-        password_ok = private_key is not None or check_password(user["password_hash"], password)
-    if not password_ok:
+        right = private_key is not None or password_ok(password)
+    if not right:
         g.wrong_password = True
         return None, "Wrong password."
     copy = get_db().execute(
@@ -288,16 +295,16 @@ def upload():
         if signer is None:
             # the private key was destroyed by a duress wipe: check the
             # password against the account, a new key pair follows below
-            password_ok = check_password(g.user["password_hash"], password)
+            right = password_ok(password)
         else:
             try:
                 key = unlock_private_key(
                     signer["kdf_salt"], signer["enc_private_key"], password, username.encode()
                 )
-                password_ok = True
+                right = True
             except InvalidTag:
-                password_ok = False
-        if not password_ok:
+                right = False
+        if not right:
             g.wrong_password = True
             audit("upload", "refused", detail="wrong password")
             flash("Wrong password: your signing key stays locked and nothing was uploaded.")
@@ -569,7 +576,7 @@ def owner_password_ok(f, password, action, refusal):
     """Check the owner's password before a share is revoked or a file
     deleted, so a stolen session cookie alone cannot do either. A wrong one
     counts toward the account's limit."""
-    if check_password(g.user["password_hash"], password):
+    if password_ok(password):
         return True
     g.wrong_password = True
     audit(action, "refused", file_id=f["id"], detail="wrong password")

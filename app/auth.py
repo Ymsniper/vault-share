@@ -244,6 +244,13 @@ def first_sight_of_lock(limits):
     return False
 
 
+def password_ok(password):
+    """Whether password is the logged-in account's. Every password asked
+    inside a session goes through here, so one place decides which
+    password a session takes."""
+    return check_password(g.user["password_hash"], password)
+
+
 def current_account():
     """The logged-in user's id: only their own session can count toward the
     limit of their password checks."""

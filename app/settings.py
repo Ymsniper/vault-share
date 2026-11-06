@@ -1,8 +1,8 @@
 from flask import Blueprint, flash, g, redirect, render_template, url_for
 
-from security.passwords import check_password, hash_password, password_problem
+from security.passwords import hash_password, password_problem
 
-from .auth import current_account, login_required, password_limit
+from .auth import current_account, login_required, password_limit, password_ok
 from .db import get_db
 from .duress import DECOY, WIPE, empty_slot, seal_mode
 from .forms import DuressForm, RemoveDuressForm, first_error
@@ -27,7 +27,7 @@ def duress():
     elif form.validate_on_submit():
         user = g.user
         problem = password_problem(user["username"], form.duress_password.data)
-        if not check_password(user["password_hash"], form.password.data):
+        if not password_ok(form.password.data):
             g.wrong_password = True
             flash("Wrong password.")
         elif form.duress_password.data == form.password.data:
@@ -60,7 +60,7 @@ def remove_duress():
         flash(DECOY_REFUSAL)
     elif not form.validate():
         flash(first_error(form))
-    elif not check_password(g.user["password_hash"], form.password.data):
+    elif not password_ok(form.password.data):
         g.wrong_password = True
         flash("Wrong password.")
     else:
