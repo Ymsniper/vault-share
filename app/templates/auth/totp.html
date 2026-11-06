@@ -9,8 +9,10 @@
 </div>
 {% if enabled %}
 {% if recovery_codes %}
-<section class="vs-panel mb-4">
+{# printing this page prints this card only (vault.css) #}
+<section class="vs-panel mb-4 vs-recovery-card">
   <h2 class="vs-panel-title">Recovery codes</h2>
+  <p class="vs-print-only">Vault-Share recovery codes for <strong>{{ g.user['username'] }}</strong></p>
   <p class="vs-note">Each of these codes logs you in once instead of a code from your phone, if you lose it. Write them down or print them now and keep them away from your phone: they are not shown again.</p>
   <ul class="vs-recovery vs-mono">
     {% for c in recovery_codes %}<li>{{ c }}</li>{% endfor %}

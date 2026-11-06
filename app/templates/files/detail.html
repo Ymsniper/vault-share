@@ -115,7 +115,7 @@
         </li>
         {% endfor %}
       </ul>
-      <form method="post" action="{{ url_for('files.revoke', id=f['id']) }}" class="mb-4">
+      <form method="post" action="{{ url_for('files.revoke', id=f['id']) }}" class="vs-revoke">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="text" autocomplete="username" value="{{ g.user['username'] }}" hidden>
         <div class="mb-3">
@@ -128,7 +128,7 @@
           <label for="revoke-password" class="form-label">Your password</label>
           <input type="password" name="password" id="revoke-password" class="form-control" autocomplete="current-password" required>
         </div>
-        <button type="submit" class="btn btn-sm btn-outline-secondary">Revoke</button>
+        <button type="submit" class="btn btn-outline-secondary w-100">Revoke</button>
       </form>
       {% else %}
       <p class="vs-note">Nobody yet.</p>

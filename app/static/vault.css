@@ -636,6 +636,32 @@ code {
   font-size: 0.9rem;
 }
 
+/* "or", between a form and its fallback */
+.vs-or {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin: 1.6rem 0;
+  color: var(--vs-mute);
+  font-size: 0.72rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.vs-or::before,
+.vs-or::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--vs-line);
+}
+
+/* the fallback itself: the same box, dashed and quieter */
+.vs-panel-quiet {
+  padding-top: 1.6rem;
+  border-style: dashed;
+  background: transparent;
+}
+
 .vs-gate-art {
   order: 2;
   margin: 0;
@@ -826,6 +852,35 @@ code {
   border-style: dashed;
   background-color: transparent;
   color: var(--vs-soft);
+}
+
+/* Bootstrap draws the select's arrow with a data: image, which the CSP
+   blocks: two gradients draw a chevron instead */
+.form-select {
+  --bs-form-select-bg-img: none;
+  padding-right: 2.6rem;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--vs-fg) 50%),
+    linear-gradient(135deg, var(--vs-fg) 50%, transparent 50%);
+  background-position: calc(100% - 1.3rem) 55%, calc(100% - 0.95rem) 55%;
+  background-size: 0.36rem 0.36rem;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+
+.form-select option {
+  background: var(--vs-field);
+  color: var(--vs-hi);
+}
+
+/* a recovery code reads in capitals; the server takes any case */
+.vs-recovery-input {
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.vs-recovery-input::placeholder {
+  letter-spacing: 0.12em;
 }
 
 .form-control[type="file"] {
@@ -1347,6 +1402,61 @@ code {
   overflow-wrap: anywhere;
 }
 
+/* revoking and sharing are two forms in one box: a dashed rule between */
+.vs-revoke {
+  margin-bottom: 1.6rem;
+  padding-bottom: 1.6rem;
+  border-bottom: 1px dashed var(--vs-line-2);
+}
+
+/* ten recovery codes, numbered, in two columns of hairline cells */
+.vs-recovery {
+  counter-reset: vs-code;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0 0 1.25rem;
+  padding: 0;
+  border: 1px solid var(--vs-line-2);
+  background: var(--vs-line-2);
+  list-style: none;
+}
+
+.vs-recovery li {
+  counter-increment: vs-code;
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.8rem 1.1rem;
+  background: var(--vs-bg);
+  color: var(--vs-hi);
+  font-size: 1.12rem;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
+.vs-recovery li::before {
+  content: counter(vs-code, decimal-leading-zero);
+  content: counter(vs-code, decimal-leading-zero) / "";
+  color: var(--vs-mute);
+  font-size: 0.72rem;
+}
+
+.vs-recovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.vs-recovery-actions .vs-copy {
+  margin-left: 0;
+}
+
+.vs-print-only {
+  display: none;
+}
+
 /* the upload page's "What happens": three fold-outs of the same shape,
    plain <details>, so no script is needed */
 .vs-folds {
@@ -1711,6 +1821,71 @@ code {
 
   .vs-banner {
     padding: 1.6rem 0 1.3rem;
+  }
+
+  .vs-recovery {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---- print: with recovery codes on the page, the sheet holds the codes
+   only, black on white (backgrounds are often not printed, so the cells are
+   drawn with borders) */
+@media print {
+  @page {
+    margin: 16mm;
+  }
+
+  body:has(.vs-recovery-card) :is(.vs-skip, .vs-mast, .vs-footer),
+  main:has(> .vs-recovery-card) > :not(.vs-recovery-card),
+  .vs-recovery-card .btn {
+    display: none !important;
+  }
+
+  /* a white sheet even when the printer is told to print backgrounds */
+  html:has(.vs-recovery-card),
+  body:has(.vs-recovery-card) {
+    background: #fff !important;
+  }
+
+  .vs-recovery-card,
+  .vs-recovery-card * {
+    color: #000 !important;
+    background: transparent !important;
+  }
+
+  .vs-recovery-card {
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .vs-recovery-card .vs-panel-title {
+    position: static;
+    transform: none;
+    margin: 0 0 0.4rem;
+    padding: 0;
+    font-size: 15pt;
+  }
+
+  .vs-print-only {
+    display: block;
+    margin: 0 0 0.6rem;
+    font-size: 12pt;
+  }
+
+  .vs-recovery {
+    gap: 6px;
+    border: 0;
+  }
+
+  .vs-recovery li {
+    border: 1px solid #000;
+    font-size: 14pt;
+  }
+
+  .vs-recovery li::before {
+    color: #555;
   }
 }
 

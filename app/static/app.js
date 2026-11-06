@@ -61,26 +61,43 @@ function addRemoveFileButton(input) {
 // A Copy button after a new invite code and after the two-factor key. Where
 // the page has no clipboard access (plain HTTP), the text is selected
 // instead, ready for Ctrl+C.
-function addCopyButton(el) {
+function addCopyButton(el, text = () => el.textContent.trim(), label = "Copy") {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "btn btn-outline-secondary btn-sm vs-copy";
   button.setAttribute("aria-live", "polite");
-  button.textContent = "Copy";
+  button.textContent = label;
   el.after(button);
 
   let timer;
   button.addEventListener("click", async () => {
     try {
-      await navigator.clipboard.writeText(el.textContent.trim());
+      await navigator.clipboard.writeText(text());
       button.textContent = "Copied";
     } catch {
       getSelection().selectAllChildren(el);
       button.textContent = "Selected";
     }
     clearTimeout(timer);
-    timer = setTimeout(() => (button.textContent = "Copy"), 1600);
+    timer = setTimeout(() => (button.textContent = label), 1600);
   });
+  return button;
+}
+
+// Under the recovery codes: copy all ten, one per line, or print them. The
+// page's print style puts only the codes on the sheet.
+function addRecoveryActions(list) {
+  const lines = () => [...list.querySelectorAll("li")].map((li) => li.textContent.trim()).join("\n");
+  const copy = addCopyButton(list, lines, "Copy all");
+  const printButton = document.createElement("button");
+  printButton.type = "button";
+  printButton.className = "btn btn-outline-secondary btn-sm vs-copy";
+  printButton.textContent = "Print";
+  printButton.addEventListener("click", () => print());
+  const actions = document.createElement("div");
+  actions.className = "vs-recovery-actions";
+  list.after(actions);
+  actions.append(copy, printButton);
 }
 
 // The upload page's drop area lights up while a file is dragged over it.
@@ -168,6 +185,9 @@ for (const input of document.querySelectorAll("input.vs-drop")) {
 }
 for (const el of document.querySelectorAll(".vs-invite-code")) {
   addCopyButton(el);
+}
+for (const list of document.querySelectorAll(".vs-recovery")) {
+  addRecoveryActions(list);
 }
 for (const el of document.querySelectorAll("code")) {
   if (/^[A-Z2-7]{32}$/.test(el.textContent)) {
