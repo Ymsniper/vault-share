@@ -52,7 +52,6 @@ from app.admin import (
     revoke_certificate,
     unban_user,
 )
-from app.audit import audit
 from app.db import get_db, init_db
 from app.invites import (
     cancel_invite,
@@ -75,6 +74,7 @@ from app.unlock import (
     FactorError,
     add_usb,
     mounted_sticks,
+    record_unlock,
     remove_passphrase,
     remove_usb,
     set_passphrase,
@@ -821,8 +821,7 @@ class Console(App):
         except Exception as e:
             self.call_from_thread(self.notify, str(e), severity="error")
             return
-        with self.flask_app.app_context():
-            audit("unlock", "ok", user_id=None)
+        record_unlock(self.flask_app)
         self.call_from_thread(self.notify, "Unlocked.")
         self.call_from_thread(self.refresh_all)
 

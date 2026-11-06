@@ -210,6 +210,14 @@ def unlock_from_terminal(app, ask=None, say=print):
             keyring.unlock(passphrase)
         except Locked as e:
             say(e)
-    with app.app_context():
-        audit("unlock", "ok", user_id=None)
+    record_unlock(app)
     return True
+
+
+def record_unlock(app):
+    """Write the unlock to the audit log, once there is a database: a
+    passphrase can be set before init-db, and opening the database here
+    would leave an empty file behind."""
+    if os.path.exists(app.config["DATABASE"]):
+        with app.app_context():
+            audit("unlock", "ok", user_id=None)

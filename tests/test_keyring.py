@@ -170,6 +170,16 @@ def test_unlocking_stops_when_the_terminal_input_ends(app):
     assert started.extensions["keyring"].locked
 
 
+def test_unlocking_before_there_is_a_database(app, tmp_path):
+    keys(app, "set-passphrase", input=f"{PASSPHRASE}\n{PASSPHRASE}\n")
+    # a passphrase can be set before init-db: the unlock is not logged then,
+    # and no empty database appears
+    fresh = restart(app, DATABASE=str(tmp_path / "not-made-yet.sqlite3"))
+    assert unlock_from_terminal(fresh, ask=lambda: PASSPHRASE)
+    assert not fresh.extensions["keyring"].locked
+    assert not (tmp_path / "not-made-yet.sqlite3").exists()
+
+
 @pytest.mark.parametrize("behind_proxy", [False, True])
 def test_there_is_no_unlock_page(app, behind_proxy):
     keys(app, "set-passphrase", input=f"{PASSPHRASE}\n{PASSPHRASE}\n")

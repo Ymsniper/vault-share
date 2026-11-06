@@ -28,7 +28,11 @@ if __name__ == "__main__":
             if wants_passphrase(keyring):
                 if can_ask:
                     print("The app is locked.")
-                    can_ask = unlock_from_terminal(app)
+                    try:
+                        can_ask = unlock_from_terminal(app)
+                    except Exception:
+                        # the server keeps running, locked or not
+                        app.logger.exception("unlocking from the terminal failed")
                     if not keyring.locked:
                         print("Unlocked.")
                 elif not told:
