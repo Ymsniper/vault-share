@@ -47,6 +47,7 @@ from app.admin import (
     describe_revoke,
     grant_admin,
     inviter_from,
+    log_entries,
     plan_cleanup,
     plan_revoke_admin,
     revoke_certificate,
@@ -699,17 +700,11 @@ class Console(App):
             self.fill("#audit", [])
             return
         with self.flask_app.app_context():
-            # the same problems as the web page's filter
-            rows = get_db().execute(
-                "SELECT a.id, a.at, u.username, a.action, a.file_id, a.outcome, a.detail, a.ip"
-                " FROM audit_log a LEFT JOIN users u ON u.id = a.user_id"
-                " WHERE ? = 0 OR a.outcome IN ('failed', 'refused', 'denied', 'locked', 'mismatch')"
-                " OR a.action = 'duress'"
-                " ORDER BY a.id DESC LIMIT ?",
-                (int(self.audit_problems), self.audit_limit),
-            ).fetchall()
+            # the same entries and filter as the web page
+            rows = log_entries(problems=self.audit_problems, limit=self.audit_limit)
+        columns = ("at", "username", "action", "file_id", "outcome", "detail", "ip")
         self.fill("#audit", [
-            (str(r["id"]), tuple(Text(str(v) if v is not None else "") for v in tuple(r)[1:]))
+            (str(r["id"]), tuple(Text(str(r[c]) if r[c] is not None else "") for c in columns))
             for r in rows
         ])
 

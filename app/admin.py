@@ -56,10 +56,11 @@ def refuse_decoy(tried):
 PAGE = 200
 
 
-def log_entries(decoy_of=None, problems=False, before=None):
-    """Up to 200 audit entries, newest first, older than entry number before
-    if given. With problems, only failures and refusals, and the duress
-    alarm.
+def log_entries(decoy_of=None, problems=False, before=None, limit=PAGE):
+    """Audit entries, newest first, up to limit, older than entry number
+    before if given. With problems, only failures and refusals, and the
+    duress alarm. The web page and the console's Audit log tab both read
+    the log through here.
 
     decoy_of is the user of a decoy session. It never sees the duress
     events (the silent alarm, and what the decoy itself was refused), nor
@@ -78,7 +79,7 @@ def log_entries(decoy_of=None, problems=False, before=None):
         " OR a.action = 'duress')"
         " AND (? IS NULL OR a.id < ?)"
         " ORDER BY a.id DESC LIMIT ?",
-        (decoy_of, decoy_of, decoy_of, int(problems), before, before, PAGE),
+        (decoy_of, decoy_of, decoy_of, int(problems), before, before, limit),
     ).fetchall()
 
 
