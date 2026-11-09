@@ -321,8 +321,8 @@ def file_lists(q):
         " JOIN shares s ON s.file_id = f.id"
         " JOIN users u ON u.id = f.owner_id"
         " JOIN file_keys c ON c.file_id = f.id AND c.user_id = s.recipient_id"
-        " WHERE s.recipient_id = ? AND s.revoked_at IS NULL AND u.banned_at IS NULL"
-        " AND c.level = ? ORDER BY f.uploaded_at DESC, f.rowid DESC",
+        " WHERE s.recipient_id = ? AND s.revoked_at IS NULL AND s.dismissed_at IS NULL"
+        " AND u.banned_at IS NULL AND c.level = ? ORDER BY f.uploaded_at DESC, f.rowid DESC",
         (uid, level),
     ).fetchall()
     cover = db.execute(
@@ -331,7 +331,8 @@ def file_lists(q):
         " JOIN users u ON u.id = f.owner_id"
         " LEFT JOIN shares s ON s.file_id = f.id AND s.recipient_id = c.user_id"
         " WHERE c.level > ? AND (f.owner_id = c.user_id"
-        "  OR (s.revoked_at IS NULL AND s.file_id IS NOT NULL AND u.banned_at IS NULL))"
+        "  OR (s.file_id IS NOT NULL AND s.revoked_at IS NULL AND s.dismissed_at IS NULL"
+        "   AND u.banned_at IS NULL))"
         " ORDER BY f.uploaded_at DESC, f.rowid DESC",
         (uid, level),
     ).fetchall()

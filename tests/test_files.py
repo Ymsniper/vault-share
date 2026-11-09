@@ -72,6 +72,10 @@ def delete(client, url, password=None, **kwargs):
     return client.post(f"{url}/delete", data={"password": password_of(client, password)}, **kwargs)
 
 
+def dismiss(client, url, password=None, **kwargs):
+    return client.post(f"{url}/dismiss", data={"password": password_of(client, password)}, **kwargs)
+
+
 def file_id(url):
     return url.rsplit("/", 1)[-1]
 
@@ -380,6 +384,45 @@ def test_wrong_passwords_at_delete_count_toward_the_lock(alice):
         delete(alice, url, "a guess")
     assert delete(alice, url).status_code == 429
     assert alice.get(url).status_code == 200
+
+
+def audit_count(app):
+    with app.app_context():
+        return get_db().execute("SELECT COUNT(*) FROM audit_log").fetchone()[0]
+
+
+def test_a_recipient_can_dismiss_a_shared_file(app, alice, bob):
+    url = new_file(alice)
+    share(alice, url, bob.handle)
+    before = audit_count(app)
+    r = dismiss(bob, url, follow_redirects=True)
+    assert r.request.path == "/"
+    assert b"contract.txt" not in shared_with_me(bob)
+    assert bob.get(url).status_code == 403
+    # their copy of the key is gone, and nobody is told: no row but the
+    # refused visit, and the owner still sees the share
+    assert user_id(app, bob.handle) not in copies_of(app, url)
+    assert audit_count(app) == before + 1
+    assert bob.handle.encode() in alice.get(url).data.split(b"Shared with")[1]
+
+
+def test_sharing_again_brings_a_dismissed_file_back(app, alice, bob):
+    url = new_file(alice)
+    share(alice, url, bob.handle)
+    dismiss(bob, url)
+    share(alice, url, bob.handle)
+    assert b"contract.txt" in shared_with_me(bob)
+    assert download(bob, url).data == CONTRACT
+
+
+def test_dismissing_asks_for_the_password(app, alice, bob):
+    url = new_file(alice)
+    share(alice, url, bob.handle)
+    r = dismiss(bob, url, "a guess", follow_redirects=True)
+    assert b"Wrong password" in r.data
+    assert b"contract.txt" in shared_with_me(bob)
+    # only a recipient dismisses; an owner deletes
+    assert dismiss(alice, url).status_code == 403
 
 
 def test_unknown_file_is_404(alice):

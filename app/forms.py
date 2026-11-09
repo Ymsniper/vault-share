@@ -113,6 +113,10 @@ class DeleteForm(FlaskForm):
     password = PasswordField(validators=[DataRequired("Type your password to delete the file.")])
 
 
+class DismissForm(FlaskForm):
+    password = PasswordField(validators=[DataRequired("Type your password to remove the file.")])
+
+
 def first_error(form):
     """The first message of the first field that failed, to show the user."""
     for messages in form.errors.values():

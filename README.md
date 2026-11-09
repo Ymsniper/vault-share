@@ -295,6 +295,11 @@ downloads nothing. Sharing opens your copy and encrypts the key again for
 the recipient; revoking deletes their copy, so bringing the share back in
 the database gives them nothing. Revoking and deleting ask for the password
 too, so a stolen cookie cannot destroy files or cut anyone off either.
+A recipient can also take a shared file off their own list ("Remove from
+my list", with the password): their copy of the key goes, the owner is not
+told and still sees the share, and sharing it again brings it back. It is
+not logged, so a file missing from someone's list can always have been
+removed this way, which is also what a duress session's view looks like.
 
 ![A file shared with you](docs/screenshots/web-shared-file.png)
 

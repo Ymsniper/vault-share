@@ -23,6 +23,7 @@ from .test_files import (
     CONTRACT,
     cover_files,
     delete,
+    dismiss,
     download,
     file_id,
     my_files,
@@ -116,15 +117,16 @@ def test_an_own_file_hidden_by_its_level_answers_like_a_deleted_one(app, alice):
     assert len(rows(app)) == before
 
 
-def test_a_received_file_hidden_by_its_level_answers_like_a_revoked_one(app, alice, bob):
+def test_a_received_file_hidden_by_its_level_answers_like_a_dismissed_one(app, alice, bob):
     hidden = new_file(bob, name="figures.txt")
     share(bob, hidden, alice.handle)
-    revoked = new_file(bob, name="old-figures.txt")
-    share(bob, revoked, alice.handle)
-    revoke(bob, revoked, user_id(app, alice.handle))
+    # its twin: a file shared with her that she dismissed
+    dismissed = new_file(bob, name="old-figures.txt")
+    share(bob, dismissed, alice.handle)
+    dismiss(alice, dismissed)
     forced = at_level_one(app, alice)
     answers = []
-    for url in (hidden, revoked):
+    for url in (hidden, dismissed):
         r = forced.get(url)
         answers.append((r.status_code, rows(app)[-1]))
     assert answers == [(403, ("access", "denied", 1))] * 2

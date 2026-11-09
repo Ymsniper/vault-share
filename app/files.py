@@ -52,6 +52,7 @@ from .db import get_db
 from .forms import (
     CheckCopyForm,
     DeleteForm,
+    DismissForm,
     DownloadForm,
     RevokeForm,
     SearchForm,
@@ -102,8 +103,8 @@ def get_file(id, owner_only=False):
     # the files of a banned owner are hidden from everyone they shared with
     if not owner_only and f["owner_banned_at"] is None and not levels.hidden(id):
         share = db.execute(
-            "SELECT 1 FROM shares"
-            " WHERE file_id = ? AND recipient_id = ? AND revoked_at IS NULL",
+            "SELECT 1 FROM shares WHERE file_id = ? AND recipient_id = ?"
+            " AND revoked_at IS NULL AND dismissed_at IS NULL",
             (id, g.user["id"]),
         ).fetchone()
         if share is not None:
@@ -490,7 +491,7 @@ def share(id):
         db.execute(
             "INSERT INTO shares (file_id, recipient_id) VALUES (?, ?)"
             " ON CONFLICT (file_id, recipient_id)"
-            " DO UPDATE SET revoked_at = NULL, created_at = datetime('now')",
+            " DO UPDATE SET revoked_at = NULL, dismissed_at = NULL, created_at = datetime('now')",
             (f["id"], user["id"]),
         )
         db.commit()
@@ -541,6 +542,36 @@ def revoke(id):
     audit("revoke", "ok", file_id=f["id"], detail=f"user {recipient_id}")
     flash("Share revoked.", "success")
     return redirect(url_for("files.detail", id=f["id"]))
+
+
+@bp.route("/files/<uuid:id>/dismiss", methods=("POST",))
+@login_required
+@password_limit(current_account)
+def dismiss(id):
+    """A recipient takes a shared file off their own list. Their copy of its
+    key goes, the owner is not told and still sees the share, and sharing
+    again brings it back. Not logged: a file that is missing from someone's
+    list can always have been dismissed."""
+    f = get_file(id)
+    if f["owner_id"] == g.user["id"]:
+        abort(403)
+    form = DismissForm()
+    if not form.validate():
+        flash(first_error(form))
+        return redirect(url_for("files.detail", id=f["id"]))
+    if not password_ok(form.password.data):
+        g.wrong_password = True
+        flash("Wrong password: the file stays on your list.")
+        return redirect(url_for("files.detail", id=f["id"]))
+    db = get_db()
+    db.execute(
+        "UPDATE shares SET dismissed_at = datetime('now') WHERE file_id = ? AND recipient_id = ?",
+        (f["id"], g.user["id"]),
+    )
+    db.execute("DELETE FROM file_keys WHERE file_id = ? AND user_id = ?", (f["id"], g.user["id"]))
+    db.commit()
+    flash(f"Removed {f['filename']} from your list.", "success")
+    return redirect(url_for("files.index"))
 
 
 @bp.route("/files/<uuid:id>/delete", methods=("POST",))

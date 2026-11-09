@@ -103,6 +103,22 @@
     </section>
     {% endif %}
 
+    {% if not mine %}
+    <section class="vs-panel">
+      <h2 class="vs-panel-title">Remove from my list</h2>
+      <p class="vs-note">Takes this file off your list and deletes your copy of its key. {{ f['owner']|handle }} is not told; sharing it with you again brings it back.</p>
+      <form method="post" action="{{ url_for('files.dismiss', id=f['id']) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="text" autocomplete="username" value="{{ g.user['username'] }}" hidden>
+        <div class="mb-3">
+          <label for="dismiss-password" class="form-label">Your password</label>
+          <input type="password" name="password" id="dismiss-password" class="form-control" autocomplete="current-password" required>
+        </div>
+        <button type="submit" class="btn btn-outline-secondary w-100">Remove</button>
+      </form>
+    </section>
+    {% endif %}
+
     {% if mine %}
     <section class="vs-panel">
       <h2 class="vs-panel-title">Shared with <span class="vs-count">{{ shares|length }}</span></h2>

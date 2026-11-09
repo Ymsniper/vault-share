@@ -162,6 +162,9 @@ CREATE TABLE shares (
     recipient_id INTEGER NOT NULL REFERENCES users (id),
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     revoked_at TEXT,
+    -- set when the recipient took the file off their own list: the owner
+    -- still sees the share, and sharing again brings it back
+    dismissed_at TEXT,
     PRIMARY KEY (file_id, recipient_id)
 );
 
