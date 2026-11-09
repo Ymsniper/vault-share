@@ -368,6 +368,92 @@ def test_the_bottom_vault_has_nowhere_to_move_files(app, alice):
     assert download(deeper, notes).status_code == 200
 
 
+def windows(app, client):
+    with app.app_context():
+        user = get_db().execute(
+            "SELECT * FROM users WHERE username = ?", (client.handle,)
+        ).fetchone()
+        return [bool(w) for w in levels.open_policy(user).window_since]
+
+
+def test_a_share_arrives_where_the_duress_session_is(app, alice, bob):
+    forced = at_level_one(app, alice)
+    during = new_file(bob, name="figures.txt")
+    share(bob, during, alice.handle)
+    # the coercer sees it arrive, as on a real account
+    assert b"figures.txt" in shared_with_me(forced)
+    assert download(forced, during).status_code == 200
+    # the next real login closes the window: shares arrive at level 0 again
+    log_in(app, alice, PASSWORD)
+    after = new_file(bob, name="minutes.txt")
+    share(bob, after, alice.handle)
+    assert b"minutes.txt" not in shared_with_me(forced)
+    assert b"minutes.txt" in shared_with_me(alice)
+
+
+def test_logins_at_one_two_then_one_close_only_the_higher_window(app, alice):
+    forced = at_level_one(app, alice)
+    assert windows(app, alice) == [False, True, False]
+    set_duress(forced, duress=DEEPER)
+    log_in(app, alice, DEEPER)
+    assert windows(app, alice) == [False, True, True]
+    log_in(app, alice, DURESS)
+    assert windows(app, alice) == [False, True, False]
+    log_in(app, alice, PASSWORD)
+    assert windows(app, alice) == [False, False, False]
+
+
+def test_a_share_arrives_at_the_highest_open_window(app, alice, bob):
+    forced = at_level_one(app, alice)
+    set_duress(forced, duress=DEEPER)
+    deeper, _ = log_in(app, alice, DEEPER)
+    url = new_file(bob, name="figures.txt")
+    share(bob, url, alice.handle)
+    # level 2 sees it, and so does level 1, which sees level 2
+    assert b"figures.txt" in shared_with_me(deeper)
+    assert b"figures.txt" in cover_files(forced)
+
+
+def test_a_duress_session_deletes_softly(app, alice, bob, monkeypatch):
+    forced = at_level_one(app, alice)
+    menu = new_file(forced, MENU, "menu.txt")
+    share(forced, menu, bob.handle)
+    r = delete(forced, menu, follow_redirects=True)
+    assert b"Deleted menu.txt." in r.data
+    # gone for everyone, recipients and the real password included...
+    for client in (forced, alice, bob):
+        assert client.get(menu).status_code == 404
+    assert b"menu.txt" not in cover_files(alice)
+    # ...but kept for 30 days, in case the real owner wants it back
+    assert os.path.exists(stored_path(app, menu))
+    tick(monkeypatch, 31 * 24 * 3600)
+    with app.app_context():
+        db = get_db()
+        db.execute("UPDATE files SET trashed_at = datetime('now', '-31 days')")
+        db.commit()
+    log_in(app, alice, PASSWORD)
+    assert not os.path.exists(stored_path(app, menu))
+    with app.app_context():
+        assert get_db().execute("SELECT COUNT(*) FROM files").fetchone()[0] == 0
+
+
+def test_deletes_stay_soft_after_the_window_closes(app, alice):
+    forced = at_level_one(app, alice)
+    menu = new_file(forced, MENU, "menu.txt")
+    log_in(app, alice, PASSWORD)
+    delete(forced, menu)
+    with app.app_context():
+        assert get_db().execute("SELECT trashed_at FROM files").fetchone()[0] is not None
+
+
+def test_the_real_password_deletes_for_good(app, alice):
+    real = new_file(alice)
+    delete(alice, real)
+    assert not os.path.exists(stored_path(app, real))
+    with app.app_context():
+        assert get_db().execute("SELECT COUNT(*) FROM files").fetchone()[0] == 0
+
+
 def test_a_wipe_destroys_level_zero_and_nothing_else(app, alice, bob):
     forced = at_level_one(app, alice)
     menu = new_file(forced, MENU, "menu.txt")
@@ -399,6 +485,10 @@ def test_a_level_two_wipe_leaves_level_zero_intact(app, alice):
     set_duress(forced, "wipe", duress=DEEPER)
     log_in(app, alice, DEEPER)
     assert alice.get(menu).status_code == 404
+    # armed at level 1, the wipe is soft: kept for the real owner
+    with app.app_context():
+        assert get_db().execute("SELECT trashed_at FROM files WHERE filename = 'menu.txt'"
+                                ).fetchone()[0] is not None
     assert download(alice, real).data == CONTRACT
     after = new_file(alice, name="after.txt")
     assert f"Signature valid, signed by {alice.handle}.".encode() in alice.get(after).data

@@ -462,7 +462,7 @@ def login():
             audit("login", "refused", user_id=user["id"], detail="banned")
             flash("This account is disabled.")
         else:
-            levels.note_login(user)
+            levels.note_login(user, level)
             if user["totp_secret"] is not None:
                 # right password, but no session until the code is right
                 # too; a duress login's alarm is this row, written now, and

@@ -147,14 +147,18 @@ CREATE TABLE files (
     checked INTEGER NOT NULL CHECK (checked IN (0, 1)),
     size INTEGER NOT NULL,
     sha256 TEXT NOT NULL,
-    -- HMAC of every other column (security/integrity.py), so editing any
-    -- of them is detected
+    -- HMAC of the columns above and below but the trash marks, which
+    -- change (security/integrity.py), so editing any of them is detected
     record_mac BLOB NOT NULL,
     signature BLOB NOT NULL,
     cert_id INTEGER NOT NULL REFERENCES certificates (id),
     -- the signature is judged at this time; the app writes it, so the
     -- HMAC covers exactly what is stored
-    uploaded_at TEXT NOT NULL DEFAULT (datetime('now'))
+    uploaded_at TEXT NOT NULL DEFAULT (datetime('now')),
+    -- set when a duress session deleted the file: hidden from everyone,
+    -- kept 30 days for the real owner, then removed (app/levels.py)
+    trashed_at TEXT,
+    trashed_level INTEGER
 );
 
 CREATE TABLE shares (

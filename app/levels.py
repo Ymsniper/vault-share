@@ -183,10 +183,46 @@ def alarm_detail(user, level, waits=False):
     return "wipe after the code" if waits else "wipe"
 
 
-def note_login(user):
-    """Rewrite the account's policy at every login, whatever the level, so
-    every login makes the same writes."""
-    update_policy(user["id"], lambda policy: None)
+TRASH_DAYS = 30
+
+
+def note_login(user, level):
+    """At every login: a duress login opens its level's window, keeping its
+    start if it is open already, and any login closes the windows of the
+    levels below its own (a higher number). Returns what it closed, as
+    (level, since) pairs. The policy is written again whatever the level,
+    so every login makes the same writes."""
+    now = int(time.time())
+
+    def change(policy):
+        closed = []
+        for lower in range(level + 1, LEVELS):
+            if policy.window_since[lower]:
+                closed.append((lower, policy.window_since[lower]))
+                policy.window_since[lower] = 0
+        if level and not policy.window_since[level]:
+            policy.window_since[level] = now
+        return closed
+
+    closed = update_policy(user["id"], change)
+    purge_trash()
+    return closed
+
+
+def purge_trash():
+    """Remove the files duress sessions deleted more than 30 days ago."""
+    db = get_db()
+    gone = [r["id"] for r in db.execute(
+        "SELECT id FROM files WHERE trashed_at < datetime('now', ?)", (f"-{TRASH_DAYS} days",)
+    )]
+    if not gone:
+        return
+    db.execute("PRAGMA secure_delete = ON")
+    paths = [storage_path(file_id) for file_id in gone]
+    for file_id in gone:
+        db.execute("DELETE FROM files WHERE id = ?", (file_id,))
+    db.commit()
+    _remove(paths)
 
 
 def seal_pending(user_id, level):
@@ -294,14 +330,37 @@ def keep_own_copy(file_id, key):
 
 
 def arrival_level(user_id):
-    """The level a file shared with this user arrives at: their top."""
-    return 0
+    """The level a file shared with this user arrives at: the highest
+    numbered level whose window is open, so whoever holds that duress
+    session sees it arrive, as on a real account; else their top."""
+    user = get_db().execute(
+        "SELECT username, duress_policy FROM users WHERE id = ?", (user_id,)
+    ).fetchone()
+    policy = open_policy(user)
+    return max((lvl for lvl in range(1, LEVELS) if policy.window_since[lvl]), default=0)
 
 
 def give_copy(file_id, user_id, key):
     """A recipient's copy of the file key, at the level a share arrives at.
     The caller commits."""
     _store(file_id, user_id, key, arrival_level(user_id))
+
+
+def discard(file_id):
+    """Delete a file for its owner. From level 0 it goes for good; from a
+    duress session it is trashed instead, hidden from everyone exactly as
+    if it were gone and kept 30 days, so a coercer cannot destroy what the
+    real owner might want back. The caller removes nothing else."""
+    db = get_db()
+    if g.level == 0:
+        _remove([storage_path(file_id)])
+        db.execute("DELETE FROM files WHERE id = ?", (file_id,))
+    else:
+        db.execute(
+            "UPDATE files SET trashed_at = datetime('now'), trashed_level = ? WHERE id = ?",
+            (g.level, file_id),
+        )
+    db.commit()
 
 
 def file_lists(q):
@@ -312,7 +371,8 @@ def file_lists(q):
     mine = db.execute(
         "SELECT f.id, f.filename, f.size, f.uploaded_at, f.checked FROM files f"
         " JOIN file_keys c ON c.file_id = f.id AND c.user_id = f.owner_id"
-        " WHERE f.owner_id = ? AND c.level = ? AND instr(lower(f.filename), lower(?)) > 0"
+        " WHERE f.owner_id = ? AND c.level = ? AND f.trashed_at IS NULL"
+        " AND instr(lower(f.filename), lower(?)) > 0"
         " ORDER BY f.uploaded_at DESC, f.rowid DESC",
         (uid, level, q),
     ).fetchall()
@@ -322,7 +382,8 @@ def file_lists(q):
         " JOIN users u ON u.id = f.owner_id"
         " JOIN file_keys c ON c.file_id = f.id AND c.user_id = s.recipient_id"
         " WHERE s.recipient_id = ? AND s.revoked_at IS NULL AND s.dismissed_at IS NULL"
-        " AND u.banned_at IS NULL AND c.level = ? ORDER BY f.uploaded_at DESC, f.rowid DESC",
+        " AND u.banned_at IS NULL AND c.level = ? AND f.trashed_at IS NULL"
+        " ORDER BY f.uploaded_at DESC, f.rowid DESC",
         (uid, level),
     ).fetchall()
     cover = db.execute(
@@ -330,7 +391,7 @@ def file_lists(q):
         " JOIN file_keys c ON c.file_id = f.id AND c.user_id = ?"
         " JOIN users u ON u.id = f.owner_id"
         " LEFT JOIN shares s ON s.file_id = f.id AND s.recipient_id = c.user_id"
-        " WHERE c.level > ? AND (f.owner_id = c.user_id"
+        " WHERE c.level > ? AND f.trashed_at IS NULL AND (f.owner_id = c.user_id"
         "  OR (s.file_id IS NOT NULL AND s.revoked_at IS NULL AND s.dismissed_at IS NULL"
         "   AND u.banned_at IS NULL))"
         " ORDER BY f.uploaded_at DESC, f.rowid DESC",
@@ -351,7 +412,7 @@ def cover_lists():
             " JOIN file_keys c ON c.file_id = f.id AND c.user_id = ?"
             " JOIN users u ON u.id = f.owner_id"
             " LEFT JOIN shares s ON s.file_id = f.id AND s.recipient_id = c.user_id"
-            " WHERE c.level = ? AND (f.owner_id = c.user_id"
+            " WHERE c.level = ? AND f.trashed_at IS NULL AND (f.owner_id = c.user_id"
             "  OR (s.file_id IS NOT NULL AND s.revoked_at IS NULL AND s.dismissed_at IS NULL))"
             " ORDER BY f.filename",
             (uid, lvl),
@@ -461,12 +522,22 @@ def wipe(user, level):
     db.execute("PRAGMA secure_delete = ON")
     owned = [r["id"] for r in db.execute(
         "SELECT f.id FROM files f JOIN file_keys c ON c.file_id = f.id AND c.user_id = f.owner_id"
-        " WHERE f.owner_id = ? AND c.level = ?",
+        " WHERE f.owner_id = ? AND c.level = ? AND f.trashed_at IS NULL",
         (user["id"], target),
     )]
-    paths = [storage_path(file_id) for file_id in owned]
-    for file_id in owned:
-        db.execute("DELETE FROM files WHERE id = ?", (file_id,))
+    paths = []
+    if target == 0:
+        paths = [storage_path(file_id) for file_id in owned]
+        for file_id in owned:
+            db.execute("DELETE FROM files WHERE id = ?", (file_id,))
+    else:
+        # armed by a duress session: trashed like its own deletes, so a
+        # coercer cannot destroy for good what the real owner keeps there
+        for file_id in owned:
+            db.execute(
+                "UPDATE files SET trashed_at = datetime('now'), trashed_level = ? WHERE id = ?",
+                (level, file_id),
+            )
     # copies of other people's file keys: the shares end with them
     for r in db.execute(
         "SELECT file_id FROM file_keys WHERE user_id = ? AND level = ?", (user["id"], target)

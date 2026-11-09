@@ -163,6 +163,14 @@ key, so it asks for the password, and it is not logged. The page also
 shows when the cover files last changed, since an empty or stale cover
 vault looks wrong.
 
+A duress login opens its level's window, which stays open until a login
+at a lower level number closes it. Meanwhile shares sent to the account
+arrive at that level, so whoever holds the duress session sees them arrive
+as on a real account, and files a duress session deletes are trashed
+instead of destroyed: hidden from everyone, recipients included, as if
+they were gone, and kept for 30 days for the real owner. The real password
+deletes for good.
+
 A duress login is the silent alarm: its login row is written at its level,
 and admins at level 0 and the console show it as `duress`; at the duress
 level itself it is a plain login. An admin's session at level 1 sees the

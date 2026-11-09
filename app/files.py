@@ -96,7 +96,10 @@ def get_file(id, owner_only=False):
         " JOIN certificates c ON c.id = f.cert_id WHERE f.id = ?",
         (id,),
     ).fetchone()
-    if f is None or (f["owner_id"] == g.user["id"] and levels.hidden(id)):
+    # a file a duress session deleted is gone for everyone, recipients too
+    if f is None or f["trashed_at"] is not None:
+        abort(404)
+    if f["owner_id"] == g.user["id"] and levels.hidden(id):
         abort(404)
     if f["owner_id"] == g.user["id"]:
         return f
@@ -587,12 +590,6 @@ def delete(id):
         return redirect(url_for("files.detail", id=f["id"]))
     # logged first, while the row still says whose file it was
     audit("delete", "ok", file_id=f["id"])
-    try:
-        os.remove(storage_path(f["id"]))
-    except FileNotFoundError:
-        pass
-    db = get_db()
-    db.execute("DELETE FROM files WHERE id = ?", (f["id"],))
-    db.commit()
+    levels.discard(f["id"])
     flash(f"Deleted {f['filename']}.", "success")
     return redirect(url_for("files.index"))
