@@ -282,7 +282,7 @@ def _store(file_id, user_id, key, level):
     get_db().execute(
         "INSERT INTO file_keys (file_id, user_id, wrapped_key, level) VALUES (?, ?, ?, ?)"
         " ON CONFLICT (file_id, user_id) DO UPDATE"
-        " SET wrapped_key = excluded.wrapped_key, level = excluded.level",
+        " SET wrapped_key = excluded.wrapped_key, level = excluded.level, since = datetime('now')",
         (file_id, user_id, wrap_file_key(public, key, file_id, user_id, level), level),
     )
 
@@ -337,6 +337,62 @@ def file_lists(q):
         (uid, level),
     ).fetchall()
     return mine, shared, cover
+
+
+def cover_lists():
+    """For the Duress page: the current user's files at the session's level,
+    owned or received, and the cover files one level down, which are the
+    ones it can move between."""
+    db, uid, level = get_db(), g.user["id"], g.level
+
+    def at(lvl):
+        return db.execute(
+            "SELECT f.id, f.filename, u.username AS owner FROM files f"
+            " JOIN file_keys c ON c.file_id = f.id AND c.user_id = ?"
+            " JOIN users u ON u.id = f.owner_id"
+            " LEFT JOIN shares s ON s.file_id = f.id AND s.recipient_id = c.user_id"
+            " WHERE c.level = ? AND (f.owner_id = c.user_id"
+            "  OR (s.file_id IS NOT NULL AND s.revoked_at IS NULL AND s.dismissed_at IS NULL))"
+            " ORDER BY f.filename",
+            (uid, lvl),
+        ).fetchall()
+
+    return at(level), at(level + 1)
+
+
+def cover_changed():
+    """When the cover files last changed, as UTC text, or None: a cover
+    vault that never changes is a tell of its own."""
+    return get_db().execute(
+        "SELECT MAX(since) FROM file_keys WHERE user_id = ? AND level > ?",
+        (g.user["id"], g.level),
+    ).fetchone()[0]
+
+
+def move_files(keys, file_ids, down):
+    """Move the current user's copies of these files' keys from the
+    session's level to the next one down, or back up. Each copy is opened
+    and encrypted again to the other level's public key, so it takes the
+    keys the password opened, and only copies at the level they move from
+    are touched. Returns how many moved, or None at the last level, which
+    has none below it."""
+    level, uid, db = g.level, g.user["id"], get_db()
+    if level + 1 >= LEVELS:
+        return None
+    source, target = (level, level + 1) if down else (level + 1, level)
+    moved = 0
+    for file_id in file_ids:
+        copy = db.execute(
+            "SELECT wrapped_key FROM file_keys WHERE file_id = ? AND user_id = ? AND level = ?",
+            (file_id, uid, source),
+        ).fetchone()
+        if copy is None:
+            continue
+        key = unwrap_file_key(keys.private[source], copy["wrapped_key"], file_id, uid, source)
+        _store(file_id, uid, key, target)
+        moved += 1
+    db.commit()
+    return moved
 
 
 def set_duress(keys, password, mode):

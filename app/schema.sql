@@ -178,6 +178,8 @@ CREATE TABLE file_keys (
     -- the level whose public key the copy is encrypted to: a session sees
     -- and opens the copies at its own level and the ones below it
     level INTEGER NOT NULL CHECK (level BETWEEN 0 AND 2),
+    -- when the copy was made or moved to its level
+    since TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (file_id, user_id)
 );
 

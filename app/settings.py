@@ -1,10 +1,12 @@
-from flask import Blueprint, current_app, flash, g, redirect, render_template, url_for
+import re
+
+from flask import Blueprint, current_app, flash, g, redirect, render_template, request, url_for
 
 from security.passwords import password_problem
 
 from . import levels
 from .auth import current_account, login_required, password_limit, password_ok
-from .forms import DuressForm, RemoveDuressForm, first_error
+from .forms import CoverForm, DuressForm, RemoveDuressForm, first_error
 from .invites import plural
 
 bp = Blueprint("settings", __name__, url_prefix="/auth")
@@ -41,7 +43,46 @@ def duress():
             return redirect(url_for("settings.duress"))
     elif form.is_submitted():
         flash(first_error(form))
-    return render_template("auth/duress.html", delay=delay())
+    return duress_page()
+
+
+def duress_page():
+    here, below = levels.cover_lists()
+    changed = levels.cover_changed()
+    return render_template(
+        "auth/duress.html",
+        delay=delay(),
+        here=here,
+        below=below,
+        changed=f"{changed[:16]} UTC" if changed else "never",
+    )
+
+
+FILE_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+
+
+@bp.route("/duress/cover", methods=("POST",))
+@login_required
+@password_limit(current_account)
+def cover():
+    """Move files to the cover files, which the duress password opens, or
+    back. Not logged, for the same reason as setting the duress password."""
+    form = CoverForm()
+    if not form.validate():
+        flash(first_error(form))
+        return redirect(url_for("settings.duress"))
+    keys = levels.unlock(form.password.data)
+    if keys is None:
+        g.wrong_password = True
+        flash("Wrong password.")
+        return redirect(url_for("settings.duress"))
+    ids = [i for i in request.form.getlist("file") if FILE_ID.fullmatch(i)][:500]
+    moved = levels.move_files(keys, ids, form.direction.data == "down")
+    if moved is None:
+        flash("This could not be saved. Try again later.")
+    else:
+        flash(f"Moved {plural(moved, 'file')}.", "success")
+    return redirect(url_for("settings.duress"))
 
 
 def delay():

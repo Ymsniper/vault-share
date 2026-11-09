@@ -156,7 +156,12 @@ levels below it as its cover files, and every page looks the same at each
 level. A password asked inside a session is checked against that
 session's level only, so no form there can test another password. The
 signing key hangs off level 2, which every password reaches, so files
-uploaded at any level carry the same certificate.
+uploaded at any level carry the same certificate. The Duress page moves
+files between your own vault and the cover files, yours or shared with
+you: each move encrypts the key copy again to the other level's public
+key, so it asks for the password, and it is not logged. The page also
+shows when the cover files last changed, since an empty or stale cover
+vault looks wrong.
 
 A duress login is the silent alarm: its login row is written at its level,
 and admins at level 0 and the console show it as `duress`; at the duress

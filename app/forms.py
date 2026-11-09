@@ -1,7 +1,7 @@
 from flask_wtf import FlaskForm
 from flask_wtf.file import FileField, FileRequired
 from wtforms import BooleanField, PasswordField, RadioField, StringField, TextAreaField
-from wtforms.validators import DataRequired, Length, Regexp, ValidationError
+from wtforms.validators import AnyOf, DataRequired, Length, Regexp, ValidationError
 
 from security.passwords import password_problem
 
@@ -67,6 +67,12 @@ class DuressForm(FlaskForm):
 
 class RemoveDuressForm(FlaskForm):
     password = PasswordField(validators=[DataRequired("Type your password.")])
+
+
+class CoverForm(FlaskForm):
+    password = PasswordField(validators=[DataRequired("Type your password.")])
+    # to the cover files, or back from them
+    direction = StringField(validators=[AnyOf(["down", "up"])])
 
 
 class LoginForm(FlaskForm):

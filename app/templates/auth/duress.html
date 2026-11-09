@@ -62,4 +62,51 @@
     </form>
   </div>
 </div>
+
+<section class="vs-panel">
+  <h2 class="vs-panel-title">Cover files</h2>
+  <p class="vs-note">What the duress password opens. Keep a few ordinary files there, and keep them current: an empty or stale cover vault looks wrong. Moving a file encrypts its key again, so it asks for your password. Cover files last changed: {{ changed }}.</p>
+  <div class="row g-4">
+    <div class="col-lg-6">
+      <form method="post" action="{{ url_for('settings.cover') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="direction" value="down">
+        <h3 class="vs-panel-title">Your files</h3>
+        {% for f in here %}
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="file" id="down-{{ f['id'] }}" value="{{ f['id'] }}">
+          <label class="form-check-label" for="down-{{ f['id'] }}">{{ f['filename'] }}</label>
+        </div>
+        {% else %}
+        <p class="vs-note">No files.</p>
+        {% endfor %}
+        <div class="my-3">
+          <label for="down-password" class="form-label">Your password</label>
+          <input type="password" name="password" id="down-password" class="form-control" autocomplete="current-password" required>
+        </div>
+        <button type="submit" class="btn btn-outline-secondary w-100">Move to the cover files</button>
+      </form>
+    </div>
+    <div class="col-lg-6">
+      <form method="post" action="{{ url_for('settings.cover') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="direction" value="up">
+        <h3 class="vs-panel-title">Cover files</h3>
+        {% for f in below %}
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="file" id="up-{{ f['id'] }}" value="{{ f['id'] }}">
+          <label class="form-check-label" for="up-{{ f['id'] }}">{{ f['filename'] }}</label>
+        </div>
+        {% else %}
+        <p class="vs-note">No cover files.</p>
+        {% endfor %}
+        <div class="my-3">
+          <label for="up-password" class="form-label">Your password</label>
+          <input type="password" name="password" id="up-password" class="form-control" autocomplete="current-password" required>
+        </div>
+        <button type="submit" class="btn btn-outline-secondary w-100">Move back</button>
+      </form>
+    </div>
+  </div>
+</section>
 {% endblock %}

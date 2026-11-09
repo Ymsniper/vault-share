@@ -299,6 +299,75 @@ def test_level_two_answers_the_same_and_changes_nothing(app, alice):
         assert get_db().execute("SELECT * FROM credentials ORDER BY id").fetchall() == before
 
 
+def move(client, urls, direction, password=None):
+    data = {
+        "file": [file_id(u) for u in urls],
+        "direction": direction,
+        "password": password or getattr(client, "password", PASSWORD),
+    }
+    return client.post("/auth/duress/cover", data=data, follow_redirects=True)
+
+
+def test_moving_files_to_cover_and_back(app, alice, bob):
+    real = new_file(alice)
+    received = new_file(bob, name="figures.txt")
+    share(bob, received, alice.handle)
+    forced = at_level_one(app, alice)
+    before = len(rows(app))
+    r = move(alice, [real, received], "down")
+    assert b"Moved 2 files." in r.data
+    # moves are not logged: the log of the lower vault must not show them
+    assert len(rows(app)) == before
+    # the duress vault opens them now, and the real one lists them as cover
+    assert download(forced, real).data == CONTRACT
+    assert b"figures.txt" in shared_with_me(forced)
+    assert b"contract.txt" in cover_files(alice) and b"contract.txt" not in my_files(alice)
+    # bob's own copy is not touched
+    assert download(bob, received).status_code == 200
+
+    before = len(rows(app))
+    move(alice, [real], "up")
+    assert len(rows(app)) == before
+    assert forced.get(real).status_code == 404
+    assert b"contract.txt" in my_files(alice)
+
+
+def test_moving_asks_for_the_password(app, alice):
+    real = new_file(alice)
+    r = move(alice, [real], "down", "a guess")
+    assert b"Wrong password" in r.data
+    assert b"contract.txt" in my_files(alice)
+
+
+def test_a_session_moves_only_what_it_sees(app, alice):
+    real = new_file(alice)
+    forced = at_level_one(app, alice)
+    # level 1 cannot reach a level 0 file, by any id
+    r = move(forced, [real], "down")
+    assert b"Moved 0 files." in r.data
+    r = move(forced, [real], "up")
+    assert b"Moved 0 files." in r.data
+    assert b"contract.txt" in my_files(alice)
+
+
+def test_the_page_says_when_the_cover_vault_last_changed(app, alice):
+    page = alice.get("/auth/duress").data
+    assert b"Cover files last changed: never" in page
+    move(alice, [new_file(alice)], "down")
+    page = alice.get("/auth/duress").data
+    assert re.search(rb"Cover files last changed: \d{4}-\d{2}-\d{2} \d{2}:\d{2}", page)
+
+
+def test_the_bottom_vault_has_nowhere_to_move_files(app, alice):
+    forced = at_level_one(app, alice)
+    set_duress(forced, duress=DEEPER)
+    deeper, _ = log_in(app, alice, DEEPER)
+    notes = new_file(deeper, b"Notes from the meeting.\n", "notes.txt")
+    r = move(deeper, [notes], "down")
+    assert b"could not be saved" in r.data
+    assert download(deeper, notes).status_code == 200
+
+
 def test_a_wipe_destroys_level_zero_and_nothing_else(app, alice, bob):
     forced = at_level_one(app, alice)
     menu = new_file(forced, MENU, "menu.txt")
