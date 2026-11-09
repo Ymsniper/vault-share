@@ -11,6 +11,7 @@ from flask import (
     url_for,
 )
 
+from . import levels
 from .audit import audit
 from .auth import current_account, login_required, password_limit
 from .db import get_db
@@ -35,52 +36,21 @@ from .totp import WRONG_CODE, check_password_and_code, no_store, unseal, use_ste
 bp = Blueprint("admin", __name__, url_prefix="/admin")
 
 
-DECOY_REFUSAL = "This could not be saved. Try again later."
-
-
 def admin_only(action):
     if not g.user["is_admin"]:
         audit(action, "denied")
         abort(403)
 
 
-def refuse_decoy(tried):
-    """An admin's decoy session shows the admin pages, since a 403 would give
-    it away, but it cannot act. The attempt is logged as a duress event,
-    which the decoy's own view of the log never shows."""
-    audit("duress", "refused", detail=tried)
-    flash(DECOY_REFUSAL)
-    return redirect(url_for("admin.invites"))
-
-
 PAGE = 200
 
 
-def log_entries(decoy_of=None, problems=False, before=None, limit=PAGE):
+def log_entries(problems=False, before=None, limit=PAGE):
     """Audit entries, newest first, up to limit, older than entry number
-    before if given. With problems, only failures and refusals, and the
-    duress alarm. The web page and the console's Audit log tab both read
-    the log through here.
-
-    decoy_of is the user of a decoy session. It never sees the duress
-    events (the silent alarm, and what the decoy itself was refused), nor
-    anything that shows the account's real activity: what anyone did with
-    its files, and its own file actions and invite codes. Its logins stay,
-    the decoy's own among them."""
-    # one fixed query: the parameters switch each condition on or off
-    return get_db().execute(
-        "SELECT a.*, u.username FROM audit_log a LEFT JOIN users u ON u.id = a.user_id"
-        " WHERE (? IS NULL OR (a.action != 'duress'"
-        "  AND NOT (a.user_id IS ? AND a.action IN ('upload', 'renew_certificate', 'verify',"
-        "   'download', 'download_proof', 'check_copy', 'share', 'revoke', 'delete', 'access',"
-        "   'invite'))"
-        "  AND NOT EXISTS (SELECT 1 FROM files f WHERE f.id = a.file_id AND f.owner_id IS ?)))"
-        " AND (? = 0 OR a.outcome IN ('failed', 'refused', 'denied', 'locked', 'mismatch')"
-        " OR a.action = 'duress')"
-        " AND (? IS NULL OR a.id < ?)"
-        " ORDER BY a.id DESC LIMIT ?",
-        (decoy_of, decoy_of, decoy_of, int(problems), before, before, limit),
-    ).fetchall()
+    before if given. With problems, only failures, refusals and the duress
+    alarm. The web page and the console's Audit log tab both read the log
+    through here; what a session may see is decided in app/levels.py."""
+    return levels.audit_rows(problems, before, limit)
 
 
 @bp.route("/log")
@@ -90,17 +60,14 @@ def log():
     reach."""
     admin_only("read_log")
     problems = request.args.get("problems") == "1"
-    decoy_of = g.user["id"] if g.duress else None
-    entries = log_entries(decoy_of, problems, request.args.get("before", type=int))
+    entries = log_entries(problems, request.args.get("before", type=int))
     older = entries[-1]["id"] if len(entries) == PAGE else None
     return render_template("admin/log.html", entries=entries, problems=problems, older=older)
 
 
 def accounts_left():
-    """How many more accounts this admin's codes may create today. A decoy
-    session lists no codes, so it counts none either."""
-    used = 0 if g.duress else places_today(g.user["id"])
-    return max(0, defaults()["admin_per_day"] - used)
+    """How many more accounts this admin's codes may create today."""
+    return max(0, defaults()["admin_per_day"] - places_today(g.user["id"]))
 
 
 def over_the_limit(d, left):
@@ -113,8 +80,7 @@ def invites_page(new_code=None):
     left = accounts_left()
     page = render_template(
         "admin/invites.html",
-        # the codes and who used them are the account's real activity
-        invites=[] if g.duress else list_invites(created_by=g.user["id"]),
+        invites=list_invites(created_by=g.user["id"]),
         new_code=new_code,
         defaults=d,
         people=people(d["uses"]),
@@ -144,8 +110,6 @@ def new_invite():
         # the address a new code was shown at, reloaded or bookmarked
         return redirect(url_for("admin.invites"))
     admin_only("invite")
-    if g.duress:
-        return refuse_decoy("making an invite code")
     if g.user["totp_secret"] is None:
         flash("Turn on two-factor login first: admins need it to make invite codes.")
         return redirect(url_for("admin.invites"))
@@ -186,8 +150,6 @@ def new_invite():
 @login_required
 def cancel_code(invite_id):
     admin_only("invite")
-    if g.duress:
-        return refuse_decoy(f"cancelling invite {invite_id}")
     try:
         cancel_invite(invite_id, created_by=g.user["id"])
     except ValueError as e:

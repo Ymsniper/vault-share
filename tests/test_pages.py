@@ -1,4 +1,4 @@
-"""Every page stays within the Content-Security-Policy, and a decoy
+"""Every page stays within the Content-Security-Policy, and a duress
 session wears the same header and footer as the real one."""
 import re
 
@@ -51,14 +51,14 @@ def pages(app, alice, bob):
     theirs = new_file(bob, name="figures.txt")
     share(bob, theirs, alice.handle)
     set_duress(alice)
-    decoy, _ = log_in(app, alice, DURESS)
+    forced, _ = log_in(app, alice, DURESS)
     long_name = logged_in(app, "x" * 32)
 
     out = []
     anonymous = app.test_client()
     for url in ("/auth/login", "/auth/register", "/no-such-page", "/auth/logout"):
         out.append((f"anonymous {url}", anonymous.get(url).data))
-    for label, client in (("alice", alice), ("decoy", decoy), ("bob", bob), ("long", long_name)):
+    for label, client in (("alice", alice), ("duress", forced), ("bob", bob), ("long", long_name)):
         for url in LOGGED_IN:
             out.append((f"{label} {url}", client.get(url).data))
     for url in (owned, archive, theirs):
@@ -104,9 +104,9 @@ def frame(html):
     return header.group(0), footer.group(0)
 
 
-def test_a_decoy_admin_has_the_same_header_and_footer(app, alice):
+def test_a_duress_admin_has_the_same_header_and_footer(app, alice):
     make_admin(app, alice)
     set_duress(alice)
-    decoy, _ = log_in(app, alice, DURESS)
+    forced, _ = log_in(app, alice, DURESS)
     for url in ("/", "/admin/log", "/admin/invites", "/upload", "/auth/totp"):
-        assert frame(decoy.get(url).data) == frame(alice.get(url).data), url
+        assert frame(forced.get(url).data) == frame(alice.get(url).data), url

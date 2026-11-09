@@ -21,9 +21,15 @@ from security.keys import subkey
 from security.totp import matching_step, new_secret, qr_svg
 
 from .audit import audit
-from .auth import current_account, finish_login, login_required, password_limit, password_ok
+from .auth import (
+    current_account,
+    finish_pending_login,
+    login_required,
+    password_limit,
+    password_ok,
+    pending_key,
+)
 from .db import get_db
-from .duress import WIPE, login_flag, mode_of, wipe_account
 from .invites import ALPHABET, code_hash
 from .keyring import master_key
 from .forms import CodeForm, RecoveryForm, TotpForm, first_error
@@ -105,7 +111,7 @@ def pending_secret(create=True):
     """The secret this session is enrolling, made on first use, or None.
     It stays with the session on the server, sealed like a confirmed one:
     never in the browser's cookie, and never offered to the account's other
-    sessions, so a stolen or decoy session cannot hand the owner a secret
+    sessions, so a stolen or duress session cannot hand the owner a secret
     it knows."""
     if g.user["session_totp_pending"] is not None:
         return unseal(g.user["id"], g.user["session_totp_pending"])
@@ -154,10 +160,7 @@ def setup():
 
     secret = pending_secret()
     form = TotpForm()
-    if form.is_submitted() and g.duress:
-        # the decoy account cannot change its settings, and does not say why
-        flash("This setting could not be saved. Try again later.")
-    elif form.validate_on_submit():
+    if form.validate_on_submit():
         step = check_password_and_code(form, secret, None)
         if step is not None:
             db = get_db()
@@ -194,9 +197,6 @@ def qr():
 def disable():
     if g.user["totp_secret"] is None:
         return redirect(url_for("totp.setup"))
-    if g.duress:
-        flash("This setting could not be saved. Try again later.")
-        return redirect(url_for("totp.setup"))
     form = TotpForm()
     if not form.validate():
         flash(first_error(form))
@@ -223,9 +223,6 @@ def disable():
 def new_recovery():
     """New recovery codes, with the password and a code from the phone."""
     if g.user["totp_secret"] is None:
-        return redirect(url_for("totp.setup"))
-    if g.duress:
-        flash("This setting could not be saved. Try again later.")
         return redirect(url_for("totp.setup"))
     form = TotpForm()
     if not form.validate():
@@ -257,7 +254,7 @@ def pending_user():
 
 def pending_account():
     user = pending_user()
-    return str(user["id"]) if user else None
+    return pending_key(user["id"], session["totp_mode"]) if user else None
 
 
 @bp.route("/login/code", methods=("GET", "POST"))
@@ -279,14 +276,7 @@ def login_code():
             step = matching_step(secret, form.code.data, user["totp_last_step"])
             right = step is not None and use_step(user["id"], step)
         if right:
-            if recovery:
-                audit("totp", "recovery code used", user_id=user["id"])
-            duress = login_flag(user["id"], session["totp_mode"])
-            if duress and mode_of(user) == WIPE:
-                # the wipe the duress password asked for, now that the code is right
-                wipe_account(user)
-                audit("duress", "wiped", user_id=user["id"])
-            return finish_login(user, duress)
+            return finish_pending_login(user, session["totp_mode"], recovery=recovery)
         g.wrong_password = True
         audit("login", "failed", user_id=None, detail="wrong code")
         flash("Wrong code.")

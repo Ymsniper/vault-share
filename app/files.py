@@ -20,7 +20,6 @@ from flask import (
 )
 
 from security.crypto import decrypt, encrypt, new_key
-from security.hybrid import unwrap_file_key, wrap_file_key
 from security.integrity import record_mac, sha256
 from security.keys import subkey
 from security.pki import (
@@ -29,7 +28,7 @@ from security.pki import (
     load_certificate,
     revoked_since,
 )
-from security.signing import sign_digest, unlock_private_key, verify_digest
+from security.signing import sign_digest, verify_digest
 from security.uploads import (
     ARCHIVES,
     accept_list,
@@ -38,6 +37,7 @@ from security.uploads import (
     type_groups,
 )
 
+from . import levels
 from .audit import audit
 from .auth import (
     TEN_AN_HOUR,
@@ -59,7 +59,7 @@ from .forms import (
     UploadForm,
     first_error,
 )
-from .identity import ensure_encryption_key, load_app_ca, new_identity, unlock_encryption_key
+from .identity import load_app_ca, new_identity
 from .keyring import master_key
 from .storage import storage_path
 
@@ -81,10 +81,10 @@ def get_file(id, owner_only=False):
     """Load a file the current user may use, or stop with 404 or 403.
 
     The owner may do anything; a user with an active share may only read.
+    A file the session does not see answers as what it could be: one of
+    the user's own as if it had been deleted (404, no row), one shared with
+    them as if they had dismissed it (403 and a row).
     """
-    if g.duress:
-        # the decoy account holds no files at all
-        abort(404)
     id = str(id)
     db = get_db()
     f = db.execute(
@@ -95,12 +95,12 @@ def get_file(id, owner_only=False):
         " JOIN certificates c ON c.id = f.cert_id WHERE f.id = ?",
         (id,),
     ).fetchone()
-    if f is None:
+    if f is None or (f["owner_id"] == g.user["id"] and levels.hidden(id)):
         abort(404)
     if f["owner_id"] == g.user["id"]:
         return f
     # the files of a banned owner are hidden from everyone they shared with
-    if not owner_only and f["owner_banned_at"] is None:
+    if not owner_only and f["owner_banned_at"] is None and not levels.hidden(id):
         share = db.execute(
             "SELECT 1 FROM shares"
             " WHERE file_id = ? AND recipient_id = ? AND revoked_at IS NULL",
@@ -132,28 +132,17 @@ def my_file_key(f, password):
     Returns (key, error). A wrong password counts toward the same lockout
     as a failed login.
     """
-    user = g.user
-    try:
-        private_key = unlock_encryption_key(user["id"], user["username"], password)
-    except InvalidTag:
-        private_key, right = None, False
-    else:
-        # no encryption key at all (only after a duress wipe): the password
-        # is still checked, so it cannot be guessed here for free
-        right = private_key is not None or password_ok(password)
-    if not right:
+    keys = levels.unlock(password)
+    if keys is None:
         g.wrong_password = True
         return None, "Wrong password."
-    copy = get_db().execute(
-        "SELECT wrapped_key FROM file_keys WHERE file_id = ? AND user_id = ?",
-        (f["id"], user["id"]),
-    ).fetchone()
-    if private_key is None or copy is None:
-        return None, "You have no key for this file. Ask its owner to share it again."
     try:
-        return unwrap_file_key(private_key, copy["wrapped_key"], f["id"], user["id"]), None
+        key = levels.file_key(f["id"], keys)
     except InvalidTag:
         return None, "Verification failed: your copy of the file's key was modified."
+    if key is None:
+        return None, "You have no key for this file. Ask its owner to share it again."
+    return key, None
 
 
 def open_file(f, file_key):
@@ -218,30 +207,13 @@ def signature_problem(f, digest):
 @bp.route("/", methods=("GET", "POST"))
 @login_required
 def index():
-    db = get_db()
     # a POST, so search terms never end up in URLs, server logs or the
-    # browser history; a plain GET lists everything
+    # browser history; a plain GET lists everything. instr() rather than
+    # LIKE, so % and _ in the search are plain characters
     form = SearchForm()
     q = form.q.data if form.validate_on_submit() else ""
-    if g.duress:
-        # the decoy account owns nothing and nothing is shared with it
-        return render_template("files/index.html", files=[], shared=[], q=q)
-    # instr() rather than LIKE, so % and _ in the search are plain characters
-    files = db.execute(
-        "SELECT id, filename, size, uploaded_at, checked FROM files"
-        " WHERE owner_id = ? AND instr(lower(filename), lower(?)) > 0"
-        " ORDER BY uploaded_at DESC",
-        (g.user["id"], q),
-    ).fetchall()
-    shared = db.execute(
-        "SELECT f.*, u.username AS owner FROM files f"
-        " JOIN shares s ON s.file_id = f.id"
-        " JOIN users u ON u.id = f.owner_id"
-        " WHERE s.recipient_id = ? AND s.revoked_at IS NULL AND u.banned_at IS NULL"
-        " ORDER BY f.uploaded_at DESC",
-        (g.user["id"],),
-    ).fetchall()
-    return render_template("files/index.html", files=files, shared=shared, q=q)
+    files, shared, cover = levels.file_lists(q)
+    return render_template("files/index.html", files=files, shared=shared, cover=cover, q=q)
 
 
 def upload_page():
@@ -272,58 +244,29 @@ def upload():
             flash(str(e))
             return upload_page()
 
-        if g.duress:
-            # the decoy account accepts nothing, and says nothing about why;
-            # logged as a duress event, which the decoy's view never shows
-            audit("duress", "refused", detail="upload")
-            flash("The upload failed. Try again later.")
-            return upload_page()
-
-        # the password unlocks the signing key, so a wrong one counts
-        # toward the same lockout as a failed login
+        # the password opens the account's keys, the signing key among
+        # them, so a wrong one counts toward the same lockout as a login
         username = g.user["username"]
-        password = form.password.data
-        db = get_db()
-        signer = db.execute(
-            "SELECT k.kdf_salt, k.enc_private_key, c.id AS cert_id, c.pem AS cert_pem,"
-            " c.revoked_at FROM user_keys k"
-            " JOIN certificates c ON c.user_id = k.user_id"
-            " WHERE k.user_id = ? ORDER BY c.id DESC LIMIT 1",
-            (g.user["id"],),
-        ).fetchone()
-        key = None
-        if signer is None:
-            # the private key was destroyed by a duress wipe: check the
-            # password against the account, a new key pair follows below
-            right = password_ok(password)
-        else:
-            try:
-                key = unlock_private_key(
-                    signer["kdf_salt"], signer["enc_private_key"], password, username.encode()
-                )
-                right = True
-            except InvalidTag:
-                right = False
-        if not right:
+        keys = levels.unlock(form.password.data)
+        if keys is None:
             g.wrong_password = True
             audit("upload", "refused", detail="wrong password")
             flash("Wrong password: your signing key stays locked and nothing was uploaded.")
             return upload_page()
 
-        if signer is None:
-            renew = True
+        signer = get_db().execute(
+            "SELECT id, pem, revoked_at FROM certificates WHERE user_id = ? ORDER BY id DESC LIMIT 1",
+            (g.user["id"],),
+        ).fetchone()
+        ca_cert = load_ca_certificate(current_app.config["CA_CERT"])
+        cert_problem = certificate_problem(load_certificate(signer["pem"]), ca_cert, username)
+        if signer["revoked_at"] is None and cert_problem is None:
+            key, cert_id = keys.signing_key(), signer["id"]
         else:
-            cert_id = signer["cert_id"]
-            ca_cert = load_ca_certificate(current_app.config["CA_CERT"])
-            cert_problem = certificate_problem(
-                load_certificate(signer["cert_pem"]), ca_cert, username
-            )
-            renew = signer["revoked_at"] is not None or cert_problem is not None
-        if renew:
-            # no usable certificate (revoked, expired, or wiped together with
-            # the key): a new key pair, locked with the password just typed
+            # no usable certificate (revoked or expired): a new key pair,
+            # locked where the old one was
             try:
-                key, cert_id = new_identity(g.user["id"], username, password, load_app_ca())
+                key, cert_id = new_identity(g.user["id"], username, keys.bottom, load_app_ca())
             except (OSError, ValueError) as e:
                 current_app.logger.error("cannot load the CA: %s", e)
                 flash(
@@ -341,7 +284,6 @@ def upload():
         file_key = new_key()
         with open(storage_path(file_id), "wb") as out:
             out.write(encrypt(file_key, data, file_id.encode()))
-        owner_public_key = ensure_encryption_key(g.user["id"], username, password)
         record = {
             "id": file_id,
             "owner_id": g.user["id"],
@@ -359,6 +301,7 @@ def upload():
         }
         # over exactly the values stored
         record["record_mac"] = record_mac(mac_key(), record)
+        db = get_db()
         db.execute(
             "INSERT INTO files"
             " (id, owner_id, filename, description, mime, checked, size, sha256, signature,"
@@ -367,14 +310,8 @@ def upload():
             " :signature, :cert_id, :uploaded_at, :record_mac)",
             record,
         )
-        db.execute(
-            "INSERT INTO file_keys (file_id, user_id, wrapped_key) VALUES (?, ?, ?)",
-            (
-                file_id,
-                g.user["id"],
-                wrap_file_key(owner_public_key, file_key, file_id, g.user["id"]),
-            ),
-        )
+        # the owner's copy of the file key, where the session keeps its files
+        levels.keep_own_copy(file_id, file_key)
         db.commit()
         audit("upload", "ok", file_id=file_id, detail=None if checked else "archive, not checked")
         flash(f"Uploaded {name}.", "success")
@@ -538,10 +475,7 @@ def share(id):
     user = None
     try:
         user = db.execute(
-            "SELECT u.id, e.public_key FROM users u"
-            " LEFT JOIN encryption_keys e ON e.user_id = u.id"
-            " WHERE u.username = ? AND u.banned_at IS NULL",
-            (username,),
+            "SELECT id FROM users WHERE username = ? AND banned_at IS NULL", (username,)
         ).fetchone()
     finally:
         settle(limits, user is None)
@@ -550,16 +484,9 @@ def share(id):
         flash("Unknown user.")
     elif user["id"] == f["owner_id"]:
         flash("The owner already has access.")
-    elif user["public_key"] is None:
-        # only after a duress wipe, until that user logs in again
-        audit("share", "failed", file_id=f["id"], detail="no encryption key")
-        flash(f"{username} cannot receive files until they log in again.")
     else:
-        db.execute(
-            "INSERT INTO file_keys (file_id, user_id, wrapped_key) VALUES (?, ?, ?)"
-            " ON CONFLICT (file_id, user_id) DO UPDATE SET wrapped_key = excluded.wrapped_key",
-            (f["id"], user["id"], wrap_file_key(user["public_key"], file_key, f["id"], user["id"])),
-        )
+        # encrypted again to the recipient's public key
+        levels.give_copy(f["id"], user["id"], file_key)
         db.execute(
             "INSERT INTO shares (file_id, recipient_id) VALUES (?, ?)"
             " ON CONFLICT (file_id, recipient_id)"
@@ -627,6 +554,8 @@ def delete(id):
         return redirect(url_for("files.detail", id=f["id"]))
     if not owner_password_ok(f, form.password.data, "delete", "Wrong password: nothing was deleted."):
         return redirect(url_for("files.detail", id=f["id"]))
+    # logged first, while the row still says whose file it was
+    audit("delete", "ok", file_id=f["id"])
     try:
         os.remove(storage_path(f["id"]))
     except FileNotFoundError:
@@ -634,6 +563,5 @@ def delete(id):
     db = get_db()
     db.execute("DELETE FROM files WHERE id = ?", (f["id"],))
     db.commit()
-    audit("delete", "ok", file_id=f["id"])
     flash(f"Deleted {f['filename']}.", "success")
     return redirect(url_for("files.index"))

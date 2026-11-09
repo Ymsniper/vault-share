@@ -2,7 +2,7 @@
 import threading
 import time
 
-from app import auth, files
+from app import auth, levels
 from app.db import get_db
 from security import passwords
 
@@ -26,14 +26,14 @@ def test_parallel_wrong_passwords_stay_under_the_limit(app, monkeypatch):
     handle = register(app.test_client())
     release = threading.Event()
     reached = set()
-    real_check = auth.check_password
+    real_check = levels.check_password
 
     def slow_check(stored_hash, password):
         reached.add(threading.get_ident())
         release.wait(10)
         return real_check(stored_hash, password)
 
-    monkeypatch.setattr(auth, "check_password", slow_check)
+    monkeypatch.setattr(levels, "check_password", slow_check)
     answers = []
 
     def guess():
@@ -63,14 +63,14 @@ def waiting():
 
 
 def slow_unlock(monkeypatch, release, reached):
-    real = files.unlock_encryption_key
+    real = levels.unlock
 
     def slow(*args):
         reached.add(threading.get_ident())
         release.wait(10)
         return real(*args)
 
-    monkeypatch.setattr(files, "unlock_encryption_key", slow)
+    monkeypatch.setattr(levels, "unlock", slow)
 
 
 def test_parallel_right_passwords_wait_for_a_place(app, alice, monkeypatch):

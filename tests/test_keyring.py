@@ -8,7 +8,7 @@ from sqlcipher3 import dbapi2 as sqlcipher
 
 from app import create_app
 from app.db import get_db
-from app.duress import DECOY, mode_of
+from app.levels import COVER, open_policy
 from app.keyring import USB_KEY_FILE, connect
 from app.totp import unseal
 from app.unlock import unlock_from_terminal, wants_passphrase
@@ -88,7 +88,8 @@ def test_adding_a_stick_keeps_everything_readable(app, alice, bob, stick):
             "SELECT * FROM users WHERE username = ?", (alice.handle,)
         ).fetchone()
         assert unseal(user["id"], user["totp_secret"]) == secret
-        assert mode_of(user) == DECOY
+        # the sealed levels open under the new master key
+        assert open_policy(user).modes[1] == COVER
 
     # the machine key alone no longer opens the database
     with pytest.raises(sqlcipher.DatabaseError):

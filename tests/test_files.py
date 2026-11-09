@@ -16,9 +16,9 @@ from sqlcipher3 import dbapi2 as sqlcipher
 from app import create_app
 from app.db import get_db
 from app.files import mac_key
-from app.identity import unlock_encryption_key
 from security.crypto import decrypt
 from security.hybrid import unwrap_file_key
+from security.keychain import follow_link, unlock_key, unlock_signing_key
 from security.integrity import record_mac
 from security.pki import load_certificate
 
@@ -29,10 +29,20 @@ CONTRACT = b"Supply contract: 1,200 units at 40 EUR, delivery in March."
 PDF = b"%PDF-1.7\n1 0 obj << /Type /Catalog >> endobj\n%%EOF\n"
 
 
-def upload(client, data=CONTRACT, name="contract.txt", description="Supply contract"):
+def password_of(client, password=None):
+    """The password given, else the one the client logged in with: a
+    session at a duress level types the duress password."""
+    return password or getattr(client, "password", PASSWORD)
+
+
+def upload(client, data=CONTRACT, name="contract.txt", description="Supply contract", password=None):
     return client.post(
         "/upload",
-        data={"file": (io.BytesIO(data), name), "description": description, "password": PASSWORD},
+        data={
+            "file": (io.BytesIO(data), name),
+            "description": description,
+            "password": password_of(client, password),
+        },
         content_type="multipart/form-data",
         follow_redirects=True,
     )
@@ -43,22 +53,23 @@ def new_file(client, data=CONTRACT, name="contract.txt"):
     return upload(client, data, name).request.path
 
 
-def download(client, url, password=PASSWORD, **kwargs):
+def download(client, url, password=None, **kwargs):
     """Download a file the way the page does: the password opens the key."""
-    return client.post(f"{url}/download", data={"password": password}, **kwargs)
+    return client.post(f"{url}/download", data={"password": password_of(client, password)}, **kwargs)
 
 
-def share(client, url, username, password=PASSWORD, **kwargs):
-    return client.post(f"{url}/share", data={"username": username, "password": password}, **kwargs)
+def share(client, url, username, password=None, **kwargs):
+    data = {"username": username, "password": password_of(client, password)}
+    return client.post(f"{url}/share", data=data, **kwargs)
 
 
-def revoke(client, url, recipient_id, password=PASSWORD, **kwargs):
-    data = {"recipient_id": recipient_id, "password": password}
+def revoke(client, url, recipient_id, password=None, **kwargs):
+    data = {"recipient_id": recipient_id, "password": password_of(client, password)}
     return client.post(f"{url}/revoke", data=data, **kwargs)
 
 
-def delete(client, url, password=PASSWORD, **kwargs):
-    return client.post(f"{url}/delete", data={"password": password}, **kwargs)
+def delete(client, url, password=None, **kwargs):
+    return client.post(f"{url}/delete", data={"password": password_of(client, password)}, **kwargs)
 
 
 def file_id(url):
@@ -74,7 +85,11 @@ def my_files(client, q=""):
 
 
 def shared_with_me(client):
-    return client.get("/").data.split(b"Shared with me")[1]
+    return client.get("/").data.split(b"Shared with me")[1].split(b"Cover files")[0]
+
+
+def cover_files(client):
+    return client.get("/").data.split(b"Cover files")[1]
 
 
 def user_id(app, username):
@@ -622,6 +637,39 @@ def test_duress_field_is_not_a_password_field(alice):
     assert b'type="text"' in field and b"masked" in field and b'autocomplete="off"' in field
 
 
+def private_key(app, username, password=PASSWORD, level=0):
+    """A user's private key of a level, opened by hand from the tables with
+    that level's password. Raises InvalidTag for a wrong password."""
+    uid = user_id(app, username)
+    with app.app_context():
+        creds = get_db().execute("SELECT * FROM credentials WHERE user_id = ?", (uid,)).fetchall()
+    for cred in creds:
+        try:
+            return unlock_key(cred["lock"], password, cred["kdf_salt"], f"lock|{uid}|{level}".encode())
+        except InvalidTag:
+            pass
+    raise InvalidTag
+
+
+def signing_key(app, username, password=PASSWORD):
+    """A user's signing key, opened by hand: the password opens the first
+    level's key, its links lead down to the last level's, and that one
+    opens the signing key."""
+    uid = user_id(app, username)
+    key = private_key(app, username, password)
+    with app.app_context():
+        db = get_db()
+        links = dict(db.execute(
+            "SELECT level, link FROM level_keys WHERE user_id = ?", (uid,)
+        ).fetchall())
+        blob = db.execute(
+            "SELECT enc_private_key FROM signing_keys WHERE user_id = ?", (uid,)
+        ).fetchone()[0]
+    for level in (1, 2):
+        key = follow_link(key, links[level], f"link|{uid}|{level}".encode())
+    return unlock_signing_key(key, blob, f"signing|{uid}".encode())
+
+
 def copies_of(app, url):
     with app.app_context():
         return {
@@ -644,11 +692,10 @@ def test_only_the_password_opens_a_stored_file(app, alice):
     assert list(copies) == [alice_id]
 
     # with the whole server in hand, alice's copy still needs her password
-    with app.app_context():
-        with pytest.raises(InvalidTag):
-            unlock_encryption_key(alice_id, alice.handle, "a guess")
-        private_key = unlock_encryption_key(alice_id, alice.handle, PASSWORD)
-    file_key = unwrap_file_key(private_key, copies[alice_id], file_id(url), alice_id)
+    with pytest.raises(InvalidTag):
+        private_key(app, alice.handle, "a guess")
+    key = private_key(app, alice.handle)
+    file_key = unwrap_file_key(key, copies[alice_id], file_id(url), alice_id, 0)
     with open(stored_path(app, url), "rb") as f:
         assert decrypt(file_key, f.read(), file_id(url).encode()) == CONTRACT
 
@@ -690,11 +737,10 @@ def test_every_reader_has_their_own_copy(app, alice, bob):
     assert set(copies) == {user_id(app, alice.handle), user_id(app, bob.handle)}
     assert copies[user_id(app, alice.handle)] != copies[user_id(app, bob.handle)]
     # each copy opens only with its own reader's key
-    with app.app_context():
-        alice_key = unlock_encryption_key(user_id(app, alice.handle), alice.handle, PASSWORD)
+    alice_key = private_key(app, alice.handle)
     bob_id = user_id(app, bob.handle)
     with pytest.raises(InvalidTag):
-        unwrap_file_key(alice_key, copies[bob_id], file_id(url), bob_id)
+        unwrap_file_key(alice_key, copies[bob_id], file_id(url), bob_id, 0)
 
 
 def test_a_revoked_share_stays_closed_even_if_the_row_comes_back(app, alice, bob):
@@ -717,17 +763,6 @@ def test_revoking_the_owner_changes_nothing(app, alice):
     url = new_file(alice)
     revoke(alice, url, user_id(app, alice.handle))
     assert download(alice, url).data == CONTRACT
-
-
-def test_share_with_someone_who_has_no_encryption_key(app, alice, bob):
-    url = new_file(alice)
-    with app.app_context():
-        db = get_db()
-        db.execute("DELETE FROM encryption_keys WHERE user_id = ?", (user_id(app, bob.handle),))
-        db.commit()
-    r = share(alice, url, bob.handle, follow_redirects=True)
-    assert f"{bob.handle} cannot receive files until they log in again.".encode() in r.data
-    assert b"contract.txt" not in shared_with_me(bob)
 
 
 def test_the_saved_login_stays_out_of_the_recipient_field(alice):

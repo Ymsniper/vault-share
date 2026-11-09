@@ -154,25 +154,21 @@ def test_a_code_works_once_even_when_sent_twice_at_once(app, alice, monkeypatch)
     assert b"Wrong code." in other.post("/auth/login/code", data={"code": same}).data
 
 
-def test_a_decoy_session_gets_its_own_secret(app, alice):
-    from .test_duress import DURESS, set_duress
+def test_a_duress_session_turns_two_factor_on_for_the_account(app, alice):
+    from .test_duress import DURESS, log_in, set_duress
 
     set_duress(alice)
-    forced = app.test_client()
-    forced.post("/auth/login", data={"username": alice.handle, "password": DURESS})
-    decoy = secret_on_page(forced)
-    # kept with the decoy session, so its QR code matches the key it shows
-    assert secret_on_page(forced) == decoy
-    assert secret_on_page(alice) != decoy
-    r = forced.post(
-        "/auth/totp", data={"password": DURESS, "code": code(decoy)}, follow_redirects=True
-    )
-    assert b"could not be saved" in r.data
-    with app.app_context():
-        row = get_db().execute(
-            "SELECT totp_secret FROM users WHERE username = ?", (alice.handle,)
-        ).fetchone()
-    assert row["totp_secret"] is None
+    forced, _ = log_in(app, alice, DURESS)
+    secret = secret_on_page(forced)
+    # kept with its own session, so its QR code matches the key it shows,
+    # and never offered to the account's other sessions
+    assert secret_on_page(forced) == secret and secret_on_page(alice) != secret
+    # two-factor login belongs to the account, as the design says: turned on
+    # from a duress session it is on for the real password too (the server
+    # can turn it off again: admin clear-totp)
+    r = forced.post("/auth/totp", data={"password": DURESS, "code": code(secret)})
+    assert b"Two-factor login is on." in r.data
+    assert log_out_and_in(alice).headers["Location"] == "/auth/login/code"
 
 
 # letters and digits of the invite code alphabet, in four groups of four
@@ -265,19 +261,20 @@ def test_the_server_can_turn_off_a_lost_phone(app, alice):
     assert r.exit_code != 0 and "two-factor login is not on" in r.output
 
 
-def test_a_decoy_cannot_renew_the_recovery_codes(app, alice):
-    from .test_duress import DURESS, set_duress
+def test_the_recovery_codes_belong_to_the_account(app, alice, monkeypatch):
+    from .test_duress import DURESS, log_in, set_duress
 
     secret, old = turn_on_with_codes(alice)
     set_duress(alice)
-    forced = app.test_client()
-    forced.post("/auth/login", data={"username": alice.handle, "password": DURESS})
+    forced, _ = log_in(app, alice, DURESS)
     forced.post("/auth/login/code", data={"code": code(secret, 1)})
-    r = forced.post(
-        "/auth/totp/recovery",
-        data={"password": DURESS, "code": code(secret, 2)},
-        follow_redirects=True,
-    )
-    assert b"could not be saved" in r.data and recovery_codes(r.data) == []
+    # a code is taken one step either side of now: move the clock on
+    later = time.time() + 60
+    monkeypatch.setattr(time, "time", lambda: later)
+    r = forced.post("/auth/totp/recovery", data={"password": DURESS, "code": code(secret)})
+    new = recovery_codes(r.data)
+    assert len(new) == 10
+    # replaced for the real password too
     log_out_and_in(alice)
-    assert alice.post("/auth/login/code", data={"recovery": old[0]}).headers["Location"] == "/"
+    assert b"Wrong code." in alice.post("/auth/login/code", data={"recovery": old[0]}).data
+    assert alice.post("/auth/login/code", data={"recovery": new[0]}).headers["Location"] == "/"

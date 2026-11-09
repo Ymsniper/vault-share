@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 import click
 from flask.cli import AppGroup
 
+from . import levels
 from .audit import audit
 from .db import get_db
 
@@ -155,24 +156,27 @@ def create_admin_invite(admin_id):
     """An admin's code, with the server's defaults, or None when the accounts
     their codes of the last 24 hours may create, this one's included, would
     go over the daily limit. Checked and stored in one statement, so two
-    requests at once cannot both slip under it."""
+    requests at once cannot both slip under it. The code belongs to the
+    session's level, which counts only the codes it sees."""
     d = defaults()
     return insert_invite(admin_id, d["uses"], d["valid_minutes"], limit=d["admin_per_day"])
 
 
 def insert_invite(created_by, uses, minutes, limit=None):
     code = new_code()
+    level = levels.session_level()
     sql = (
-        "INSERT INTO invites (code_hash, created_by, expires_at, max_uses)"
-        " SELECT ?, ?, datetime('now', ?), ?"
+        "INSERT INTO invites (code_hash, created_by, expires_at, max_uses, level)"
+        " SELECT ?, ?, datetime('now', ?), ?, ?"
     )
-    params = [code_hash(code), created_by, f"+{int(minutes)} minutes", uses]
+    params = [code_hash(code), created_by, f"+{int(minutes)} minutes", uses, level]
     if limit is not None:
         sql += (
             " WHERE (SELECT COALESCE(SUM(max_uses), 0) FROM invites"
-            "  WHERE created_by = ? AND created_at > datetime('now', '-1 day')) + ? <= ?"
+            "  WHERE created_by = ? AND level >= ? AND created_at > datetime('now', '-1 day'))"
+            " + ? <= ?"
         )
-        params += [created_by, uses, limit]
+        params += [created_by, level, uses, limit]
     db = get_db()
     cur = db.execute(sql, params)
     db.commit()
@@ -190,11 +194,13 @@ def insert_invite(created_by, uses, minutes, limit=None):
 
 def places_today(user_id):
     """How many accounts this admin's codes of the last 24 hours may create,
-    cancelled ones included, so cancelling and making new ones gains nothing."""
+    cancelled ones included, so cancelling and making new ones gains nothing.
+    A session counts the codes it sees, made at its level or below, so the
+    allowance never shows codes it cannot list."""
     return get_db().execute(
-        "SELECT COALESCE(SUM(max_uses), 0) FROM invites WHERE created_by = ?"
+        "SELECT COALESCE(SUM(max_uses), 0) FROM invites WHERE created_by = ? AND level >= ?"
         " AND created_at > datetime('now', '-1 day')",
-        (user_id,),
+        (user_id, levels.session_level()),
     ).fetchone()[0]
 
 
@@ -227,9 +233,9 @@ def cancel_invite(invite_id, created_by=ANY):
     created_by, so they can only cancel their own. Raises ValueError."""
     sql = (
         "UPDATE invites SET cancelled_at = datetime('now')"
-        " WHERE id = ? AND uses < max_uses AND cancelled_at IS NULL"
+        " WHERE id = ? AND uses < max_uses AND cancelled_at IS NULL AND level >= ?"
     )
-    params = [invite_id]
+    params = [invite_id, levels.session_level()]
     if created_by is not ANY:
         sql += " AND created_by IS ?"
         params.append(created_by)
@@ -253,10 +259,12 @@ def list_invites(created_by=ANY):
         "  WHEN i.cancelled_at IS NOT NULL THEN 'cancelled'"
         "  WHEN i.expires_at <= datetime('now') THEN 'expired' ELSE 'open' END AS state"
         " FROM invites i LEFT JOIN users m ON m.id = i.created_by"
+        # a session lists the codes made at its level or below
+        " WHERE i.level >= ?"
     )
-    params = []
+    params = [levels.session_level()]
     if created_by is not ANY:
-        sql += " WHERE i.created_by IS ?"
+        sql += " AND i.created_by IS ?"
         params.append(created_by)
     return get_db().execute(sql + " ORDER BY i.id DESC", params).fetchall()
 

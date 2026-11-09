@@ -1,0 +1,472 @@
+"""An account's levels: the duress password opens a second vault that is
+real, kept from the first by keys.
+
+Level 0 opens with the real password, level 1 with the duress password,
+and level 2 with the duress password set from a level 1 session. Each level
+has its own X25519 key pair: a password opens its level's private key, and
+that key opens the ones below it (a higher number), never the one above.
+Every session works at one level and believes it is the top: it sees and
+opens the copies of file keys at its own level and below.
+
+This module reads the session's level; so do auth.py, which loads it,
+audit.py, which writes it into the log, and invites.py, which sorts codes
+by it. No view asks whether a session is a duress one.
+"""
+import os
+import secrets
+import struct
+import threading
+import time
+from dataclasses import dataclass
+
+from cryptography.exceptions import InvalidTag
+from flask import g
+
+from security.crypto import decrypt, encrypt
+from security.hybrid import generate_encryption_key, public_bytes, unwrap_file_key, wrap_file_key
+from security.keychain import (
+    follow_link,
+    link_key,
+    lock_key,
+    unlock_key,
+    unlock_signing_key,
+    unused_lock,
+)
+from security.keys import subkey
+from security.passwords import check_password, check_password_of_unknown_user, hash_password
+
+from .db import get_db
+from .keyring import master_key
+from .storage import storage_path
+
+LEVELS = 3
+COVER, WIPE = b"C", b"W"
+MODES = {"cover": COVER, "wipe": WIPE}
+
+# The sealed record of an account's levels, always the same length: which
+# credential row is each level's, then for every level its mode, when its
+# password starts to work and since when its window is open (epoch seconds,
+# 0 for never). Level 0's mode and times are never used.
+_FORMAT = "<3q3c3q3q"
+
+
+@dataclass
+class Policy:
+    rows: list
+    modes: list
+    active_from: list
+    window_since: list
+
+
+def _aad(username):
+    # as before the levels, so keyring.reencrypt moves it unchanged
+    return f"duress:{username}".encode()
+
+
+def seal_policy(username, policy):
+    data = struct.pack(
+        _FORMAT, *policy.rows, *policy.modes, *policy.active_from, *policy.window_since
+    )
+    return encrypt(subkey(master_key(), "duress-policy"), data, _aad(username))
+
+
+def open_policy(user):
+    data = decrypt(subkey(master_key(), "duress-policy"), user["duress_policy"], _aad(user["username"]))
+    values = struct.unpack(_FORMAT, data)
+    return Policy(list(values[0:3]), list(values[3:6]), list(values[6:9]), list(values[9:12]))
+
+
+def update_policy(user_id, change):
+    """Open the account's policy, let change() edit it, and write it back
+    unless another request wrote it in between; then start over, so no
+    change is lost. change() may write other rows: they are kept only with
+    the policy. Returns what change() returned."""
+    db = get_db()
+    for _ in range(20):
+        row = db.execute(
+            "SELECT username, duress_policy FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+        policy = open_policy(row)
+        result = change(policy)
+        cur = db.execute(
+            "UPDATE users SET duress_policy = ? WHERE id = ? AND duress_policy = ?",
+            (seal_policy(row["username"], policy), user_id, row["duress_policy"]),
+        )
+        if cur.rowcount == 1:
+            db.commit()
+            return result
+        db.rollback()
+    raise RuntimeError("the account's levels kept changing")
+
+
+def lock_aad(user_id, level):
+    return f"lock|{user_id}|{level}".encode()
+
+
+def link_aad(user_id, level):
+    return f"link|{user_id}|{level}".encode()
+
+
+def new_account(user_id, username, password):
+    """Three levels for a new account. Each has a real key pair from the
+    start, linked down from the one above, so a duress password can be set
+    later; the password opens level 0, and levels 1 and 2 hold the hash of
+    a random secret and an unused lock. Returns level 2's private key, for
+    the signing key; the caller commits."""
+    db = get_db()
+    keys = [generate_encryption_key() for _ in range(LEVELS)]
+    rows = [0] * LEVELS
+    # the rows go in in random order: their ids say nothing about levels
+    order = list(range(LEVELS))
+    secrets.SystemRandom().shuffle(order)
+    for level in order:
+        salt = os.urandom(16)
+        if level == 0:
+            row = (hash_password(password), salt, lock_key(keys[0], password, salt, lock_aad(user_id, 0)))
+        else:
+            row = (hash_password(secrets.token_urlsafe(32)), salt, unused_lock())
+        rows[level] = db.execute(
+            "INSERT INTO credentials (user_id, password_hash, kdf_salt, lock) VALUES (?, ?, ?, ?)",
+            (user_id, *row),
+        ).lastrowid
+    for level, key in enumerate(keys):
+        link = link_key(keys[level - 1], key, link_aad(user_id, level)) if level else None
+        db.execute(
+            "INSERT INTO level_keys (user_id, level, public_key, link) VALUES (?, ?, ?, ?)",
+            (user_id, level, public_bytes(key), link),
+        )
+    policy = Policy(rows, [COVER] * LEVELS, [0] * LEVELS, [0] * LEVELS)
+    db.execute(
+        "UPDATE users SET duress_policy = ? WHERE id = ?", (seal_policy(username, policy), user_id)
+    )
+    return keys[-1]
+
+
+def login_level(user, password):
+    """The level password opens for user, or None. All three passwords are
+    checked every time, for unknown usernames too, so neither the time a
+    login takes nor its work shows which one matched."""
+    rows = [] if user is None else get_db().execute(
+        "SELECT id, password_hash FROM credentials WHERE user_id = ? ORDER BY id", (user["id"],)
+    ).fetchall()
+    matched = {r["id"] for r in rows if check_password(r["password_hash"], password)}
+    for _ in range(LEVELS - len(rows)):
+        check_password_of_unknown_user(password)
+    if not matched:
+        return None
+    policy, now = open_policy(user), time.time()
+    found = [
+        level for level in range(LEVELS)
+        if policy.rows[level] in matched and (level == 0 or 0 < policy.active_from[level] <= now)
+    ]
+    return min(found, default=None)
+
+
+def session_level():
+    """The current session's level, or 0 at the server (the console and the
+    command line), which sees everything."""
+    return g.level if g.get("user") is not None else 0
+
+
+def wipes(user, level):
+    """Whether a login at this level is a duress login in wipe mode."""
+    return level > 0 and open_policy(user).modes[level] == WIPE
+
+
+def alarm_detail(user, level, waits=False):
+    """What a login row says about its level: nothing at level 0; for a
+    duress login, its mode, shown only to those who see it as the alarm."""
+    if level == 0:
+        return None
+    if not wipes(user, level):
+        return "cover"
+    return "wipe after the code" if waits else "wipe"
+
+
+def note_login(user):
+    """Rewrite the account's policy at every login, whatever the level, so
+    every login makes the same writes."""
+    update_policy(user["id"], lambda policy: None)
+
+
+def seal_pending(user_id, level):
+    """The level of a login that still owes its two-factor code, sealed so
+    the cookie that carries it gives nothing away."""
+    return encrypt(subkey(master_key(), "login-mode"), bytes([level]), f"login:{user_id}".encode())
+
+
+def pending_level(user_id, blob):
+    return decrypt(subkey(master_key(), "login-mode"), blob, f"login:{user_id}".encode())[0]
+
+
+@dataclass
+class Keys:
+    """The private keys a session's password opens: its own level's and
+    every one below it."""
+    user_id: int
+    private: dict
+
+    def signing_key(self):
+        row = get_db().execute(
+            "SELECT enc_private_key FROM signing_keys WHERE user_id = ?", (self.user_id,)
+        ).fetchone()
+        return unlock_signing_key(self.bottom, row["enc_private_key"], signing_aad(self.user_id))
+
+    @property
+    def bottom(self):
+        """The lowest level's private key, which the signing key hangs off."""
+        return self.private[LEVELS - 1]
+
+
+def signing_aad(user_id):
+    return f"signing|{user_id}".encode()
+
+
+def unlock(password):
+    """The keys the password opens in the current session, or None when it
+    is not this session's password. Every password asked inside a session
+    is checked here, against its own level's lock only, so no form at one
+    level can test the password of another."""
+    user, level = g.user, g.level
+    db = get_db()
+    row = db.execute(
+        "SELECT kdf_salt, lock FROM credentials WHERE id = ?", (open_policy(user).rows[level],)
+    ).fetchone()
+    try:
+        key = unlock_key(row["lock"], password, row["kdf_salt"], lock_aad(user["id"], level))
+    except InvalidTag:
+        return None
+    links = dict(db.execute(
+        "SELECT level, link FROM level_keys WHERE user_id = ?", (user["id"],)
+    ).fetchall())
+    private = {level: key}
+    for lower in range(level + 1, LEVELS):
+        key = follow_link(key, links[lower], link_aad(user["id"], lower))
+        private[lower] = key
+    return Keys(user["id"], private)
+
+
+def my_copy(file_id):
+    """The current user's copy of a file's key, if the session sees it."""
+    return get_db().execute(
+        "SELECT wrapped_key, level FROM file_keys WHERE file_id = ? AND user_id = ? AND level >= ?",
+        (file_id, g.user["id"], g.level),
+    ).fetchone()
+
+
+def hidden(file_id):
+    """Whether the current user holds a copy of this file's key that the
+    session does not see: kept at a level above the session's."""
+    return get_db().execute(
+        "SELECT 1 FROM file_keys WHERE file_id = ? AND user_id = ? AND level < ?",
+        (file_id, g.user["id"], g.level),
+    ).fetchone() is not None
+
+
+def file_key(file_id, keys):
+    """The file's key, from the current user's copy opened with keys, or
+    None without a copy the session sees. Raises InvalidTag when the copy
+    was modified."""
+    copy = my_copy(file_id)
+    if copy is None:
+        return None
+    return unwrap_file_key(
+        keys.private[copy["level"]], copy["wrapped_key"], file_id, g.user["id"], copy["level"]
+    )
+
+
+def _store(file_id, user_id, key, level):
+    public = get_db().execute(
+        "SELECT public_key FROM level_keys WHERE user_id = ? AND level = ?", (user_id, level)
+    ).fetchone()["public_key"]
+    get_db().execute(
+        "INSERT INTO file_keys (file_id, user_id, wrapped_key, level) VALUES (?, ?, ?, ?)"
+        " ON CONFLICT (file_id, user_id) DO UPDATE"
+        " SET wrapped_key = excluded.wrapped_key, level = excluded.level",
+        (file_id, user_id, wrap_file_key(public, key, file_id, user_id, level), level),
+    )
+
+
+def keep_own_copy(file_id, key):
+    """At upload, the owner's copy of the file key, at the session's level.
+    The caller commits."""
+    _store(file_id, g.user["id"], key, g.level)
+
+
+def arrival_level(user_id):
+    """The level a file shared with this user arrives at: their top."""
+    return 0
+
+
+def give_copy(file_id, user_id, key):
+    """A recipient's copy of the file key, at the level a share arrives at.
+    The caller commits."""
+    _store(file_id, user_id, key, arrival_level(user_id))
+
+
+def file_lists(q):
+    """The current user's files as the session sees them: its own at this
+    level, those shared with it at this level, and the cover files, every
+    copy at a level below."""
+    db, uid, level = get_db(), g.user["id"], g.level
+    mine = db.execute(
+        "SELECT f.id, f.filename, f.size, f.uploaded_at, f.checked FROM files f"
+        " JOIN file_keys c ON c.file_id = f.id AND c.user_id = f.owner_id"
+        " WHERE f.owner_id = ? AND c.level = ? AND instr(lower(f.filename), lower(?)) > 0"
+        " ORDER BY f.uploaded_at DESC, f.rowid DESC",
+        (uid, level, q),
+    ).fetchall()
+    shared = db.execute(
+        "SELECT f.*, u.username AS owner FROM files f"
+        " JOIN shares s ON s.file_id = f.id"
+        " JOIN users u ON u.id = f.owner_id"
+        " JOIN file_keys c ON c.file_id = f.id AND c.user_id = s.recipient_id"
+        " WHERE s.recipient_id = ? AND s.revoked_at IS NULL AND u.banned_at IS NULL"
+        " AND c.level = ? ORDER BY f.uploaded_at DESC, f.rowid DESC",
+        (uid, level),
+    ).fetchall()
+    cover = db.execute(
+        "SELECT f.*, u.username AS owner FROM files f"
+        " JOIN file_keys c ON c.file_id = f.id AND c.user_id = ?"
+        " JOIN users u ON u.id = f.owner_id"
+        " LEFT JOIN shares s ON s.file_id = f.id AND s.recipient_id = c.user_id"
+        " WHERE c.level > ? AND (f.owner_id = c.user_id"
+        "  OR (s.revoked_at IS NULL AND s.file_id IS NOT NULL AND u.banned_at IS NULL))"
+        " ORDER BY f.uploaded_at DESC, f.rowid DESC",
+        (uid, level),
+    ).fetchall()
+    return mine, shared, cover
+
+
+def set_duress(keys, password, mode):
+    """Give the level below the session's (from level 0, level 1; from
+    level 1, level 2) the duress password, locking that level's own key,
+    which keys reach. mode is "cover" or "wipe". At level 2 there is no
+    level below: nothing changes, and the page answers the same."""
+    user, lower = g.user, g.level + 1
+    if lower >= LEVELS:
+        return
+    salt = os.urandom(16)
+    row = (hash_password(password), salt,
+           lock_key(keys.private[lower], password, salt, lock_aad(user["id"], lower)))
+
+    def change(policy):
+        get_db().execute(
+            "UPDATE credentials SET password_hash = ?, kdf_salt = ?, lock = ? WHERE id = ?",
+            (*row, policy.rows[lower]),
+        )
+        policy.modes[lower] = MODES[mode]
+        policy.active_from[lower] = int(time.time())
+
+    update_policy(user["id"], change)
+
+
+def remove_duress():
+    """Take the password of the level below the session's away: it holds
+    the hash of a random secret and an unused lock again. Its key and its
+    files stay, under the levels above."""
+    user, lower = g.user, g.level + 1
+    if lower >= LEVELS:
+        return
+    row = (hash_password(secrets.token_urlsafe(32)), os.urandom(16), unused_lock())
+
+    def change(policy):
+        get_db().execute(
+            "UPDATE credentials SET password_hash = ?, kdf_salt = ?, lock = ? WHERE id = ?",
+            (*row, policy.rows[lower]),
+        )
+        policy.modes[lower] = COVER
+        policy.active_from[lower] = 0
+
+    update_policy(user["id"], change)
+
+
+def _remove(paths):
+    for path in paths:
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+
+
+def wipe(user, level):
+    """What a duress password in wipe mode does: destroy the files and the
+    copies of file keys of the level just above its own, the level whose
+    session set it. The keys stay: with the copies gone they open nothing
+    of that level, and the levels below keep working, signing included.
+    The rows go at once; the stored files are removed in the background,
+    so a wipe takes no longer than a login."""
+    target = level - 1
+    db = get_db()
+    # overwrite deleted rows with zeros instead of leaving them in free pages
+    db.execute("PRAGMA secure_delete = ON")
+    owned = [r["id"] for r in db.execute(
+        "SELECT f.id FROM files f JOIN file_keys c ON c.file_id = f.id AND c.user_id = f.owner_id"
+        " WHERE f.owner_id = ? AND c.level = ?",
+        (user["id"], target),
+    )]
+    paths = [storage_path(file_id) for file_id in owned]
+    for file_id in owned:
+        db.execute("DELETE FROM files WHERE id = ?", (file_id,))
+    # copies of other people's file keys: the shares end with them
+    for r in db.execute(
+        "SELECT file_id FROM file_keys WHERE user_id = ? AND level = ?", (user["id"], target)
+    ).fetchall():
+        db.execute(
+            "DELETE FROM file_keys WHERE file_id = ? AND user_id = ?", (r["file_id"], user["id"])
+        )
+        db.execute(
+            "UPDATE shares SET revoked_at = datetime('now')"
+            " WHERE file_id = ? AND recipient_id = ? AND revoked_at IS NULL",
+            (r["file_id"], user["id"]),
+        )
+    db.commit()
+    threading.Thread(target=_remove, args=(paths,), name="wipe", daemon=True).start()
+
+
+def audit_rows(problems=False, before=None, limit=200):
+    """Audit entries, newest first, as the current session sees them, or
+    all of them at the server (console, command line).
+
+    A session at level k > 0 does not see the rows its own account's
+    sessions wrote at a level above (a smaller number), nor the rows others
+    wrote about a file the account holds at a level above: the current
+    copy says so, or the level recorded on the row once the file is gone.
+    Rows no session wrote (registering, the server's commands) show at
+    every level. A login at a level below the viewer's is its duress
+    alarm; at level 0 and at the server, every duress login is one."""
+    viewer = g.user["id"] if g.get("user") is not None else None
+    level = g.level if viewer is not None else 0
+    rows = get_db().execute(
+        "SELECT a.*, u.username FROM audit_log a"
+        " LEFT JOIN users u ON u.id = a.user_id"
+        " LEFT JOIN files f ON f.id = a.file_id"
+        " LEFT JOIN file_keys c ON c.file_id = f.id AND c.user_id = f.owner_id"
+        # IS rather than =, so a row without a user or a file is not lost
+        # to a NULL comparison
+        " WHERE (:level = 0 OR NOT ("
+        "  (a.user_id IS :viewer AND a.level IS NOT NULL AND a.level < :level)"
+        "  OR (a.user_id IS NOT :viewer AND COALESCE(f.owner_id, a.subject_id) IS :viewer"
+        "   AND COALESCE(c.level, a.subject_level, 0) < :level)))"
+        " AND (:problems = 0 OR a.outcome IN ('failed', 'refused', 'denied', 'locked', 'mismatch')"
+        "  OR (a.action = 'login' AND a.level > CASE WHEN a.user_id IS :viewer THEN :level ELSE 0 END))"
+        " AND (:before IS NULL OR a.id < :before)"
+        " ORDER BY a.id DESC LIMIT :limit",
+        {"level": level, "viewer": viewer, "problems": int(problems), "before": before,
+         "limit": limit},
+    ).fetchall()
+    return [_shown(dict(r), viewer, level) for r in rows]
+
+
+def _shown(row, viewer, level):
+    """A row as the viewer sees it. A duress login below the viewer's own
+    level, or any duress login of someone else, is the alarm, with its mode
+    and never its level number, which would tell a session that it is not
+    the top. Any other login says nothing about its level."""
+    if row["action"] == "login" and row["level"]:
+        own_top = level if row["user_id"] == viewer else 0
+        if row["level"] > own_top:
+            row["outcome"] = "duress"
+        else:
+            row["detail"] = None
+    return row

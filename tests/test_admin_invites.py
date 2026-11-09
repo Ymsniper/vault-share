@@ -5,7 +5,6 @@ from app.invites import create_admin_invite, create_invite
 
 from .conftest import PASSWORD
 from .test_audit import log_rows
-from .test_duress import DURESS, log_in, set_duress
 from .test_files import user_id
 from .test_invites import CODE_RE, NOT_VALID, step_one, step_two
 from .test_totp import code, turn_on
@@ -150,21 +149,6 @@ def test_admins_see_and_cancel_only_their_own_codes(app, alice):
     r = alice.post(f"/admin/invites/{mine}/cancel", follow_redirects=True)
     assert f"Invite {mine} cancelled.".encode() in r.data
     assert NOT_VALID in step_one(app.test_client(), made, "bob").data
-
-
-def test_the_decoy_account_cannot_make_codes(app, alice):
-    make_admin(app, alice)
-    secret = turn_on(alice)
-    set_duress(alice)
-    forced, _ = log_in(app, alice, DURESS)
-    forced.post("/auth/login/code", data={"code": code(secret, 1)})
-    # the page shows, as it would for the real account, but nothing is made
-    assert forced.get("/admin/invites").status_code == 200
-    assert b">Invites</a>" in forced.get("/").data
-    r = new_code(forced, secret, steps_ahead=2)
-    assert b"could not be saved" in r.data
-    assert shown_code(r.data) is None
-    assert made_by(app, alice) == 0
 
 
 def set_defaults(app, *args):

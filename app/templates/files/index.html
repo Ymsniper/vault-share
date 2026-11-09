@@ -76,4 +76,29 @@
   <div class="vs-empty"><p>Nothing shared with you yet.</p></div>
   {% endif %}
 </section>
+
+<section class="vs-panel">
+  <h2 class="vs-panel-title">Cover files <span class="vs-count">{{ cover|length }}</span></h2>
+  <p class="vs-note">What your duress password opens: the files kept for it, yours or shared with you. Your password opens them too.</p>
+  {% if cover %}
+  <div class="vs-table-wrap">
+    <table class="table table-hover vs-files">
+      <thead>
+        <tr><th>Name</th><th>Owner</th><th>Uploaded (UTC)</th></tr>
+      </thead>
+      <tbody>
+        {% for f in cover %}
+        <tr>
+          <td><a class="vs-file" href="{{ url_for('files.detail', id=f['id']) }}"><span class="vs-type">{{ file_type(f['filename']) }}</span>{{ f['filename'] }}</a>{% if not f['checked'] %} <span class="vs-chip vs-chip-warn">not checked</span>{% endif %}</td>
+          <td class="vs-meta" data-prefix="from">{{ f['owner']|handle }}</td>
+          <td class="vs-meta">{{ f['uploaded_at'] }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="vs-empty"><p>No cover files.</p></div>
+  {% endif %}
+</section>
 {% endblock %}

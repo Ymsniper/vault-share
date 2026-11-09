@@ -38,7 +38,7 @@
             <a href="{{ url_for('files.upload') }}" {% if here == 'files.upload' %}aria-current="page"{% endif %}>Upload</a>
             <a href="{{ url_for('totp.setup') }}" {% if here == 'totp.setup' %}aria-current="page"{% endif %}>Two-factor</a>
             <a href="{{ url_for('settings.duress') }}" {% if here == 'settings.duress' %}aria-current="page"{% endif %}>Duress</a>
-            {# in a decoy session too: their absence would give it away #}
+            {# in a duress session too: their absence would give it away #}
             {% if g.user['is_admin'] %}
             <a href="{{ url_for('admin.log') }}" {% if here == 'admin.log' %}aria-current="page"{% endif %}>Audit log</a>
             <a href="{{ url_for('admin.invites') }}" {% if here == 'admin.invites' %}aria-current="page"{% endif %}>Invites</a>

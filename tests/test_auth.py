@@ -2,7 +2,7 @@ import time
 
 from flask import g
 
-from app import auth
+from app import auth, levels
 from app.auth import new_handle, show_handle
 from app.db import get_db
 
@@ -138,10 +138,10 @@ def test_passwords_are_salted_argon2id_hashes(app, client):
     register(client, "alice")
     register(client, "bob")
     with app.app_context():
-        hashes = [r[0] for r in get_db().execute("SELECT password_hash FROM users")]
+        hashes = [r[0] for r in get_db().execute("SELECT password_hash FROM credentials")]
     assert all(h.startswith("$argon2id$v=19$m=65536,t=3,p=4$") for h in hashes)
     # same password, different salts, different hashes
-    assert hashes[0] != hashes[1]
+    assert len(set(hashes)) == len(hashes) == 6
 
 
 def test_login_rejects_wrong_password(client):
@@ -298,8 +298,8 @@ def test_unknown_usernames_lock_the_same_way(client):
 
 def test_overlong_login_fields_are_refused_before_any_check(client, monkeypatch):
     checks = []
-    monkeypatch.setattr(auth, "check_password", lambda *a: checks.append(a) or False)
-    monkeypatch.setattr(auth, "check_password_of_unknown_user", lambda *a: checks.append(a))
+    monkeypatch.setattr(levels, "check_password", lambda *a: checks.append(a) or False)
+    monkeypatch.setattr(levels, "check_password_of_unknown_user", lambda *a: checks.append(a))
     for username, password in (("a" * 41, PASSWORD), ("alice#000000", "p" * 129)):
         r = login(client, username, password)
         assert b"Incorrect username or password." in r.data

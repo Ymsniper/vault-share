@@ -1,15 +1,12 @@
 from flask import Blueprint, flash, g, redirect, render_template, url_for
 
-from security.passwords import hash_password, password_problem
+from security.passwords import password_problem
 
+from . import levels
 from .auth import current_account, login_required, password_limit, password_ok
-from .db import get_db
-from .duress import DECOY, WIPE, empty_slot, seal_mode
 from .forms import DuressForm, RemoveDuressForm, first_error
 
 bp = Blueprint("settings", __name__, url_prefix="/auth")
-
-DECOY_REFUSAL = "The duress password could not be saved. Try again later."
 
 
 @bp.route("/duress", methods=("GET", "POST"))
@@ -18,16 +15,18 @@ DECOY_REFUSAL = "The duress password could not be saved. Try again later."
 def duress():
     """Set or replace the duress password.
 
-    The page never says whether one is set, so someone who forced the real
-    password out of the user learns nothing here either.
+    It opens a vault of its own, the cover files, kept under keys the real
+    password reaches and the duress password never climbs out of. Every
+    session sets the duress password of the vault below its own, so the
+    page works, and looks, the same in each. It never says whether one is
+    set, so someone who forced a password out of the user learns nothing
+    here either.
     """
     form = DuressForm()
-    if form.is_submitted() and g.duress:
-        flash(DECOY_REFUSAL)
-    elif form.validate_on_submit():
-        user = g.user
-        problem = password_problem(user["username"], form.duress_password.data)
-        if not password_ok(form.password.data):
+    if form.validate_on_submit():
+        problem = password_problem(g.user["username"], form.duress_password.data)
+        keys = levels.unlock(form.password.data)
+        if keys is None:
             g.wrong_password = True
             flash("Wrong password.")
         elif form.duress_password.data == form.password.data:
@@ -35,14 +34,7 @@ def duress():
         elif problem is not None:
             flash(problem)
         else:
-            mode = WIPE if form.mode.data == "wipe" else DECOY
-            db = get_db()
-            duress_hash = hash_password(form.duress_password.data)
-            db.execute(
-                "UPDATE users SET duress_hash = ?, duress_policy = ? WHERE id = ?",
-                (duress_hash, seal_mode(user["username"], mode), user["id"]),
-            )
-            db.commit()
+            levels.set_duress(keys, form.duress_password.data, form.mode.data)
             # not logged: the audit log must not show who has a duress password
             flash("Duress password saved.", "success")
             return redirect(url_for("settings.duress"))
@@ -56,19 +48,13 @@ def duress():
 @password_limit(current_account)
 def remove_duress():
     form = RemoveDuressForm()
-    if g.duress:
-        flash(DECOY_REFUSAL)
-    elif not form.validate():
+    if not form.validate():
         flash(first_error(form))
     elif not password_ok(form.password.data):
         g.wrong_password = True
         flash("Wrong password.")
     else:
-        db = get_db()
-        db.execute(
-            "UPDATE users SET duress_hash = ?, duress_policy = ? WHERE id = ?",
-            (*empty_slot(g.user["username"]), g.user["id"]),
-        )
-        db.commit()
+        # the cover files stay, under the keys the real password reaches
+        levels.remove_duress()
         flash("Duress password removed, if there was one.", "success")
     return redirect(url_for("settings.duress"))

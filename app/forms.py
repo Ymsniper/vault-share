@@ -57,7 +57,7 @@ class DuressForm(FlaskForm):
             Length(12, 128, message="The duress password must be 12 to 128 characters long.")
         ]
     )
-    mode = RadioField(choices=["decoy", "wipe"], default="decoy")
+    mode = RadioField(choices=["cover", "wipe"], default="cover")
     confirm_wipe = BooleanField()
 
     def validate_confirm_wipe(self, field):

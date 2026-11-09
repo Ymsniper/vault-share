@@ -2,10 +2,10 @@ import pytest
 from cryptography.exceptions import InvalidTag
 
 from app.db import get_db
-from app.identity import encryption_aad
 from security.crypto import new_key
 from security.hybrid import generate_encryption_key, public_bytes, unwrap_file_key, wrap_file_key
-from security.signing import lock_private_key, unlock_private_key
+
+from .test_files import private_key, user_id
 
 FILE_ID = "3f0c2a5e-1d4b-4c8e-9a71-0b2f6d8e4c10"
 BOB = 2
@@ -14,65 +14,54 @@ BOB = 2
 def test_only_the_recipient_opens_their_copy():
     bob, eve = generate_encryption_key(), generate_encryption_key()
     file_key = new_key()
-    copy = wrap_file_key(public_bytes(bob), file_key, FILE_ID, BOB)
+    copy = wrap_file_key(public_bytes(bob), file_key, FILE_ID, BOB, 0)
     assert file_key not in copy
-    assert unwrap_file_key(bob, copy, FILE_ID, BOB) == file_key
+    assert unwrap_file_key(bob, copy, FILE_ID, BOB, 0) == file_key
     with pytest.raises(InvalidTag):
-        unwrap_file_key(eve, copy, FILE_ID, BOB)
+        unwrap_file_key(eve, copy, FILE_ID, BOB, 0)
 
 
 @pytest.mark.parametrize(
-    ("file_id", "user_id"),
-    [("6a1e7c3d-2b9f-4e05-8d44-7f3a9c1b2e58", BOB), (FILE_ID, 3)],
-    ids=["another file", "another person"],
+    ("file_id", "user_id", "level"),
+    [("6a1e7c3d-2b9f-4e05-8d44-7f3a9c1b2e58", BOB, 0), (FILE_ID, 3, 0), (FILE_ID, BOB, 1)],
+    ids=["another file", "another person", "another level"],
 )
-def test_a_copy_opens_only_for_its_file_and_person(file_id, user_id):
+def test_a_copy_opens_only_for_its_file_person_and_level(file_id, user_id, level):
     bob = generate_encryption_key()
-    copy = wrap_file_key(public_bytes(bob), new_key(), FILE_ID, BOB)
+    copy = wrap_file_key(public_bytes(bob), new_key(), FILE_ID, BOB, 0)
     with pytest.raises(InvalidTag):
-        unwrap_file_key(bob, copy, file_id, user_id)
+        unwrap_file_key(bob, copy, file_id, user_id, level)
 
 
 def test_a_changed_byte_is_detected():
     bob = generate_encryption_key()
-    copy = bytearray(wrap_file_key(public_bytes(bob), new_key(), FILE_ID, BOB))
+    copy = bytearray(wrap_file_key(public_bytes(bob), new_key(), FILE_ID, BOB, 0))
     copy[-1] ^= 1
     with pytest.raises(InvalidTag):
-        unwrap_file_key(bob, bytes(copy), FILE_ID, BOB)
+        unwrap_file_key(bob, bytes(copy), FILE_ID, BOB, 0)
 
 
 def test_every_copy_is_different():
     # a fresh ephemeral key each time, so copies cannot be compared
     bob = generate_encryption_key()
     file_key = new_key()
-    first = wrap_file_key(public_bytes(bob), file_key, FILE_ID, BOB)
-    assert first != wrap_file_key(public_bytes(bob), file_key, FILE_ID, BOB)
+    first = wrap_file_key(public_bytes(bob), file_key, FILE_ID, BOB, 0)
+    assert first != wrap_file_key(public_bytes(bob), file_key, FILE_ID, BOB, 0)
 
 
-def test_the_private_key_opens_only_with_the_password():
-    bob = generate_encryption_key()
-    salt, locked = lock_private_key(bob, "contract-2026", b"bob:encryption")
-    with pytest.raises(InvalidTag):
-        unlock_private_key(salt, locked, "not the password", b"bob:encryption")
-    with pytest.raises(InvalidTag):
-        unlock_private_key(salt, locked, "contract-2026", b"bob")
-    opened = unlock_private_key(salt, locked, "contract-2026", b"bob:encryption")
-    assert public_bytes(opened) == public_bytes(bob)
-
-
-def test_every_user_gets_an_encryption_key(app, alice):
+def test_every_user_gets_three_key_pairs_apart_from_the_signing_key(app, alice):
     with app.app_context():
-        row = get_db().execute(
-            "SELECT e.public_key, e.kdf_salt, e.enc_private_key, k.enc_private_key AS signing"
-            " FROM encryption_keys e JOIN user_keys k ON k.user_id = e.user_id"
-            " JOIN users u ON u.id = e.user_id WHERE u.username = ?",
-            (alice.handle,),
-        ).fetchone()
-    assert len(row["public_key"]) == 32
-    # a key of its own, not the signing key
-    assert row["enc_private_key"] != row["signing"]
-    salt, locked, aad = row["kdf_salt"], row["enc_private_key"], encryption_aad(alice.handle)
+        db = get_db()
+        publics = [
+            r["public_key"] for r in db.execute(
+                "SELECT public_key FROM level_keys WHERE user_id = ? ORDER BY level",
+                (user_id(app, alice.handle),),
+            )
+        ]
+        signing = db.execute("SELECT enc_private_key FROM signing_keys").fetchone()[0]
+    assert len(publics) == 3 and len(set(publics)) == 3
+    assert all(len(p) == 32 for p in publics) and signing not in publics
+    # her password opens the first one, and it is the pair of its public key
     with pytest.raises(InvalidTag):
-        unlock_private_key(salt, locked, "not the password", aad)
-    key = unlock_private_key(salt, locked, "contract-2026", aad)
-    assert public_bytes(key) == row["public_key"]
+        private_key(app, alice.handle, "not the password")
+    assert public_bytes(private_key(app, alice.handle)) == publics[0]

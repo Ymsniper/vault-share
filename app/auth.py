@@ -25,14 +25,12 @@ from limits import parse
 from markupsafe import Markup, escape
 
 from security.keys import subkey
-from security.passwords import check_password, check_password_of_unknown_user, hash_password
 
-from . import limiter
+from . import levels, limiter
 from .audit import audit, network_of
 from .db import get_db
-from .duress import WIPE, empty_slot, mode_of, seal_login_flag, wipe_account
 from .forms import LoginForm, NewPasswordForm, RegisterForm, first_error
-from .identity import ensure_encryption_key, load_app_ca, new_encryption_key, new_identity
+from .identity import load_app_ca, new_identity
 from .invites import INVALID, usable_invite, use_invite
 
 bp = Blueprint("auth", __name__, url_prefix="/auth")
@@ -44,8 +42,9 @@ def token_hash(token):
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-def start_session(user_id, duress=False):
-    """Create a server-side session and return its token for the cookie."""
+def start_session(user_id, level):
+    """Create a server-side session at a level and return its token for the
+    cookie."""
     token = secrets.token_urlsafe(32)
     db = get_db()
     db.execute(
@@ -53,27 +52,27 @@ def start_session(user_id, duress=False):
         " OR last_seen <= datetime('now', '-30 minutes')"
     )
     db.execute(
-        "INSERT INTO sessions (token_hash, user_id, expires_at, duress)"
+        "INSERT INTO sessions (token_hash, user_id, expires_at, level)"
         " VALUES (?, ?, datetime('now', '+8 hours'), ?)",
-        (token_hash(token), user_id, int(duress)),
+        (token_hash(token), user_id, level),
     )
     db.commit()
     return token
 
 
-def finish_login(user, duress=False):
-    """Start a fresh server-side session for user and send its cookie.
-
-    A session opened with the duress password shows the account as empty.
-    """
+def finish_login(user, level):
+    """Start a fresh server-side session for user at the level the password
+    opened, and send its cookie. The login row is the only trace of the
+    level: at level 1 or 2 it is the silent alarm."""
     # a token the browser already had, maybe planted by someone else, is
     # never reused: every login gets a fresh one
     old_token = request.cookies.get(SESSION_COOKIE)
     if old_token:
         end_session(old_token)
     session.clear()
-    token = start_session(user["id"], duress)
-    audit("login", "ok", user_id=user["id"])
+    token = start_session(user["id"], level)
+    audit("login", "ok", user_id=user["id"], level=level,
+          detail=levels.alarm_detail(user, level))
     response = redirect(url_for("files.index"))
     response.set_cookie(
         SESSION_COOKIE,
@@ -245,16 +244,35 @@ def first_sight_of_lock(limits):
 
 
 def password_ok(password):
-    """Whether password is the logged-in account's. Every password asked
-    inside a session goes through here, so one place decides which
-    password a session takes."""
-    return check_password(g.user["password_hash"], password)
+    """Whether password is the session's own. Every password asked inside a
+    session goes through here: it must open the lock of the session's
+    level, so no form can test the password of another level."""
+    return levels.unlock(password) is not None
 
 
 def current_account():
-    """The logged-in user's id: only their own session can count toward the
-    limit of their password checks."""
-    return str(g.user["id"]) if g.get("user") else None
+    """The logged-in account and its session's level: only the account's
+    own sessions count toward the limits of its password checks, and each
+    level apart, so what one level does never shows as a limit at another."""
+    return f"{g.user['id']}:{g.level}" if g.get("user") else None
+
+
+def pending_key(user_id, sealed):
+    """The key the two-factor code step counts toward, per account and level
+    like current_account()."""
+    return f"{user_id}:{levels.pending_level(user_id, sealed)}"
+
+
+def finish_pending_login(user, sealed, recovery=False):
+    """After the right code: the wipe a duress password in wipe mode asked
+    for, now that the code is right, then the session at its level. A
+    recovery code used instead of the phone is logged at that level too."""
+    level = levels.pending_level(user["id"], sealed)
+    if recovery:
+        audit("totp", "recovery code used", user_id=user["id"], level=level)
+    if levels.wipes(user, level):
+        levels.wipe(user, level)
+    return finish_login(user, level)
 
 
 def client_key():
@@ -387,12 +405,10 @@ def register_password():
                 flash(INVALID)
                 return redirect(url_for("auth.register"))
             try:
-                duress_hash, duress_policy = empty_slot(handle)
+                # the sealed levels are written once the credentials exist
                 cur = db.execute(
-                    "INSERT INTO users"
-                    " (username, password_hash, duress_hash, duress_policy, invite_id)"
-                    " VALUES (?, ?, ?, ?, ?)",
-                    (handle, hash_password(password), duress_hash, duress_policy, invite_id),
+                    "INSERT INTO users (username, duress_policy, invite_id) VALUES (?, ?, ?)",
+                    (handle, b"", invite_id),
                 )
             except db.IntegrityError:
                 # the same tag drawn twice for this name, about one in a million;
@@ -402,8 +418,8 @@ def register_password():
                 error = "That tag was just taken, so here is another one. Register with it."
             else:
                 user_id = cur.lastrowid
-                new_identity(user_id, handle, password, ca)
-                new_encryption_key(user_id, handle, password)
+                bottom = levels.new_account(user_id, handle, password)
+                new_identity(user_id, handle, bottom, ca)
                 db.commit()
                 audit("register", "ok", detail=f"invite code {invite_id}", user_id=user_id)
                 session.pop("new_handle")
@@ -435,17 +451,9 @@ def login():
         username = form.username.data
         password = form.password.data
         user = get_db().execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
-        # both passwords are checked every time, so the time a login takes
-        # does not show which one matched
-        if user is None:
-            check_password_of_unknown_user(password)
-            check_password_of_unknown_user(password)
-            real = duress = False
-        else:
-            real = check_password(user["password_hash"], password)
-            duress = check_password(user["duress_hash"], password)
+        level = levels.login_level(user, password)
 
-        if not (real or duress):
+        if level is None:
             g.wrong_password = True
             audit("login", "failed", user_id=None)
             flash("Incorrect username or password.")
@@ -454,27 +462,22 @@ def login():
             audit("login", "refused", user_id=user["id"], detail="banned")
             flash("This account is disabled.")
         else:
-            if real and not duress:
-                # only missing after a duress wipe; the password is at hand
-                ensure_encryption_key(user["id"], username, password)
-            if duress:
-                wipe = mode_of(user) == WIPE
-                # with two-factor on, the wipe waits for the code like the
-                # login does, so the duress password alone destroys nothing
-                waits = wipe and user["totp_secret"] is not None
-                if wipe and not waits:
-                    wipe_account(user)
-                # the silent alarm: only an administrator ever sees it
-                detail = "wipe after the code" if waits else "wipe" if wipe else "decoy"
-                audit("duress", "used", user_id=user["id"], detail=detail)
+            levels.note_login(user)
             if user["totp_secret"] is not None:
-                # right password, but no session until the code is right too
+                # right password, but no session until the code is right
+                # too; a duress login's alarm is this row, written now, and
+                # a wipe waits for the code, so the password alone destroys
+                # nothing
+                audit("login", "code asked", user_id=user["id"], level=level,
+                      detail=levels.alarm_detail(user, level, waits=True))
                 session.clear()
                 session["totp_user_id"] = user["id"]
                 session["totp_started"] = time.time()
-                session["totp_mode"] = seal_login_flag(user["id"], duress)
+                session["totp_mode"] = levels.seal_pending(user["id"], level)
                 return redirect(url_for("totp.login_code"))
-            return finish_login(user, duress)
+            if levels.wipes(user, level):
+                levels.wipe(user, level)
+            return finish_login(user, level)
     elif form.is_submitted():
         flash("Incorrect username or password.")
 
@@ -497,22 +500,21 @@ def logout():
 
 @bp.before_app_request
 def load_logged_in_user():
-    g.user = None
-    g.duress = False
+    g.user = g.level = None
     token = request.cookies.get(SESSION_COOKIE)
     if not token or current_app.extensions["keyring"].locked:
         return
     db = get_db()
     # a session ends 8 hours after login, or after 30 minutes without a request
     g.user = db.execute(
-        "SELECT u.*, s.duress AS session_duress, s.totp_pending AS session_totp_pending"
+        "SELECT u.*, s.level AS session_level, s.totp_pending AS session_totp_pending"
         " FROM sessions s JOIN users u ON u.id = s.user_id"
         " WHERE s.token_hash = ? AND s.expires_at > datetime('now') AND u.banned_at IS NULL"
         " AND s.last_seen > datetime('now', '-30 minutes')",
         (token_hash(token),),
     ).fetchone()
     if g.user is not None:
-        g.duress = bool(g.user["session_duress"])
+        g.level = g.user["session_level"]
         g.session_hash = token_hash(token)
         db.execute(
             "UPDATE sessions SET last_seen = datetime('now') WHERE token_hash = ?",

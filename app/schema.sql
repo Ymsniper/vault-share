@@ -3,27 +3,29 @@ DROP TABLE IF EXISTS file_keys;
 DROP TABLE IF EXISTS shares;
 DROP TABLE IF EXISTS files;
 DROP TABLE IF EXISTS certificates;
-DROP TABLE IF EXISTS encryption_keys;
-DROP TABLE IF EXISTS user_keys;
+DROP TABLE IF EXISTS signing_keys;
+DROP TABLE IF EXISTS level_keys;
+DROP TABLE IF EXISTS credentials;
 DROP TABLE IF EXISTS sessions;
 DROP TABLE IF EXISTS totp_recovery;
 DROP TABLE IF EXISTS users;
 DROP TABLE IF EXISTS invites;
 DROP TABLE IF EXISTS invite_defaults;
 
+-- the version of this layout, for vault-share migrate
+PRAGMA user_version = 1;
+
 CREATE TABLE users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT NOT NULL UNIQUE,
-    password_hash TEXT NOT NULL,
     is_admin INTEGER NOT NULL DEFAULT 0,
     -- TOTP secret encrypted under a key derived from the master key, NULL
     -- while two-factor login is off; last_step stops a code being reused
     totp_secret BLOB,
     totp_last_step INTEGER,
-    -- every account has a duress slot, set or not: an unused one holds the
-    -- hash of a random secret, and the mode is encrypted, so the database
-    -- does not show who set a duress password or what it does
-    duress_hash TEXT NOT NULL,
+    -- sealed under the master key, always the same length (app/levels.py):
+    -- which of the account's credentials is which level, and what each
+    -- duress level does, so the database does not show who set one
     duress_policy BLOB NOT NULL,
     -- the invite code the account was created with
     invite_id INTEGER NOT NULL REFERENCES invites (id),
@@ -55,7 +57,10 @@ CREATE TABLE invites (
     -- how many accounts it may create, and how many it did
     max_uses INTEGER NOT NULL CHECK (max_uses BETWEEN 1 AND 100),
     uses INTEGER NOT NULL DEFAULT 0 CHECK (uses <= max_uses),
-    cancelled_at TEXT
+    cancelled_at TEXT,
+    -- the level of the session that made it; a session sees the codes made
+    -- at its own level and the ones below it (a higher number)
+    level INTEGER NOT NULL DEFAULT 0 CHECK (level BETWEEN 0 AND 2)
 );
 
 -- what a new code gets unless the server asks for other values; changed
@@ -79,27 +84,42 @@ CREATE TABLE sessions (
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     last_seen TEXT NOT NULL DEFAULT (datetime('now')),
     expires_at TEXT NOT NULL,
-    -- opened with the duress password: the account shows as empty
-    duress INTEGER NOT NULL DEFAULT 0,
+    -- the level the session was opened at: 0 with the real password, 1 and
+    -- 2 with a duress password (app/levels.py)
+    level INTEGER NOT NULL CHECK (level BETWEEN 0 AND 2),
     -- a two-factor secret this session is enrolling, sealed; it belongs to
     -- the session, so no other session of the account can read it
     totp_pending BLOB
 );
 
--- the ECDSA private key, encrypted with AES-256-GCM under a key derived
--- from the user's password (Argon2id with kdf_salt)
-CREATE TABLE user_keys (
-    user_id INTEGER PRIMARY KEY REFERENCES users (id),
+-- the password of each of an account's three levels, in random order; the
+-- sealed users.duress_policy says which row is which level. lock is the
+-- level's X25519 private key, encrypted under Argon2id(password, kdf_salt).
+-- A level without a password holds the hash of a random secret and random
+-- bytes the length of a lock, so in here it looks like one with a password
+CREATE TABLE credentials (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users (id),
+    password_hash TEXT NOT NULL,
     kdf_salt BLOB NOT NULL,
-    enc_private_key BLOB NOT NULL
+    lock BLOB NOT NULL
 );
 
--- the X25519 key pair that receives file keys (security/hybrid.py), kept
--- apart from the signing key; its private key is locked the same way
-CREATE TABLE encryption_keys (
-    user_id INTEGER PRIMARY KEY REFERENCES users (id),
+-- each level's X25519 key pair (security/keychain.py); link is the level's
+-- private key encrypted under the one above it, so a level's password
+-- opens the levels below it and never the one above
+CREATE TABLE level_keys (
+    user_id INTEGER NOT NULL REFERENCES users (id),
+    level INTEGER NOT NULL CHECK (level BETWEEN 0 AND 2),
     public_key BLOB NOT NULL,
-    kdf_salt BLOB NOT NULL,
+    link BLOB,
+    PRIMARY KEY (user_id, level)
+);
+
+-- the ECDSA private key, encrypted under level 2's private key, which
+-- every level's password reaches: all of them sign with one certificate
+CREATE TABLE signing_keys (
+    user_id INTEGER PRIMARY KEY REFERENCES users (id),
     enc_private_key BLOB NOT NULL
 );
 
@@ -152,6 +172,9 @@ CREATE TABLE file_keys (
     file_id TEXT NOT NULL REFERENCES files (id) ON DELETE CASCADE,
     user_id INTEGER NOT NULL REFERENCES users (id),
     wrapped_key BLOB NOT NULL,
+    -- the level whose public key the copy is encrypted to: a session sees
+    -- and opens the copies at its own level and the ones below it
+    level INTEGER NOT NULL CHECK (level BETWEEN 0 AND 2),
     PRIMARY KEY (file_id, user_id)
 );
 
@@ -163,5 +186,13 @@ CREATE TABLE audit_log (
     file_id TEXT,
     outcome TEXT NOT NULL,
     detail TEXT,
-    ip TEXT
+    ip TEXT,
+    -- the level of the session that wrote it, NULL when no session did
+    -- (registering, the server's commands); a login row at level 1 or 2 is
+    -- the silent alarm
+    level INTEGER,
+    -- for a file, its owner and the level of the owner's copy then: the
+    -- level log rule judges by them once the file is gone (app/levels.py)
+    subject_id INTEGER,
+    subject_level INTEGER
 );

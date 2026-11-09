@@ -142,21 +142,39 @@ admin's new invite code is shown the same way, in the page that made it.
 ![Turning on two-factor login](docs/screenshots/web-two-factor.png)
 
 A duress password, set from the "Duress" page, is the one to give if someone
-forces you to log in. It opens your account as if it were empty and writes a
-silent alert to the audit log; with the wipe option it first destroys your
-files, every file key copy made for you and your private keys, which nobody
-can undo. With two-factor login on, the wipe waits for the code, like the
-login itself, so a leaked duress password alone destroys nothing; the alert
-is written as soon as the password is typed. Every account has a duress
-slot, used or not, its mode is stored encrypted, and setting or removing
-one is not logged, so neither the database nor the audit log shows who
-set one. An admin's decoy session still shows the Audit log and Invites
-pages. The log leaves out the duress entries and whatever shows the
-account's real activity: what anyone did with its files, and its own file
-actions and invite codes. The Invites page lists no codes. Making or
-cancelling a code, like changing a setting, answers that it could not be
-saved. Someone who tries that every time may notice, and an admin who is
-the coercer sees the alert.
+forces you to log in. It opens your cover files: a second vault that is
+real, where uploads, downloads, sharing and the settings all work, rather
+than an empty account that refuses things. What keeps your other files from
+it is keys, not hidden buttons. Every account has three levels, each with
+its own X25519 key pair: the real password opens level 0, the duress
+password level 1, and a duress password set from a level 1 session opens
+level 2. A level's private key is locked under its password and also
+linked down from the level above, so a password opens its own level and
+the ones below it, never the one above. Every session believes it is the
+top: it sees its own files, and the
+levels below it as its cover files, and every page looks the same at each
+level. A password asked inside a session is checked against that
+session's level only, so no form there can test another password. The
+signing key hangs off level 2, which every password reaches, so files
+uploaded at any level carry the same certificate.
+
+A duress login is the silent alarm: its login row is written at its level,
+and admins at level 0 and the console show it as `duress`; at the duress
+level itself it is a plain login. An admin's session at level 1 sees the
+log without the rows its account wrote at level 0 or that others wrote
+about its level 0 files, and the invites page lists and counts only the
+codes made at its level or below. With the wipe option, the duress
+password destroys the files and key copies of the level that set it, at
+once, and nothing else: the keys stay, so the levels below keep working.
+With two-factor login on, the wipe waits for the code, like the login
+itself, so a leaked duress password alone destroys nothing; the alarm is
+written as soon as the password is typed. Every account has all three
+levels from the start, a level without a password looks like one with a
+password in the database, the record of which is which is sealed under the
+master key, and setting or removing a duress password is not logged.
+Two-factor login belongs to the account: a duress session can turn it on or
+off, or replace the recovery codes, for the real password too, and the
+operator's `admin clear-totp` is the way back.
 
 ![Setting a duress password](docs/screenshots/web-duress.png)
 
@@ -264,10 +282,12 @@ real person gets a new account.
 The master key does not open files. Each file's key is stored only as
 copies encrypted with HPKE (RFC 9180: X25519, HKDF-SHA256, AES-256-GCM), one
 for each person who may open the file: its owner and every recipient of an
-active share. Every user has an X25519 key pair for this, separate from
-their signing key, and its private key is locked under a key derived from
-their password with Argon2id. So even someone holding the whole server, keys
-included, opens no file without the password of a person it was shared with.
+active share. Every user has an X25519 key pair for each of their three
+levels (see the duress password above), separate from their signing key,
+and each private key is locked under a key derived from that level's
+password with Argon2id. A copy is bound to one file, one reader and one
+level. So even someone holding the whole server, keys included, opens no
+file without the password of a person it was shared with.
 
 That is why download and share ask for your password, like upload: it
 unlocks your key for that one request, so a stolen session cookie alone
@@ -426,7 +446,7 @@ To make a user an admin, who can read the audit log and make invite codes:
     .venv/bin/flask --app app admin grant '<username>'
 
 The audit log shows 200 events at a time, with a link to older ones, and
-can show only the problems: failures, refusals, locks and the duress alert.
+can show only the problems: failures, refusals, locks and the duress alarm.
 The console's Audit log tab has the same filter and shows 200 more rows at a
 time. So a user who fills the log cannot push an entry out of reach, and an
 owner's own visits to their file pages are not logged at all. A lock is

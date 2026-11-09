@@ -27,21 +27,21 @@ def public_bytes(key):
     )
 
 
-def _info(file_id, user_id):
-    # ties a copy to one file and one person: moved onto another row of the
-    # database, it no longer opens. The label is part of every stored copy,
-    # so it keeps the project's first name: changing it would lock them all
-    return f"fileshare file key|{file_id}|{user_id}".encode()
+def _info(file_id, user_id, level):
+    # ties a copy to one file, one person and one of their levels: moved
+    # onto another row of the database, it no longer opens. The label is
+    # part of every stored copy, so it keeps the project's first name
+    return f"fileshare file key|{file_id}|{user_id}|{level}".encode()
 
 
-def wrap_file_key(public_key, file_key, file_id, user_id):
+def wrap_file_key(public_key, file_key, file_id, user_id, level):
     """The file key encrypted to public_key, the raw 32 bytes."""
     return SUITE.encrypt(
-        file_key, X25519PublicKey.from_public_bytes(public_key), _info(file_id, user_id)
+        file_key, X25519PublicKey.from_public_bytes(public_key), _info(file_id, user_id, level)
     )
 
 
-def unwrap_file_key(private_key, copy, file_id, user_id):
+def unwrap_file_key(private_key, copy, file_id, user_id, level):
     """Raises cryptography.exceptions.InvalidTag when the key, the file, the
-    person or a single byte of the copy does not match."""
-    return SUITE.decrypt(copy, private_key, _info(file_id, user_id))
+    person, the level or a single byte of the copy does not match."""
+    return SUITE.decrypt(copy, private_key, _info(file_id, user_id, level))

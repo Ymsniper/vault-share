@@ -8,19 +8,13 @@ from cryptography.hazmat.primitives.serialization import load_pem_private_key
 from app.db import get_db
 from app.files import mac_key
 from security.integrity import record_mac
-from security.signing import sign_digest, unlock_private_key
+from security.signing import sign_digest
 
-from .test_files import CONTRACT, download, file_id, new_file
+from .test_files import CONTRACT, download, file_id, new_file, signing_key
 
 
 def private_key_of(app, username, password="contract-2026"):
-    with app.app_context():
-        row = get_db().execute(
-            "SELECT k.kdf_salt, k.enc_private_key FROM user_keys k"
-            " JOIN users u ON u.id = k.user_id WHERE u.username = ?",
-            (username,),
-        ).fetchone()
-    return unlock_private_key(row["kdf_salt"], row["enc_private_key"], password, username.encode())
+    return signing_key(app, username, password)
 
 
 def resign(app, url, key, cert_pem=None):
@@ -119,16 +113,14 @@ def test_valid_file_still_passes(alice):
 
 def test_private_keys_are_stored_encrypted(app, alice):
     with app.app_context():
-        row = get_db().execute("SELECT kdf_salt, enc_private_key FROM user_keys").fetchone()
-    assert len(row["kdf_salt"]) == 16
-    assert b"PRIVATE KEY" not in row["enc_private_key"]
+        db = get_db()
+        signing = db.execute("SELECT enc_private_key FROM signing_keys").fetchone()[0]
+        locks = [r[0] for r in db.execute("SELECT lock FROM credentials")]
+    assert b"PRIVATE KEY" not in signing
+    assert all(len(lock) == 60 for lock in locks)
     with pytest.raises(InvalidTag):
-        unlock_private_key(
-            row["kdf_salt"], row["enc_private_key"], "wrong password!", alice.handle.encode()
-        )
-    assert unlock_private_key(
-        row["kdf_salt"], row["enc_private_key"], "contract-2026", alice.handle.encode()
-    )
+        private_key_of(app, alice.handle, "wrong password!")
+    assert private_key_of(app, alice.handle)
 
 
 def upload_with_password(client, password):
