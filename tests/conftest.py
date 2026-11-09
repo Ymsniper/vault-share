@@ -83,6 +83,9 @@ def app(tmp_path, ca_dir):
             "TLS_KEY": str(tmp_path / "tls" / "server.key"),
             # nor the real port and upload limit
             "SETTINGS_FILE": str(tmp_path / "server.toml"),
+            # a new duress password works at once here; test_levels.py has
+            # the real delay
+            "DURESS_DELAY": 0,
         }
     )
     with app.app_context():

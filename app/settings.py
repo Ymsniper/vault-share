@@ -1,10 +1,11 @@
-from flask import Blueprint, flash, g, redirect, render_template, url_for
+from flask import Blueprint, current_app, flash, g, redirect, render_template, url_for
 
 from security.passwords import password_problem
 
 from . import levels
 from .auth import current_account, login_required, password_limit, password_ok
 from .forms import DuressForm, RemoveDuressForm, first_error
+from .invites import plural
 
 bp = Blueprint("settings", __name__, url_prefix="/auth")
 
@@ -36,11 +37,16 @@ def duress():
         else:
             levels.set_duress(keys, form.duress_password.data, form.mode.data)
             # not logged: the audit log must not show who has a duress password
-            flash("Duress password saved.", "success")
+            flash(f"Duress password saved. It becomes active in {delay()}.", "success")
             return redirect(url_for("settings.duress"))
     elif form.is_submitted():
         flash(first_error(form))
-    return render_template("auth/duress.html")
+    return render_template("auth/duress.html", delay=delay())
+
+
+def delay():
+    """How long a new duress password waits before it works, for the page."""
+    return plural(current_app.config["DURESS_DELAY"] // 3600, "hour")
 
 
 @bp.route("/duress/remove", methods=("POST",))

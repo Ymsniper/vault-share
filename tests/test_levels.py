@@ -255,6 +255,50 @@ def test_a_level_one_admin_makes_codes_of_its_own(app, alice, monkeypatch):
     assert b'Your codes <span class="vs-count">6</span>' in alice.get("/admin/invites").data
 
 
+def test_a_new_duress_password_works_after_48_hours(app, alice, monkeypatch):
+    app.config["DURESS_DELAY"] = 48 * 3600
+    r = set_duress(alice)
+    assert b"It becomes active in 48 hours." in r.data
+    # not yet: it is refused like a wrong password, and counts as one
+    _, r = log_in(app, alice, DURESS)
+    assert b"Incorrect username or password." in r.data
+    tick(monkeypatch, 48 * 3600 + 1)
+    forced, r = log_in(app, alice, DURESS)
+    assert r.headers["Location"] == "/"
+    assert rows(app)[-1] == ("login", "ok", 1)
+
+
+def test_setting_a_duress_password_answers_the_same_at_levels_0_and_1(app, alice, monkeypatch):
+    app.config["DURESS_DELAY"] = 48 * 3600
+    real = set_duress(alice, duress=DURESS)
+    tick(monkeypatch, 48 * 3600 + 1)
+    forced, _ = log_in(app, alice, DURESS)
+    duress = set_duress(forced, duress=DEEPER)
+
+    # the same page, the same message
+    assert b"It becomes active in 48 hours." in real.data
+    assert normalized(real.data, alice.handle) == normalized(duress.data, alice.handle)
+    # and after the delay, each opens a smaller vault that is real
+    tick(monkeypatch, 2 * (48 * 3600 + 1))
+    deeper, r = log_in(app, alice, DEEPER)
+    assert r.headers["Location"] == "/"
+    assert rows(app)[-1] == ("login", "ok", 2)
+    notes = new_file(deeper, b"Notes from the meeting.\n", "notes.txt")
+    assert download(deeper, notes).data == b"Notes from the meeting.\n"
+
+
+def test_level_two_answers_the_same_and_changes_nothing(app, alice):
+    forced = at_level_one(app, alice)
+    set_duress(forced, duress=DEEPER)
+    deeper, _ = log_in(app, alice, DEEPER)
+    with app.app_context():
+        before = get_db().execute("SELECT * FROM credentials ORDER BY id").fetchall()
+    r = set_duress(deeper, duress="harbor-lantern-quiet-41")
+    assert b"Duress password saved." in r.data
+    with app.app_context():
+        assert get_db().execute("SELECT * FROM credentials ORDER BY id").fetchall() == before
+
+
 def test_a_wipe_destroys_level_zero_and_nothing_else(app, alice, bob):
     forced = at_level_one(app, alice)
     menu = new_file(forced, MENU, "menu.txt")

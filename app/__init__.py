@@ -43,6 +43,9 @@ def create_app(test_config=None):
         # BEHIND_PROXY=1 when a proxy on this machine (Tailscale Funnel)
         # passes the requests on; see "A public link" in the README
         BEHIND_PROXY=os.environ.get("BEHIND_PROXY") == "1",
+        # seconds before a new duress password starts to work, so nobody who
+        # watches it being set can try it on the spot
+        DURESS_DELAY=48 * 3600,
     )
     if test_config is not None:
         app.config.update(test_config)

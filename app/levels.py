@@ -20,7 +20,7 @@ import time
 from dataclasses import dataclass
 
 from cryptography.exceptions import InvalidTag
-from flask import g
+from flask import current_app, g
 
 from security.crypto import decrypt, encrypt
 from security.hybrid import generate_encryption_key, public_bytes, unwrap_file_key, wrap_file_key
@@ -357,7 +357,9 @@ def set_duress(keys, password, mode):
             (*row, policy.rows[lower]),
         )
         policy.modes[lower] = MODES[mode]
-        policy.active_from[lower] = int(time.time())
+        # it starts to work later, at every level alike, so nobody can test
+        # on the spot what setting one did
+        policy.active_from[lower] = int(time.time()) + current_app.config["DURESS_DELAY"]
 
     update_policy(user["id"], change)
 
