@@ -12,6 +12,7 @@ This module reads the session's level; so do auth.py, which loads it,
 audit.py, which writes it into the log, and invites.py, which sorts codes
 by it. No view asks whether a session is a duress one.
 """
+import datetime
 import os
 import secrets
 import struct
@@ -35,6 +36,7 @@ from security.keychain import (
 from security.keys import subkey
 from security.passwords import check_password, check_password_of_unknown_user, hash_password
 
+from .audit import audit
 from .db import get_db
 from .keyring import master_key
 from .storage import storage_path
@@ -187,26 +189,124 @@ TRASH_DAYS = 30
 
 
 def note_login(user, level):
-    """At every login: a duress login opens its level's window, keeping its
-    start if it is open already, and any login closes the windows of the
-    levels below its own (a higher number). Returns what it closed, as
-    (level, since) pairs. The policy is written again whatever the level,
-    so every login makes the same writes."""
+    """At every completed login: a duress login opens its level's window,
+    keeping its start if it is open already, and any login closes the
+    windows of the levels below its own (a higher number). Returns the
+    earliest start among those it closed, as UTC text, or None. The policy
+    is written again whatever the level, so every login makes the same
+    writes."""
     now = int(time.time())
 
     def change(policy):
         closed = []
         for lower in range(level + 1, LEVELS):
             if policy.window_since[lower]:
-                closed.append((lower, policy.window_since[lower]))
+                closed.append(policy.window_since[lower])
                 policy.window_since[lower] = 0
         if level and not policy.window_since[level]:
             policy.window_since[level] = now
-        return closed
+        return min(closed, default=None)
 
-    closed = update_policy(user["id"], change)
+    since = update_policy(user["id"], change)
     purge_trash()
-    return closed
+    if since is None:
+        return None
+    return datetime.datetime.fromtimestamp(since, datetime.UTC).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def review():
+    """What happened in the duress windows the session's login closed, or
+    None when it closed none: what the levels below it (a higher number) did
+    since the earliest of them opened."""
+    since = g.user["session_review_since"]
+    if since is None:
+        return None
+    db, uid, level = get_db(), g.user["id"], g.level
+    params = (uid, level, since)
+    return {
+        "since": since,
+        "logins": db.execute(
+            "SELECT at, ip FROM audit_log WHERE user_id = ? AND level > ? AND at >= ?"
+            " AND action = 'login' AND outcome = 'ok' ORDER BY id",
+            params,
+        ).fetchall(),
+        "events": db.execute(
+            "SELECT at, action, outcome, file_id, detail FROM audit_log"
+            " WHERE user_id = ? AND level > ? AND at >= ? AND action != 'login' ORDER BY id",
+            params,
+        ).fetchall(),
+        "trashed": db.execute(
+            "SELECT id, filename, trashed_at FROM files"
+            " WHERE owner_id = ? AND trashed_level > ? AND trashed_at >= ? ORDER BY trashed_at",
+            params,
+        ).fetchall(),
+        "planted": _planted(*params),
+        "arrived": _arrived(*params),
+    }
+
+
+def _planted(uid, level, since):
+    return get_db().execute(
+        "SELECT f.id, f.filename, f.uploaded_at FROM files f"
+        " JOIN file_keys c ON c.file_id = f.id AND c.user_id = f.owner_id"
+        " WHERE f.owner_id = ? AND c.level > ? AND f.uploaded_at >= ? AND f.trashed_at IS NULL"
+        " ORDER BY f.uploaded_at",
+        (uid, level, since),
+    ).fetchall()
+
+
+def _arrived(uid, level, since):
+    return get_db().execute(
+        "SELECT f.id, f.filename, u.username AS owner, c.level FROM file_keys c"
+        " JOIN files f ON f.id = c.file_id JOIN users u ON u.id = f.owner_id"
+        " JOIN shares s ON s.file_id = f.id AND s.recipient_id = c.user_id"
+        " WHERE c.user_id = ? AND c.level > ? AND s.created_at >= ? AND f.owner_id != c.user_id"
+        " AND s.revoked_at IS NULL AND s.dismissed_at IS NULL AND f.trashed_at IS NULL",
+        (uid, level, since),
+    ).fetchall()
+
+
+def _reviewed(rows, file_ids):
+    wanted = set(file_ids)
+    return [r for r in rows if r["id"] in wanted]
+
+
+def restore(file_ids):
+    """Bring back files a duress session trashed in the reviewed windows."""
+    data = review()
+    found = _reviewed(data["trashed"], file_ids) if data else []
+    db = get_db()
+    for r in found:
+        db.execute("UPDATE files SET trashed_at = NULL, trashed_level = NULL WHERE id = ?", (r["id"],))
+    db.commit()
+    return len(found)
+
+
+def remove_planted(file_ids):
+    """Delete files a duress session uploaded in the reviewed windows, as
+    the session deletes anything."""
+    data = review()
+    found = _reviewed(data["planted"], file_ids) if data else []
+    for r in found:
+        # logged first, while the row still says whose file it was
+        audit("delete", "ok", file_id=r["id"], detail="from the review")
+        discard(r["id"])
+    return len(found)
+
+
+def bring_back(keys, file_ids):
+    """Move files shared with the account in the reviewed windows to the
+    session's own level, encrypting their key copies again."""
+    data = review()
+    found = _reviewed(data["arrived"], file_ids) if data else []
+    for r in found:
+        copy = my_copy(r["id"])
+        key = unwrap_file_key(
+            keys.private[copy["level"]], copy["wrapped_key"], r["id"], g.user["id"], copy["level"]
+        )
+        _store(r["id"], g.user["id"], key, g.level)
+    get_db().commit()
+    return len(found)
 
 
 def purge_trash():

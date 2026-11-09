@@ -274,7 +274,8 @@ def test_the_recovery_codes_belong_to_the_account(app, alice, monkeypatch):
     r = forced.post("/auth/totp/recovery", data={"password": DURESS, "code": code(secret)})
     new = recovery_codes(r.data)
     assert len(new) == 10
-    # replaced for the real password too
+    # replaced for the real password too, whose login then shows the review
     log_out_and_in(alice)
     assert b"Wrong code." in alice.post("/auth/login/code", data={"recovery": old[0]}).data
-    assert alice.post("/auth/login/code", data={"recovery": new[0]}).headers["Location"] == "/"
+    r = alice.post("/auth/login/code", data={"recovery": new[0]})
+    assert r.headers["Location"] == "/auth/review"

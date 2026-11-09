@@ -69,6 +69,10 @@ class RemoveDuressForm(FlaskForm):
     password = PasswordField(validators=[DataRequired("Type your password.")])
 
 
+class ReviewForm(FlaskForm):
+    password = PasswordField(validators=[DataRequired("Type your password.")])
+
+
 class CoverForm(FlaskForm):
     password = PasswordField(validators=[DataRequired("Type your password.")])
     # to the cover files, or back from them

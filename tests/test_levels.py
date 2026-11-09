@@ -454,6 +454,83 @@ def test_the_real_password_deletes_for_good(app, alice):
         assert get_db().execute("SELECT COUNT(*) FROM files").fetchone()[0] == 0
 
 
+def a_duress_visit(app, alice, bob):
+    """A coercer at level 1 uploads, deletes a cover file and receives a
+    share from bob: what the next real login's review should show."""
+    forced = at_level_one(app, alice)
+    old = new_file(forced, MENU, "menu.txt")
+    planted = new_file(forced, b"Not mine.\n", "planted.txt")
+    delete(forced, old)
+    arrived = new_file(bob, name="figures.txt")
+    share(bob, arrived, alice.handle)
+    return forced, old, planted, arrived
+
+
+def test_the_next_real_login_gets_the_review(app, alice, bob):
+    forced, old, planted, arrived = a_duress_visit(app, alice, bob)
+    real, r = log_in(app, alice, PASSWORD)
+    assert r.headers["Location"] == "/auth/review"
+    page = real.get("/auth/review").data
+    for shown in (b"menu.txt", b"planted.txt", b"figures.txt", b"duress password was used"):
+        assert shown in page, shown
+    # the certificate stays with the operator: the page gives the time
+    assert b"admin revoke --since" in page
+    # a page of that session only: the next login has none
+    _, r = log_in(app, alice, PASSWORD)
+    assert r.headers["Location"] == "/"
+
+
+def review_action(client, action, urls, password=PASSWORD):
+    data = {"file": [file_id(u) for u in urls], "password": password}
+    return client.post(f"/auth/review/{action}", data=data, follow_redirects=True)
+
+
+def test_the_review_restores_deletes_and_brings_back(app, alice, bob):
+    forced, old, planted, arrived = a_duress_visit(app, alice, bob)
+    real, _ = log_in(app, alice, PASSWORD)
+    assert b"Restored 1 file." in review_action(real, "restore", [old]).data
+    assert download(real, old).data == MENU
+    assert b"Deleted 1 file." in review_action(real, "delete", [planted]).data
+    assert real.get(planted).status_code == 404
+    assert b"Moved 1 file." in review_action(real, "move", [arrived]).data
+    # moved to the real vault: the duress session no longer has it
+    assert b"figures.txt" in shared_with_me(real)
+    assert forced.get(arrived).status_code == 403
+
+
+def test_review_actions_ask_for_the_password(app, alice, bob):
+    forced, old, planted, arrived = a_duress_visit(app, alice, bob)
+    real, _ = log_in(app, alice, PASSWORD)
+    r = review_action(real, "delete", [planted], "a guess")
+    assert b"Wrong password" in r.data
+    assert download(forced, planted).status_code == 200
+
+
+def test_a_level_one_login_gets_the_review_of_level_two(app, alice, bob):
+    forced = at_level_one(app, alice)
+    set_duress(forced, duress=DEEPER)
+    deeper, _ = log_in(app, alice, DEEPER)
+    new_file(deeper, b"From level two.\n", "deep.txt")
+    again, r = log_in(app, alice, DURESS)
+    assert r.headers["Location"] == "/auth/review"
+    assert b"deep.txt" in again.get("/auth/review").data
+
+
+def test_with_two_factor_the_review_follows_the_code(app, alice, bob, monkeypatch):
+    secret = turn_on(alice)
+    set_duress(alice)
+    tick(monkeypatch, 30)
+    forced, _ = log_in(app, alice, DURESS)
+    forced.post("/auth/login/code", data={"code": code(secret)})
+    new_file(forced, MENU, "menu.txt")
+    tick(monkeypatch, 60)
+    real, r = log_in(app, alice, PASSWORD)
+    # the password alone closes no window
+    assert windows(app, alice) == [False, True, False]
+    r = real.post("/auth/login/code", data={"code": code(secret)})
+    assert r.headers["Location"] == "/auth/review"
+
+
 def test_a_wipe_destroys_level_zero_and_nothing_else(app, alice, bob):
     forced = at_level_one(app, alice)
     menu = new_file(forced, MENU, "menu.txt")

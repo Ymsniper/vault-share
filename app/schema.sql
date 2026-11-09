@@ -89,7 +89,10 @@ CREATE TABLE sessions (
     level INTEGER NOT NULL CHECK (level BETWEEN 0 AND 2),
     -- a two-factor secret this session is enrolling, sealed; it belongs to
     -- the session, so no other session of the account can read it
-    totp_pending BLOB
+    totp_pending BLOB,
+    -- when the login that opened this session closed duress windows: the
+    -- earliest one's start, for the review of what happened in them
+    review_since TEXT
 );
 
 -- the password of each of an account's three levels, in random order; the

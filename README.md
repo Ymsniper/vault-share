@@ -169,7 +169,14 @@ arrive at that level, so whoever holds the duress session sees them arrive
 as on a real account, and files a duress session deletes are trashed
 instead of destroyed: hidden from everyone, recipients included, as if
 they were gone, and kept for 30 days for the real owner. The real password
-deletes for good.
+deletes for good. The login that closes a window opens on a review of what
+happened in it, for that session only: the duress logins, what was done,
+the files deleted (which it can restore), uploaded (which it can delete)
+or shared with the account meanwhile (which it can bring back to its own
+files), and the command the operator runs to revoke the certificate from
+the time the window opened, since whoever held the duress password could
+sign in the user's name. A level 1 session that closes a level 2 window
+gets the same review: every level looks like the top.
 
 A duress login is the silent alarm: its login row is written at its level,
 and admins at level 0 and the console show it as `duress`; at the duress

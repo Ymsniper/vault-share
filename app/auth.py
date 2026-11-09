@@ -42,7 +42,7 @@ def token_hash(token):
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-def start_session(user_id, level):
+def start_session(user_id, level, review_since=None):
     """Create a server-side session at a level and return its token for the
     cookie."""
     token = secrets.token_urlsafe(32)
@@ -52,9 +52,9 @@ def start_session(user_id, level):
         " OR last_seen <= datetime('now', '-30 minutes')"
     )
     db.execute(
-        "INSERT INTO sessions (token_hash, user_id, expires_at, level)"
-        " VALUES (?, ?, datetime('now', '+8 hours'), ?)",
-        (token_hash(token), user_id, level),
+        "INSERT INTO sessions (token_hash, user_id, expires_at, level, review_since)"
+        " VALUES (?, ?, datetime('now', '+8 hours'), ?, ?)",
+        (token_hash(token), user_id, level, review_since),
     )
     db.commit()
     return token
@@ -70,10 +70,13 @@ def finish_login(user, level):
     if old_token:
         end_session(old_token)
     session.clear()
-    token = start_session(user["id"], level)
+    # a login at one level closes the duress windows of the levels below
+    # it; what happened in them is for this session to review
+    review_since = levels.note_login(user, level)
+    token = start_session(user["id"], level, review_since)
     audit("login", "ok", user_id=user["id"], level=level,
           detail=levels.alarm_detail(user, level))
-    response = redirect(url_for("files.index"))
+    response = redirect(url_for("settings.review" if review_since else "files.index"))
     response.set_cookie(
         SESSION_COOKIE,
         token,
@@ -462,7 +465,6 @@ def login():
             audit("login", "refused", user_id=user["id"], detail="banned")
             flash("This account is disabled.")
         else:
-            levels.note_login(user, level)
             if user["totp_secret"] is not None:
                 # right password, but no session until the code is right
                 # too; a duress login's alarm is this row, written now, and
@@ -507,7 +509,8 @@ def load_logged_in_user():
     db = get_db()
     # a session ends 8 hours after login, or after 30 minutes without a request
     g.user = db.execute(
-        "SELECT u.*, s.level AS session_level, s.totp_pending AS session_totp_pending"
+        "SELECT u.*, s.level AS session_level, s.totp_pending AS session_totp_pending,"
+        " s.review_since AS session_review_since"
         " FROM sessions s JOIN users u ON u.id = s.user_id"
         " WHERE s.token_hash = ? AND s.expires_at > datetime('now') AND u.banned_at IS NULL"
         " AND s.last_seen > datetime('now', '-30 minutes')",

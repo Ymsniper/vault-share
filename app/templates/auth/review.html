@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Duress review{% endblock %}
+{% macro choose(rows, prefix) -%}
+  {% for r in rows %}
+  <div class="form-check">
+    <input class="form-check-input" type="checkbox" name="file" id="{{ prefix }}-{{ r['id'] }}" value="{{ r['id'] }}">
+    <label class="form-check-label" for="{{ prefix }}-{{ r['id'] }}">{{ r['filename'] }}{% if r['owner'] %} <span class="vs-meta">from {{ r['owner']|handle }}</span>{% endif %}</label>
+  </div>
+  {% else %}
+  <p class="vs-note">Nothing.</p>
+  {% endfor %}
+{%- endmacro %}
+{% macro password(prefix) -%}
+  <div class="my-3">
+    <label for="{{ prefix }}-password" class="form-label">Your password</label>
+    <input type="password" name="password" id="{{ prefix }}-password" class="form-control" autocomplete="current-password" required>
+  </div>
+{%- endmacro %}
+{% block content %}
+<div class="vs-page-head">
+  <div>
+    <p class="vs-kicker">Protection</p>
+    <h1>Duress <em>review</em></h1>
+    <p class="vs-lede">Your duress password was used since {{ since }} UTC. This is what happened while it was in use. The page stays here until you log out.</p>
+  </div>
+</div>
+
+<section class="vs-panel">
+  <h2 class="vs-panel-title">Logins <span class="vs-count">{{ logins|length }}</span></h2>
+  <ul class="vs-people">
+    {% for l in logins %}<li><span class="vs-meta">{{ l['at'] }} UTC</span> <span class="vs-meta">{{ l['ip'] or '' }}</span></li>{% endfor %}
+  </ul>
+</section>
+
+<section class="vs-panel">
+  <h2 class="vs-panel-title">What was done <span class="vs-count">{{ events|length }}</span></h2>
+  {% if events %}
+  <div class="vs-table-wrap">
+    <table class="table table-sm">
+      <thead><tr><th>Time (UTC)</th><th>Action</th><th>Outcome</th><th>Detail</th></tr></thead>
+      <tbody>
+        {% for e in events %}
+        <tr><td class="vs-meta">{{ e['at'] }}</td><td class="vs-mono">{{ e['action'] }}</td><td>{{ e['outcome'] }}</td><td>{{ e['detail'] or '' }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="vs-note">Nothing else.</p>
+  {% endif %}
+</section>
+
+<div class="row g-4">
+  <div class="col-lg-4">
+    <form method="post" action="{{ url_for('settings.review_action', action='restore') }}" class="vs-panel">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <h2 class="vs-panel-title">Deleted</h2>
+      <p class="vs-note">Kept for 30 days. Restoring puts them back where they were.</p>
+      {{ choose(trashed, "restore") }}
+      {{ password("restore") }}
+      <button type="submit" class="btn btn-outline-secondary w-100">Restore</button>
+    </form>
+  </div>
+  <div class="col-lg-4">
+    <form method="post" action="{{ url_for('settings.review_action', action='delete') }}" class="vs-panel">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <h2 class="vs-panel-title">Uploaded</h2>
+      <p class="vs-note">Files uploaded in your name while it was in use.</p>
+      {{ choose(planted, "delete") }}
+      {{ password("delete") }}
+      <button type="submit" class="btn btn-outline-danger w-100">Delete</button>
+    </form>
+  </div>
+  <div class="col-lg-4">
+    <form method="post" action="{{ url_for('settings.review_action', action='move') }}" class="vs-panel">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <h2 class="vs-panel-title">Received</h2>
+      <p class="vs-note">Shared with you while it was in use, so whoever held it saw them. Bring them back to your own files.</p>
+      {{ choose(arrived, "move") }}
+      {{ password("move") }}
+      <button type="submit" class="btn btn-outline-secondary w-100">Bring back</button>
+    </form>
+  </div>
+</div>
+
+<section class="vs-panel">
+  <h2 class="vs-panel-title">Your certificate</h2>
+  <p class="vs-note">Whoever held the duress password could sign files in your name. To make the files signed since then fail, ask the operator to revoke your certificate from that time:</p>
+  <p class="vs-mono">vault-share admin revoke --since '{{ since_local }}' '{{ g.user['username'] }}'</p>
+  <p class="vs-note mb-0">Then change your duress password, or remove it, on the <a href="{{ url_for('settings.duress') }}">Duress page</a>.</p>
+</section>
+{% endblock %}

@@ -1,13 +1,23 @@
 import re
 
-from flask import Blueprint, current_app, flash, g, redirect, render_template, request, url_for
+from flask import (
+    Blueprint,
+    abort,
+    current_app,
+    flash,
+    g,
+    redirect,
+    render_template,
+    request,
+    url_for,
+)
 
 from security.passwords import password_problem
 
 from . import levels
 from .auth import current_account, login_required, password_limit, password_ok
-from .forms import CoverForm, DuressForm, RemoveDuressForm, first_error
-from .invites import plural
+from .forms import CoverForm, DuressForm, RemoveDuressForm, ReviewForm, first_error
+from .invites import plural, to_local
 
 bp = Blueprint("settings", __name__, url_prefix="/auth")
 
@@ -105,3 +115,39 @@ def remove_duress():
         levels.remove_duress()
         flash("Duress password removed, if there was one.", "success")
     return redirect(url_for("settings.duress"))
+
+
+@bp.route("/review")
+@login_required
+def review():
+    """What happened while a duress password was in use, for the first login
+    after it: shown to that session only."""
+    data = levels.review()
+    if data is None:
+        return redirect(url_for("files.index"))
+    return render_template("auth/review.html", since_local=to_local(data["since"]), **data)
+
+
+@bp.route("/review/<action>", methods=("POST",))
+@login_required
+@password_limit(current_account)
+def review_action(action):
+    if action not in ("restore", "delete", "move"):
+        abort(404)
+    form = ReviewForm()
+    if not form.validate():
+        flash(first_error(form))
+        return redirect(url_for("settings.review"))
+    keys = levels.unlock(form.password.data)
+    if keys is None:
+        g.wrong_password = True
+        flash("Wrong password.")
+        return redirect(url_for("settings.review"))
+    ids = [i for i in request.form.getlist("file") if FILE_ID.fullmatch(i)][:500]
+    if action == "restore":
+        flash(f"Restored {plural(levels.restore(ids), 'file')}.", "success")
+    elif action == "delete":
+        flash(f"Deleted {plural(levels.remove_planted(ids), 'file')}.", "success")
+    else:
+        flash(f"Moved {plural(levels.bring_back(keys, ids), 'file')}.", "success")
+    return redirect(url_for("settings.review"))
