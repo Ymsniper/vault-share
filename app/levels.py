@@ -606,8 +606,18 @@ def set_duress(keys, password, mode):
         policy.active_from[lower] = int(time.time()) + current_app.config["DURESS_DELAY"]
         for below, row in zip(range(lower + 1, LEVELS), spares):
             _clear(policy, below, row)
+        _end_sessions_below(user["id"])
 
     update_policy(user["id"], change)
+
+
+def _end_sessions_below(user_id):
+    """End the account's sessions at the levels below the session's: their
+    passwords just changed, and a session must never be told its own
+    password is wrong. Ending is what a session does anyway."""
+    get_db().execute(
+        "DELETE FROM sessions WHERE user_id = ? AND level > ?", (user_id, g.level)
+    )
 
 
 def remove_duress():
@@ -620,6 +630,7 @@ def remove_duress():
     def change(policy):
         for below, row in zip(range(g.level + 1, LEVELS), spares):
             _clear(policy, below, row)
+        _end_sessions_below(user["id"])
 
     update_policy(user["id"], change)
 
@@ -634,7 +645,11 @@ def opens_below(password):
         "SELECT id, password_hash FROM credentials WHERE user_id = ?", (g.user["id"],)
     ).fetchall()
     below = {policy.rows[lvl] for lvl in range(g.level + 1, LEVELS)}
-    return any(check_password(r["password_hash"], password) for r in rows if r["id"] in below)
+    found = [check_password(r["password_hash"], password) for r in rows if r["id"] in below]
+    # the same number of checks at every level, so the time says nothing
+    for _ in range(LEVELS - 1 - len(found)):
+        check_password_of_unknown_user(password)
+    return any(found)
 
 
 def change_password(keys, password):
@@ -695,9 +710,12 @@ def wipe(user, level):
                 "UPDATE files SET trashed_at = datetime('now'), trashed_level = ? WHERE id = ?",
                 (level, file_id),
             )
-    # copies of other people's file keys: the shares end with them
+    # copies of other people's file keys: the shares end with them. Never
+    # the user's own: a trashed file keeps its key, to be restored
     for r in db.execute(
-        "SELECT file_id FROM file_keys WHERE user_id = ? AND level = ?", (user["id"], target)
+        "SELECT c.file_id FROM file_keys c JOIN files f ON f.id = c.file_id"
+        " WHERE c.user_id = ? AND c.level = ? AND f.owner_id != c.user_id",
+        (user["id"], target),
     ).fetchall():
         db.execute(
             "DELETE FROM file_keys WHERE file_id = ? AND user_id = ?", (r["file_id"], user["id"])

@@ -555,6 +555,27 @@ def test_a_new_duress_password_ends_the_one_below_it(app, alice):
     assert r.headers["Location"] == "/"
 
 
+def test_removing_the_duress_password_ends_its_sessions(app, alice):
+    forced = at_level_one(app, alice)
+    alice.post("/auth/duress/remove", data={"password": PASSWORD})
+    # logged out, as sessions are: never "wrong password" for the one it
+    # logged in with
+    assert forced.get("/").headers["Location"] == "/auth/login"
+    assert alice.get("/").status_code == 200
+
+
+def test_a_new_duress_password_ends_the_sessions_of_the_old_one(app, alice):
+    forced = at_level_one(app, alice)
+    set_duress(forced, duress=DEEPER)
+    deeper, _ = log_in(app, alice, DEEPER)
+    set_duress(forced, duress="lantern-copper-harbor-63")
+    assert deeper.get("/").headers["Location"] == "/auth/login"
+    assert forced.get("/").status_code == 200
+    set_duress(alice, duress="orchard-window-copper-58")
+    assert forced.get("/").headers["Location"] == "/auth/login"
+    assert alice.get("/").status_code == 200
+
+
 def test_a_wipe_destroys_level_zero_and_nothing_else(app, alice, bob):
     forced = at_level_one(app, alice)
     menu = new_file(forced, MENU, "menu.txt")
@@ -593,6 +614,18 @@ def test_a_level_two_wipe_leaves_level_zero_intact(app, alice):
     assert download(alice, real).data == CONTRACT
     after = new_file(alice, name="after.txt")
     assert f"Signature valid, signed by {alice.handle}.".encode() in alice.get(after).data
+
+
+def test_a_level_two_wipe_can_be_undone_from_the_review(app, alice):
+    forced = at_level_one(app, alice)
+    menu = new_file(forced, MENU, "menu.txt")
+    set_duress(forced, "wipe", duress=DEEPER)
+    log_in(app, alice, DEEPER)
+    real, r = log_in(app, alice, PASSWORD)
+    assert r.headers["Location"] == "/auth/review"
+    assert b"menu.txt" in real.get("/auth/review").data
+    assert b"Restored 1 file." in review_action(real, "restore", [menu]).data
+    assert download(real, menu).data == MENU
 
 
 def test_every_account_has_three_levels_of_one_shape(app, alice, bob):
@@ -645,6 +678,11 @@ def test_login_rows_are_the_same_with_two_factor_at_every_level(app, alice, monk
         assert [row[:2] for row in rows(app)[written:]] == [("login", "code asked")]
 
 
+def change_password(client, new, password=PASSWORD):
+    data = {"password": password, "new_password": new}
+    return client.post("/auth/password", data=data, follow_redirects=True)
+
+
 def counted(monkeypatch):
     """Count the Argon2 calls and the SQL statements from now on."""
     argon2, statements = [], []
@@ -693,6 +731,29 @@ def test_requests_do_the_same_work_at_every_level(app, monkeypatch):
         assert first == second and first[1] > 0
     # an upload and a download each take one Argon2 call, at either level
     assert work(lambda: download(forced, url_a[0]))[0] == 1
+    # and so does every page that asks for the password; a test of the new
+    # password against duress passwords costs the same at each level too
+    new = "orchard-window-copper-58"
+    answers = []
+
+    def done(r):
+        answers.append(r.data)
+
+    for one, two in (
+        (lambda: done(change_password(forced, new, password=DURESS)),
+         lambda: done(change_password(b, new))),
+        (lambda: done(set_duress(forced, password=new, duress=DEEPER)),
+         lambda: done(set_duress(b, password=new, duress=DEEPER))),
+        (lambda: done(forced.post("/auth/duress/remove", data={"password": new},
+                                  follow_redirects=True)),
+         lambda: done(b.post("/auth/duress/remove", data={"password": new},
+                             follow_redirects=True))),
+    ):
+        first, second = work(one), work(two)
+        assert first[0] == second[0] and first[0] > 0
+    for page, shown in zip(answers[::2], (b"Password changed.", b"Duress password saved.",
+                                          b"Duress password removed")):
+        assert shown in page
 
 
 def test_after_a_wipe_nothing_opens_level_zero(app, alice, bob):

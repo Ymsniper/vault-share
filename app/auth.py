@@ -73,6 +73,10 @@ def finish_login(user, level):
     # a login at one level closes the duress windows of the levels below
     # it; what happened in them is for this session to review
     review_since = levels.note_login(user, level)
+    # a duress password in wipe mode destroys what it was set for once the
+    # login is complete, after its window opened, so a review finds it all
+    if levels.wipes(user, level):
+        levels.wipe(user, level)
     token = start_session(user["id"], level, review_since)
     audit("login", "ok", user_id=user["id"], level=level,
           detail=levels.alarm_detail(user, level))
@@ -267,14 +271,12 @@ def pending_key(user_id, sealed):
 
 
 def finish_pending_login(user, sealed, recovery=False):
-    """After the right code: the wipe a duress password in wipe mode asked
-    for, now that the code is right, then the session at its level. A
-    recovery code used instead of the phone is logged at that level too."""
+    """After the right code, the session at its level, with the wipe a
+    duress password in wipe mode asked for. A recovery code used instead
+    of the phone is logged at that level too."""
     level = levels.pending_level(user["id"], sealed)
     if recovery:
         audit("totp", "recovery code used", user_id=user["id"], level=level)
-    if levels.wipes(user, level):
-        levels.wipe(user, level)
     return finish_login(user, level)
 
 
@@ -477,8 +479,6 @@ def login():
                 session["totp_started"] = time.time()
                 session["totp_mode"] = levels.seal_pending(user["id"], level)
                 return redirect(url_for("totp.login_code"))
-            if levels.wipes(user, level):
-                levels.wipe(user, level)
             return finish_login(user, level)
     elif form.is_submitted():
         flash("Incorrect username or password.")
