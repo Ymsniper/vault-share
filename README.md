@@ -213,6 +213,31 @@ The pages also work on a phone:
 
 <img src="docs/screenshots/web-mobile.png" alt="The file list on a phone" width="300">
 
+What the levels cannot hide:
+
+- The real password: a keylogger, or a password stolen earlier, ends all of
+  this.
+- The server and an admin working with the coercer: the database and the
+  log show that levels are in use, though not what the files hold.
+- A file shared with the accomplice earlier: they keep it, and it is
+  missing from the duress vault. The share form says so; keep files shared
+  with people you do not fully trust among the cover files.
+- An unconvincing cover vault: empty or stale cover files give it away,
+  which is why the Duress page shows when they last changed.
+- The bottom: level 2 has no level below it, so there a new duress
+  password is saved to nowhere and files cannot move to cover. Reaching
+  that takes two 48-hour delays and three logins.
+- Honest senders: a file shared with the account while a duress window is
+  open is readable by whoever holds the duress session. The alarm is there
+  so that admins can act in that time.
+- A coercer who knows this design: they know any account may have a higher
+  level, and can never prove it has none.
+- An admin coercer reading the log: a file moved down to a cover level
+  keeps the history of the level it came from, so the lower level's log
+  shows no upload for it.
+- Time: a request at level 0 follows one more link between keys than at
+  level 1, microseconds next to the Argon2 check every password costs.
+
 On first start the app creates two random keys in `instance/secrets/`:
 `secret_key` signs the cookies and CSRF tokens, and `master.key` protects
 the database itself, which SQLCipher keeps fully encrypted, along with the

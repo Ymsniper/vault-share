@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 from cryptography.exceptions import InvalidTag
+from sqlcipher3 import dbapi2 as sqlcipher
 
 from app import levels
 from app.auth import show_handle
@@ -15,6 +16,7 @@ from app.db import get_db
 from app.invites import create_admin_invite
 from security.hybrid import unwrap_file_key
 from security.keychain import follow_link, unlock_key
+from security import passwords
 from security.passwords import check_password
 
 from .conftest import PASSWORD, logged_in
@@ -28,6 +30,7 @@ from .test_files import (
     file_id,
     my_files,
     new_file,
+    private_key,
     revoke,
     share,
     shared_with_me,
@@ -607,6 +610,150 @@ def test_login_costs_the_same_at_every_level(app, alice, monkeypatch):
         assert len(rows(app)) - written == 1
 
 
+def test_login_rows_are_the_same_with_two_factor_at_every_level(app, alice, monkeypatch):
+    calls = []
+    real_check = levels.check_password
+    monkeypatch.setattr(levels, "check_password", lambda h, p: calls.append(h) or real_check(h, p))
+    turn_on(alice)
+    set_duress(alice)
+    for password in (PASSWORD, DURESS):
+        before, written = len(calls), len(rows(app))
+        r = app.test_client().post("/auth/login", data={"username": alice.handle, "password": password})
+        assert r.headers["Location"] == "/auth/login/code"
+        assert len(calls) - before == 3
+        assert [row[:2] for row in rows(app)[written:]] == [("login", "code asked")]
+
+
+def counted(monkeypatch):
+    """Count the Argon2 calls and the SQL statements from now on."""
+    argon2, statements = [], []
+
+    class Slots:
+        def __enter__(self):
+            argon2.append(1)
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(passwords, "_slots", Slots())
+    real_connect = sqlcipher.connect
+
+    def connect(*args, **kwargs):
+        conn = real_connect(*args, **kwargs)
+        conn.set_trace_callback(statements.append)
+        return conn
+
+    monkeypatch.setattr(sqlcipher, "connect", connect)
+    return argon2, statements
+
+
+def test_requests_do_the_same_work_at_every_level(app, monkeypatch):
+    """Section 13: upload, list and download at level 0 and level 1 must not
+    be told apart by their timing. Deterministic stand-ins: the same number
+    of Argon2 calls, which are what take time, and of SQL statements."""
+    a, b = logged_in(app, "alice"), logged_in(app, "alice")
+    forced = at_level_one(app, a)
+    argon2, statements = counted(monkeypatch)
+
+    def work(action):
+        argon2.clear()
+        statements.clear()
+        action()
+        return len(argon2), len(statements)
+
+    url_a, url_b = [], []
+    for one, two in (
+        (lambda: url_a.append(new_file(forced, MENU, "menu.txt")),
+         lambda: url_b.append(new_file(b, MENU, "menu.txt"))),
+        (lambda: forced.get("/"), lambda: b.get("/")),
+        (lambda: download(forced, url_a[0]), lambda: download(b, url_b[0])),
+    ):
+        first, second = work(one), work(two)
+        assert first == second and first[1] > 0
+    # an upload and a download each take one Argon2 call, at either level
+    assert work(lambda: download(forced, url_a[0]))[0] == 1
+
+
+def test_after_a_wipe_nothing_opens_level_zero(app, alice, bob):
+    """Section 13: after a wipe, no level 0 file key can be recovered from
+    the database as it is, with the real password either."""
+    real = new_file(alice)
+    received = new_file(bob, name="figures.txt")
+    share(bob, received, alice.handle)
+    set_duress(alice, "wipe")
+    log_in(app, alice, DURESS)
+    uid = alice_id(app, alice)
+    with app.app_context():
+        copies = get_db().execute(
+            "SELECT file_id, level FROM file_keys WHERE user_id = ?", (uid,)
+        ).fetchall()
+    # the real password still opens level 0's key, but no copy is left for
+    # it to open, and the stored file is gone
+    assert private_key(app, alice.handle) is not None
+    assert [c for c in copies if c["level"] == 0] == []
+    assert {c["file_id"] for c in copies} & {file_id(real), file_id(received)} == set()
+    assert gone(app, real)
+
+
+# Section 5: what an accomplice can try, with their own account and files
+# shared with or by the user before or during the coercion
+
+
+def test_probe_a_file_shared_last_week_is_not_listed(app, alice, bob):
+    url = new_file(bob, name="figures.txt")
+    share(bob, url, alice.handle)
+    forced = at_level_one(app, alice)
+    # as if she had dismissed it
+    assert b"figures.txt" not in shared_with_me(forced)
+    assert forced.get(url).status_code == 403
+
+
+def test_probe_sharing_it_again_brings_it_in(app, alice, bob):
+    url = new_file(bob, name="figures.txt")
+    share(bob, url, alice.handle)
+    forced = at_level_one(app, alice)
+    share(bob, url, alice.handle)
+    assert b"figures.txt" in shared_with_me(forced)
+    assert download(forced, url).status_code == 200
+
+
+def test_probe_sharing_one_of_her_files_works(app, alice, bob):
+    forced = at_level_one(app, alice)
+    menu = new_file(forced, MENU, "menu.txt")
+    r = share(forced, menu, bob.handle, follow_redirects=True)
+    assert f"Shared with {bob.handle}.".encode() in r.data
+    assert download(bob, menu).data == MENU
+
+
+def test_probe_uploading_their_file_and_sharing_it_back_works(app, alice, bob):
+    forced = at_level_one(app, alice)
+    url = new_file(forced, b"Their figures.\n", "their.txt")
+    share(forced, url, bob.handle)
+    assert download(bob, url).data == b"Their figures.\n"
+
+
+def test_probe_the_certificate_serial_is_the_same(app, alice):
+    new_file(alice)
+    forced = at_level_one(app, alice)
+    new_file(forced, MENU, "menu.txt")
+    with app.app_context():
+        serials = [r[0] for r in get_db().execute(
+            "SELECT c.serial FROM files f JOIN certificates c ON c.id = f.cert_id ORDER BY f.rowid"
+        )]
+    assert len(serials) == 2 and serials[0] == serials[1]
+
+
+def test_probe_a_file_she_shared_before_stays_with_them(app, alice, bob):
+    """Section 9, limit 3: nothing hides a file the accomplice already holds.
+    The share form says so, at every level."""
+    real = new_file(alice)
+    share(alice, real, bob.handle)
+    forced = at_level_one(app, alice)
+    assert b"contract.txt" not in forced.get("/").data
+    assert download(bob, real).data == CONTRACT
+    assert b"they can still tell it exists" in alice.get(real).data
+
+
 def test_a_change_made_in_between_is_kept(app, alice):
     uid = alice_id(app, alice)
     with app.app_context():
@@ -645,7 +792,7 @@ def test_a_level_one_vault_looks_like_a_level_zero_one(app):
     names = (("contract.txt", CONTRACT), ("menu.txt", MENU))
     files_a = [new_file(forced, data, name) for name, data in names]
     files_b = [new_file(b, data, name) for name, data in names]
-    pages = ["/", "/upload", "/auth/totp", "/auth/duress"]
+    pages = ["/", "/upload", "/auth/totp", "/auth/duress", "/auth/password"]
     for url in pages:
         assert normalized(forced.get(url).data, a.handle) == normalized(b.get(url).data, b.handle), url
     for fa, fb in zip(files_a, files_b):
@@ -659,6 +806,10 @@ def test_a_level_one_vault_looks_like_a_level_zero_one(app):
     wrong_a = download(forced, files_a[0], "a guess", follow_redirects=True)
     wrong_b = download(b, files_b[0], "a guess", follow_redirects=True)
     assert normalized(wrong_a.data, a.handle) == normalized(wrong_b.data, b.handle)
+    # a delete is soft at level 1 and for good at level 0, and looks the same
+    gone_a = delete(forced, files_a[1], follow_redirects=True)
+    gone_b = delete(b, files_b[1], follow_redirects=True)
+    assert normalized(gone_a.data, a.handle) == normalized(gone_b.data, b.handle)
 
 
 def test_the_duress_password_reaches_no_level_zero_key(app, alice, bob):
