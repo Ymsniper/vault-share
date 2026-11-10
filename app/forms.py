@@ -38,6 +38,24 @@ class NewPasswordForm(FlaskForm):
             raise ValidationError(problem)
 
 
+class ChangePasswordForm(FlaskForm):
+    password = PasswordField(validators=[DataRequired("Type your password.")])
+    new_password = PasswordField(
+        validators=[Length(12, 128, message="Password must be 12 to 128 characters long.")]
+    )
+
+    def __init__(self, chosen_name, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.chosen_name = chosen_name
+
+    def validate_new_password(self, field):
+        if field.errors:  # already refused for its length
+            return
+        problem = password_problem(self.chosen_name, field.data or "")
+        if problem is not None:
+            raise ValidationError(problem)
+
+
 class CodeForm(FlaskForm):
     code = StringField(validators=[Regexp(r"^\d{6}$", message="Type the 6-digit code.")])
 

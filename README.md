@@ -195,6 +195,14 @@ and saving a new one stops the old one at once. Every account has all
 three levels from the start, a level without a password looks like one with a
 password in the database, the record of which is which is sealed under the
 master key, and setting or removing a duress password is not logged.
+The "Password" page changes the password a session logged in with, at
+its own level only: it locks that level's key again under the new password,
+so every file still opens and nothing needs encrypting again, and it ends
+the account's other sessions at that level and below. A new password may
+not be a duress password of a level below, which would then open the
+upper one. A forgotten password still cannot be reset: it is the only way
+to its keys.
+
 Two-factor login belongs to the account: a duress session can turn it on or
 off, or replace the recovery codes, for the real password too, and the
 operator's `admin clear-totp` is the way back.
@@ -515,8 +523,6 @@ certificate against the list:
 - Public encryption keys are read from the database, not certified by the
   CA: someone holding the master key could swap a user's public key and
   receive the next file shared with them.
-- There is no password change: a leaked password stays valid until the
-  account is banned.
 
 ## Tests
 

@@ -16,7 +16,15 @@ from security.passwords import password_problem
 
 from . import levels
 from .auth import current_account, login_required, password_limit, password_ok
-from .forms import CoverForm, DuressForm, RemoveDuressForm, ReviewForm, first_error
+from .audit import audit
+from .forms import (
+    ChangePasswordForm,
+    CoverForm,
+    DuressForm,
+    RemoveDuressForm,
+    ReviewForm,
+    first_error,
+)
 from .invites import plural, to_local
 
 bp = Blueprint("settings", __name__, url_prefix="/auth")
@@ -151,3 +159,30 @@ def review_action(action):
     else:
         flash(f"Moved {plural(levels.bring_back(keys, ids), 'file')}.", "success")
     return redirect(url_for("settings.review"))
+
+
+@bp.route("/password", methods=("GET", "POST"))
+@login_required
+@password_limit(current_account)
+def password():
+    """Change the password the session logged in with. It locks that
+    password's key again, so every file still opens, and ends the other
+    sessions it opened."""
+    form = ChangePasswordForm(g.user["username"].partition("#")[0])
+    if form.validate_on_submit():
+        keys = levels.unlock(form.password.data)
+        if keys is None:
+            g.wrong_password = True
+            flash("Wrong password.")
+        elif form.new_password.data == form.password.data:
+            flash("The new password must be different from your password.")
+        elif levels.opens_below(form.new_password.data):
+            flash("Choose a password other than your duress password.")
+        else:
+            levels.change_password(keys, form.new_password.data)
+            audit("password", "changed")
+            flash("Password changed. Your other sessions have ended.", "success")
+            return redirect(url_for("settings.password"))
+    elif form.is_submitted():
+        flash(first_error(form))
+    return render_template("auth/password.html")

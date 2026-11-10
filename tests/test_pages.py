@@ -6,7 +6,7 @@ import pytest
 from flask import render_template
 from werkzeug import exceptions
 
-from .conftest import logged_in
+from .conftest import PASSWORD, logged_in
 from .samples import zipped
 from .test_duress import DURESS, log_in, set_duress
 from .test_files import new_file, share
@@ -27,6 +27,7 @@ LOGGED_IN = [
     "/upload",
     "/auth/totp",
     "/auth/duress",
+    "/auth/password",
     "/admin/log",
     "/admin/log?problems=1",
     "/admin/invites",
@@ -63,6 +64,9 @@ def pages(app, alice, bob):
             out.append((f"{label} {url}", client.get(url).data))
     for url in (owned, archive, theirs):
         out.append((f"alice {url}", alice.get(url).data))
+    # the first real login after the duress one opens on the review
+    reviewing, _ = log_in(app, alice, PASSWORD)
+    out.append(("alice /auth/review", reviewing.get("/auth/review").data))
 
     with app.test_request_context():
         for error in (

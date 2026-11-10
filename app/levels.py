@@ -581,6 +581,40 @@ def set_duress(keys, password, mode):
     update_policy(user["id"], change)
 
 
+def opens_below(password):
+    """Whether password opens one of the levels below the session's (a
+    higher number): a new password must not be a duress password, or the
+    duress password would open this level. The levels above are never
+    tried, so no form can test their passwords."""
+    policy = open_policy(g.user)
+    rows = get_db().execute(
+        "SELECT id, password_hash FROM credentials WHERE user_id = ?", (g.user["id"],)
+    ).fetchall()
+    below = {policy.rows[lvl] for lvl in range(g.level + 1, LEVELS)}
+    return any(check_password(r["password_hash"], password) for r in rows if r["id"] in below)
+
+
+def change_password(keys, password):
+    """Lock the session's own level's key under a new password. The keys
+    and every copy of a file key stay as they are. The account's other
+    sessions at this level and below it end, those opened with the old
+    password among them; the levels above are not touched."""
+    user, level = g.user, g.level
+    salt = os.urandom(16)
+    row = (hash_password(password), salt,
+           lock_key(keys.private[level], password, salt, lock_aad(user["id"], level)))
+    db = get_db()
+    db.execute(
+        "UPDATE credentials SET password_hash = ?, kdf_salt = ?, lock = ? WHERE id = ?",
+        (*row, open_policy(user).rows[level]),
+    )
+    db.execute(
+        "DELETE FROM sessions WHERE user_id = ? AND level >= ? AND token_hash != ?",
+        (user["id"], level, g.session_hash),
+    )
+    db.commit()
+
+
 def remove_duress():
     """Take the password of the level below the session's away: it holds
     the hash of a random secret and an unused lock again. Its key and its
