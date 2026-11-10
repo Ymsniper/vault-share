@@ -176,7 +176,9 @@ or shared with the account meanwhile (which it can bring back to its own
 files), and the command the operator runs to revoke the certificate from
 the time the window opened, since whoever held the duress password could
 sign in the user's name. A level 1 session that closes a level 2 window
-gets the same review: every level looks like the top.
+gets the same review: every level looks like the top. The review belongs
+to that one session: once it ends, the files deleted in the window stay
+hidden and are removed after their 30 days, so restore them there.
 
 A duress login is the silent alarm: its login row is written at its level,
 and admins at level 0 and the console show it as `duress`; at the duress

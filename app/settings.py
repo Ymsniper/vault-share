@@ -65,13 +65,14 @@ def duress():
 
 
 def duress_page():
-    here, below = levels.cover_lists()
+    # not "here": base.html already names the current page so
+    own_files, cover_files = levels.cover_lists()
     changed = levels.cover_changed()
     return render_template(
         "auth/duress.html",
         delay=delay(),
-        here=here,
-        below=below,
+        own_files=own_files,
+        cover_files=cover_files,
         changed=f"{changed[:16]} UTC" if changed else "never",
     )
 

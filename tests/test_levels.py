@@ -335,6 +335,17 @@ def test_moving_files_to_cover_and_back(app, alice, bob):
     assert b"contract.txt" in my_files(alice)
 
 
+def test_the_duress_page_lists_the_files_it_can_move(app, alice):
+    real = new_file(alice)
+    menu = new_file(alice, MENU, "menu.txt")
+    move(alice, [menu], "down")
+    page = alice.get("/auth/duress").data
+    mine, cover = page.split(b"Move to the cover files")
+    assert f'value="{file_id(real)}"'.encode() in mine and b">contract.txt<" in mine
+    assert f'value="{file_id(menu)}"'.encode() in cover and b">menu.txt<" in cover
+    assert page.count(b'name="file"') == 2
+
+
 def test_moving_asks_for_the_password(app, alice):
     real = new_file(alice)
     r = move(alice, [real], "down", "a guess")
@@ -869,14 +880,28 @@ def test_a_level_one_vault_looks_like_a_level_zero_one(app):
     another account's level 0, every page and every answer is the same,
     apart from ids, tokens and times."""
     a, b = logged_in(app, "alice"), logged_in(app, "alice")
-    carol = logged_in(app, "carol")
+    carol, dave = logged_in(app, "carol"), logged_in(app, "dave")
+    for client in (a, b):
+        make_admin(app, client)
+    # a cover vault is filled from level 0, as the real user does: an own
+    # file and a received one moved down; the other account keeps the same
+    # two at level 0
+    notes = b"Notes from the meeting.\n"
+    received = new_file(dave, b"Quarterly figures.\n", "figures.txt")
+    share(dave, received, a.handle)
+    share(dave, received, b.handle)
+    move(a, [new_file(a, notes, "notes.txt"), received], "down")
+    new_file(b, notes, "notes.txt")
     forced = at_level_one(app, a)
     names = (("contract.txt", CONTRACT), ("menu.txt", MENU))
     files_a = [new_file(forced, data, name) for name, data in names]
     files_b = [new_file(b, data, name) for name, data in names]
-    pages = ["/", "/upload", "/auth/totp", "/auth/duress", "/auth/password"]
+    pages = ["/", "/upload", "/auth/totp", "/auth/duress", "/auth/password", received]
     for url in pages:
         assert normalized(forced.get(url).data, a.handle) == normalized(b.get(url).data, b.handle), url
+    # the admin pages answer the same; their rows are each account's own
+    for url in ("/admin/log", "/admin/invites", "/admin/log?problems=1"):
+        assert forced.get(url).status_code == b.get(url).status_code == 200
     for fa, fb in zip(files_a, files_b):
         assert normalized(forced.get(fa).data, a.handle) == normalized(b.get(fb).data, b.handle)
         da, db = download(forced, fa), download(b, fb)
@@ -964,9 +989,10 @@ def test_the_level_is_read_in_the_named_places_only():
     for path in app_dir.glob("*.py"):
         text = path.read_text()
         assert "g.duress" not in text, path.name
-        # other modules call into app/levels.py, but never see a level
+        # other modules call into app/levels.py, but never see a level,
+        # under any name (session_level, trashed_level...)
         if path.name not in LEVEL_READERS:
-            assert not re.search(r"\blevel\b", text, re.I), path.name
+            assert not re.search(r"level\b", text, re.I), path.name
     # no page is ever given the level: it looks the same at every one
     for path in (app_dir / "templates").rglob("*.html"):
-        assert not re.search(r"\blevel\b", path.read_text(), re.I), path.name
+        assert not re.search(r"level\b", path.read_text(), re.I), path.name
