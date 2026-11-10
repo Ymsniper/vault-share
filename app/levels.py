@@ -34,7 +34,12 @@ from security.keychain import (
     unused_lock,
 )
 from security.keys import subkey
-from security.passwords import check_password, check_password_of_unknown_user, hash_password
+from security.passwords import (
+    check_password,
+    check_password_of_unknown_user,
+    derive_key,
+    hash_password,
+)
 
 from .audit import audit
 from .db import get_db
@@ -556,27 +561,65 @@ def move_files(keys, file_ids, down):
     return moved
 
 
+def _unused_row():
+    """What a level without a password holds: the hash of a random secret,
+    a salt, and random bytes the length of a lock."""
+    return (hash_password(secrets.token_urlsafe(32)), os.urandom(16), unused_lock())
+
+
+def _clear(policy, level, row):
+    get_db().execute(
+        "UPDATE credentials SET password_hash = ?, kdf_salt = ?, lock = ? WHERE id = ?",
+        (*row, policy.rows[level]),
+    )
+    policy.modes[level] = COVER
+    policy.active_from[level] = 0
+
+
 def set_duress(keys, password, mode):
     """Give the level below the session's (from level 0, level 1; from
     level 1, level 2) the duress password, locking that level's own key,
-    which keys reach. mode is "cover" or "wipe". At level 2 there is no
-    level below: nothing changes, and the page answers the same."""
+    which keys reach, and clear any password further down: the chain below
+    starts anew, so a password a coercer set there does not outlive this
+    one. mode is "cover" or "wipe". At level 2 there is no level below:
+    nothing changes, and the page answers the same. Every level does the
+    same Argon2 work, so the time taken says nothing either."""
     user, lower = g.user, g.level + 1
+    salt = os.urandom(16)
+    password_hash = hash_password(password)
+    if lower < LEVELS:
+        lock = lock_key(keys.private[lower], password, salt, lock_aad(user["id"], lower))
+    else:
+        derive_key(password, salt)
+    spares = [_unused_row() for _ in range(LEVELS - 2)]
     if lower >= LEVELS:
         return
-    salt = os.urandom(16)
-    row = (hash_password(password), salt,
-           lock_key(keys.private[lower], password, salt, lock_aad(user["id"], lower)))
 
     def change(policy):
         get_db().execute(
             "UPDATE credentials SET password_hash = ?, kdf_salt = ?, lock = ? WHERE id = ?",
-            (*row, policy.rows[lower]),
+            (password_hash, salt, lock, policy.rows[lower]),
         )
         policy.modes[lower] = MODES[mode]
         # it starts to work later, at every level alike, so nobody can test
         # on the spot what setting one did
         policy.active_from[lower] = int(time.time()) + current_app.config["DURESS_DELAY"]
+        for below, row in zip(range(lower + 1, LEVELS), spares):
+            _clear(policy, below, row)
+
+    update_policy(user["id"], change)
+
+
+def remove_duress():
+    """Take the password of every level below the session's away: each holds
+    the hash of a random secret and an unused lock again. Their keys and
+    files stay, under the levels above. The same work at every level."""
+    user = g.user
+    spares = [_unused_row() for _ in range(LEVELS - 1)]
+
+    def change(policy):
+        for below, row in zip(range(g.level + 1, LEVELS), spares):
+            _clear(policy, below, row)
 
     update_policy(user["id"], change)
 
@@ -613,26 +656,6 @@ def change_password(keys, password):
         (user["id"], level, g.session_hash),
     )
     db.commit()
-
-
-def remove_duress():
-    """Take the password of the level below the session's away: it holds
-    the hash of a random secret and an unused lock again. Its key and its
-    files stay, under the levels above."""
-    user, lower = g.user, g.level + 1
-    if lower >= LEVELS:
-        return
-    row = (hash_password(secrets.token_urlsafe(32)), os.urandom(16), unused_lock())
-
-    def change(policy):
-        get_db().execute(
-            "UPDATE credentials SET password_hash = ?, kdf_salt = ?, lock = ? WHERE id = ?",
-            (*row, policy.rows[lower]),
-        )
-        policy.modes[lower] = COVER
-        policy.active_from[lower] = 0
-
-    update_policy(user["id"], change)
 
 
 def _remove(paths):

@@ -534,6 +534,27 @@ def test_with_two_factor_the_review_follows_the_code(app, alice, bob, monkeypatc
     assert r.headers["Location"] == "/auth/review"
 
 
+def test_removing_the_duress_password_ends_every_one_below(app, alice):
+    # a coercer at level 1 set a level 2 password, which the real user
+    # cannot see: removing the duress password must end that one too
+    forced = at_level_one(app, alice)
+    set_duress(forced, duress=DEEPER)
+    alice.post("/auth/duress/remove", data={"password": PASSWORD})
+    for password in (DURESS, DEEPER):
+        _, r = log_in(app, alice, password)
+        assert b"Incorrect username or password." in r.data
+
+
+def test_a_new_duress_password_ends_the_one_below_it(app, alice):
+    forced = at_level_one(app, alice)
+    set_duress(forced, duress=DEEPER)
+    set_duress(alice, duress="lantern-copper-harbor-63")
+    _, r = log_in(app, alice, DEEPER)
+    assert b"Incorrect username or password." in r.data
+    _, r = log_in(app, alice, "lantern-copper-harbor-63")
+    assert r.headers["Location"] == "/"
+
+
 def test_a_wipe_destroys_level_zero_and_nothing_else(app, alice, bob):
     forced = at_level_one(app, alice)
     menu = new_file(forced, MENU, "menu.txt")

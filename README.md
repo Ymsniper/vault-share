@@ -189,9 +189,11 @@ once, and nothing else: the keys stay, so the levels below keep working.
 With two-factor login on, the wipe waits for the code, like the login
 itself, so a leaked duress password alone destroys nothing; the alarm is
 written as soon as the password is typed. A new duress password starts to
-work 48 hours after it is saved (`DURESS_DELAY`, in seconds), at every
-level alike, so whoever watches one being set cannot try it on the spot,
-and saving a new one stops the old one at once. Every account has all
+work 48 hours after it is saved, at every level alike, so whoever watches
+one being set cannot try it on the spot, and saving a new one stops the old
+one at once. Setting or removing a duress password also clears any set
+further down, so a password a coercer set from a duress session does not
+outlive it. Every account has all
 three levels from the start, a level without a password looks like one with a
 password in the database, the record of which is which is sealed under the
 master key, and setting or removing a duress password is not logged.
