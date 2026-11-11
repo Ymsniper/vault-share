@@ -1,14 +1,16 @@
 {% extends "base.html" %}
 {% block title %}Duress review{% endblock %}
+{% macro file_type(name) -%}
+  {{- (name.rsplit('.', 1)[-1] if '.' in name else 'file')[:5] | upper -}}
+{%- endmacro %}
 {% macro choose(rows, prefix) -%}
-  {% for r in rows %}
-  <div class="form-check">
-    <input class="form-check-input" type="checkbox" name="file" id="{{ prefix }}-{{ r['id'] }}" value="{{ r['id'] }}">
-    <label class="form-check-label" for="{{ prefix }}-{{ r['id'] }}">{{ r['filename'] }}{% if r['owner'] %} <span class="vs-meta">from {{ r['owner']|handle }}</span>{% endif %}</label>
-  </div>
-  {% else %}
-  <p class="vs-note">Nothing.</p>
-  {% endfor %}
+  <ul class="vs-picklist">
+    {% for r in rows %}
+    <li><input class="form-check-input" type="checkbox" name="file" id="{{ prefix }}-{{ r['id'] }}" value="{{ r['id'] }}"><label for="{{ prefix }}-{{ r['id'] }}"><span class="vs-type">{{ file_type(r['filename']) }}</span><span class="vs-pick-name">{{ r['filename'] }}{% if r['owner'] %} <span class="vs-meta">from {{ r['owner']|handle }}</span>{% endif %}</span></label></li>
+    {% else %}
+    <li class="vs-picklist-empty">Nothing.</li>
+    {% endfor %}
+  </ul>
 {%- endmacro %}
 {% macro password(prefix) -%}
   <div class="my-3">
@@ -27,7 +29,7 @@
 
 <section class="vs-panel">
   <h2 class="vs-panel-title">Logins <span class="vs-count">{{ logins|length }}</span></h2>
-  <ul class="vs-people">
+  <ul class="vs-people vs-logins">
     {% for l in logins %}<li><span class="vs-meta">{{ l['at'] }} UTC</span> <span class="vs-meta">{{ l['ip'] or '' }}</span></li>{% endfor %}
   </ul>
 </section>
@@ -40,7 +42,8 @@
       <thead><tr><th>Time (UTC)</th><th>Action</th><th>Outcome</th><th>Detail</th></tr></thead>
       <tbody>
         {% for e in events %}
-        <tr><td class="vs-meta">{{ e['at'] }}</td><td class="vs-mono">{{ e['action'] }}</td><td>{{ e['outcome'] }}</td><td>{{ e['detail'] or '' }}</td></tr>
+        {% set o = e['outcome'] %}
+        <tr><td class="vs-meta">{{ e['at'] }}</td><td class="vs-mono">{{ e['action'] }}</td><td><span class="vs-chip {{ 'vs-chip-ok' if o in ('ok', 'match') else 'vs-chip-bad' if o in ('failed', 'refused', 'denied', 'mismatch', 'locked') else 'vs-chip-warn' if o in ('used', 'duress') else 'vs-chip-neutral' }}">{{ o }}</span></td><td>{{ e['detail'] or '' }}</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -50,7 +53,7 @@
   {% endif %}
 </section>
 
-<div class="row g-4">
+<div class="row g-4 vs-even">
   <div class="col-lg-4">
     <form method="post" action="{{ url_for('settings.review_action', action='restore') }}" class="vs-panel">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -86,7 +89,7 @@
 <section class="vs-panel">
   <h2 class="vs-panel-title">Your certificate</h2>
   <p class="vs-note">Whoever held the duress password could sign files in your name. To make the files signed since then fail, ask the operator to revoke your certificate from that time:</p>
-  <p class="vs-mono">vault-share admin revoke --since '{{ since_local }}' '{{ g.user['username'] }}'</p>
+  <p class="vs-mono vs-command">vault-share admin revoke --since '{{ since_local }}' '{{ g.user['username'] }}'</p>
   <p class="vs-note mb-0">Then change your duress password, or remove it, on the <a href="{{ url_for('settings.duress') }}">Duress page</a>.</p>
 </section>
 {% endblock %}

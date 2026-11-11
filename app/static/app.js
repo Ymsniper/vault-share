@@ -58,7 +58,8 @@ function addRemoveFileButton(input) {
   render();
 }
 
-// A Copy button after a new invite code and after the two-factor key. Where
+// A Copy button after a new invite code, the two-factor key and the
+// operator's revoke command on the duress review. Where
 // the page has no clipboard access (plain HTTP), the text is selected
 // instead, ready for Ctrl+C.
 function addCopyButton(el, text = () => el.textContent.trim(), label = "Copy") {
@@ -188,6 +189,9 @@ for (const el of document.querySelectorAll(".vs-invite-code")) {
 }
 for (const list of document.querySelectorAll(".vs-recovery")) {
   addRecoveryActions(list);
+}
+for (const el of document.querySelectorAll(".vs-command")) {
+  addCopyButton(el);
 }
 for (const el of document.querySelectorAll("code")) {
   if (/^[A-Z2-7]{32}$/.test(el.textContent)) {
