@@ -372,14 +372,35 @@ def test_the_page_says_when_the_cover_vault_last_changed(app, alice):
     assert re.search(rb"Cover files last changed: \d{4}-\d{2}-\d{2} \d{2}:\d{2}", page)
 
 
-def test_the_bottom_vault_has_nowhere_to_move_files(app, alice):
+def test_level_two_moves_files_like_level_one(app, alice, bob):
+    """Level 2, the last a password opens, has cover files too, under one
+    more key that no password opens: its Duress page and its moves answer as
+    a level 1 session's do, so the end of the chain shows only when a duress
+    password set there never opens anything."""
+    one = at_level_one(app, bob)
     forced = at_level_one(app, alice)
     set_duress(forced, duress=DEEPER)
-    deeper, _ = log_in(app, alice, DEEPER)
-    notes = new_file(deeper, b"Notes from the meeting.\n", "notes.txt")
-    r = move(deeper, [notes], "down")
-    assert b"could not be saved" in r.data
-    assert download(deeper, notes).status_code == 200
+    two, _ = log_in(app, alice, DEEPER)
+    answers = []
+    for client in (two, one):
+        notes = new_file(client, b"Notes from the meeting.\n", "notes.txt")
+        new_file(client, MENU, "menu.txt")
+        moved = move(client, [notes], "down")
+        answers.append([
+            normalized(moved.data, client.handle),
+            normalized(client.get("/").data, client.handle),
+            normalized(download(client, notes).data, client.handle),
+        ])
+        assert b"Moved 1 file." in moved.data
+        assert b"notes.txt" in cover_files(client) and b"notes.txt" not in my_files(client)
+        back = move(client, [notes], "up")
+        answers[-1].append(normalized(back.data, client.handle))
+        assert b"notes.txt" in my_files(client)
+    assert answers[0] == answers[1]
+    # the levels above see level 2's cover files among theirs
+    move(two, [notes := new_file(two, b"Minutes.\n", "minutes.txt")], "down")
+    assert b"minutes.txt" in cover_files(forced) and b"minutes.txt" in cover_files(alice)
+    assert download(alice, notes).data == b"Minutes.\n"
 
 
 def windows(app, client):
@@ -653,7 +674,10 @@ def test_every_account_has_three_levels_of_one_shape(app, alice, bob):
         policies = {len(r[0]) for r in db.execute("SELECT duress_policy FROM users")}
     assert len(creds) == 6 and all(r["password_hash"].startswith("$argon2id$") for r in creds)
     assert {(r["salt"], r["lock"]) for r in creds} == {(16, 60)}
-    assert sorted(tuple(k) for k in keys) == [(0, 32, 1)] * 2 + [(1, 32, 0)] * 2 + [(2, 32, 0)] * 2
+    # and four key pairs each: one per level, and one below level 2 for its
+    # cover files, every one but level 0's linked from the one above
+    pairs = [(level, 32, level == 0) for level in range(4) for _ in range(2)]
+    assert sorted(tuple(k) for k in keys) == pairs
     assert len(policies) == 1
 
 
@@ -961,13 +985,13 @@ def test_the_duress_password_reaches_no_level_zero_key(app, alice, bob):
                 if all(found.public_key().public_bytes_raw() != k.public_key().public_bytes_raw()
                        for k in opened):
                     opened.append(found)
-    assert len(opened) == 2  # levels 1 and 2
+    assert len(opened) == 3  # levels 1 and 2, and the key of level 2's cover files
 
     level_zero = [c for c in copies if c["level"] == 0]
     assert {c["file_id"] for c in level_zero} == {file_id(real), file_id(theirs)}
     for key in opened:
         for c in level_zero:
-            for level in range(3):
+            for level in range(4):
                 with pytest.raises(InvalidTag):
                     unwrap_file_key(key, c["wrapped_key"], c["file_id"], uid, level)
         # nor the lock of level 0, nor the link from 0 down to 1

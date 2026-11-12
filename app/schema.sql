@@ -108,12 +108,13 @@ CREATE TABLE credentials (
     lock BLOB NOT NULL
 );
 
--- each level's X25519 key pair (security/keychain.py); link is the level's
--- private key encrypted under the one above it, so a level's password
--- opens the levels below it and never the one above
+-- each level's X25519 key pair (security/keychain.py), and at 3 the one
+-- that keeps level 2's cover files, which no password opens; link is the
+-- level's private key encrypted under the one above it, so a level's
+-- password opens the levels below it and never the one above
 CREATE TABLE level_keys (
     user_id INTEGER NOT NULL REFERENCES users (id),
-    level INTEGER NOT NULL CHECK (level BETWEEN 0 AND 2),
+    level INTEGER NOT NULL CHECK (level BETWEEN 0 AND 3),
     public_key BLOB NOT NULL,
     link BLOB,
     PRIMARY KEY (user_id, level)
@@ -184,7 +185,7 @@ CREATE TABLE file_keys (
     wrapped_key BLOB NOT NULL,
     -- the level whose public key the copy is encrypted to: a session sees
     -- and opens the copies at its own level and the ones below it
-    level INTEGER NOT NULL CHECK (level BETWEEN 0 AND 2),
+    level INTEGER NOT NULL CHECK (level BETWEEN 0 AND 3),
     -- when the copy was made or moved to its level
     since TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (file_id, user_id)

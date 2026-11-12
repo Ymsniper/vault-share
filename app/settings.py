@@ -97,10 +97,7 @@ def cover():
         return redirect(url_for("settings.duress"))
     ids = [i for i in request.form.getlist("file") if FILE_ID.fullmatch(i)][:500]
     moved = levels.move_files(keys, ids, form.direction.data == "down")
-    if moved is None:
-        flash("This could not be saved. Try again later.")
-    else:
-        flash(f"Moved {plural(moved, 'file')}.", "success")
+    flash(f"Moved {plural(moved, 'file')}.", "success")
     return redirect(url_for("settings.duress"))
 
 

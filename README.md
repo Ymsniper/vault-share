@@ -150,8 +150,9 @@ its own X25519 key pair: the real password opens level 0, the duress
 password level 1, and a duress password set from a level 1 session opens
 level 2. A level's private key is locked under its password and also
 linked down from the level above, so a password opens its own level and
-the ones below it, never the one above. Every session believes it is the
-top: it sees its own files, and the
+the ones below it, never the one above. One more key pair, linked down
+from level 2's and opened by no password, keeps level 2's cover files.
+Every session believes it is the top: it sees its own files, and the
 levels below it as its cover files, and every page looks the same at each
 level. A password asked inside a session is checked against that
 session's level only, so no form there can test another password. The
@@ -228,9 +229,9 @@ What the levels cannot hide:
   with people you do not fully trust among the cover files.
 - An unconvincing cover vault: empty or stale cover files give it away,
   which is why the Duress page shows when they last changed.
-- The bottom: level 2 has no level below it, so there a new duress
-  password is saved to nowhere and files cannot move to cover. Reaching
-  that takes two 48-hour delays and three logins.
+- The bottom: no password opens anything below level 2, so a duress
+  password set from a level 2 session is saved to nowhere. Finding that
+  out takes two 48-hour delays and three logins.
 - Honest senders: a file shared with the account while a duress window is
   open is readable by whoever holds the duress session. The alarm is there
   so that admins can act in that time.
@@ -343,11 +344,12 @@ The master key does not open files. Each file's key is stored only as
 copies encrypted with HPKE (RFC 9180: X25519, HKDF-SHA256, AES-256-GCM), one
 for each person who may open the file: its owner and every recipient of an
 active share. Every user has an X25519 key pair for each of their three
-levels (see the duress password above), separate from their signing key,
-and each private key is locked under a key derived from that level's
-password with Argon2id. A copy is bound to one file, one reader and one
-level. So even someone holding the whole server, keys included, opens no
-file without the password of a person it was shared with.
+levels, and one for level 2's cover files (see the duress password above),
+separate from their signing key, and each level's private key is locked
+under a key derived from that level's password with Argon2id. A copy is
+bound to one file, one reader and one level. So even someone holding the
+whole server, keys included, opens no file without the password of a
+person it was shared with.
 
 That is why download and share ask for your password, like upload: it
 unlocks your key for that one request, so a stolen session cookie alone

@@ -49,7 +49,7 @@ def test_every_copy_is_different():
     assert first != wrap_file_key(public_bytes(bob), file_key, FILE_ID, BOB, 0)
 
 
-def test_every_user_gets_three_key_pairs_apart_from_the_signing_key(app, alice):
+def test_every_user_gets_four_key_pairs_apart_from_the_signing_key(app, alice):
     with app.app_context():
         db = get_db()
         publics = [
@@ -59,7 +59,8 @@ def test_every_user_gets_three_key_pairs_apart_from_the_signing_key(app, alice):
             )
         ]
         signing = db.execute("SELECT enc_private_key FROM signing_keys").fetchone()[0]
-    assert len(publics) == 3 and len(set(publics)) == 3
+    # one per level, and one below level 2 for its cover files
+    assert len(publics) == 4 and len(set(publics)) == 4
     assert all(len(p) == 32 for p in publics) and signing not in publics
     # her password opens the first one, and it is the pair of its public key
     with pytest.raises(InvalidTag):

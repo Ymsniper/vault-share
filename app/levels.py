@@ -6,7 +6,9 @@ and level 2 with the duress password set from a level 1 session. Each level
 has its own X25519 key pair: a password opens its level's private key, and
 that key opens the ones below it (a higher number), never the one above.
 Every session works at one level and believes it is the top: it sees and
-opens the copies of file keys at its own level and below.
+opens the copies of file keys at its own level and below. One more key
+pair, linked down from level 2's and opened by no password, keeps level 2's
+cover files, so moving files to cover works there as it does above.
 
 This module reads the session's level; so do auth.py, which loads it,
 audit.py, which writes it into the log, and invites.py, which sorts codes
@@ -47,6 +49,8 @@ from .keyring import master_key
 from .storage import storage_path
 
 LEVELS = 3
+# key pairs: one per level, and the one under level 2 for its cover files
+KEY_LEVELS = LEVELS + 1
 COVER, WIPE = b"C", b"W"
 MODES = {"cover": COVER, "wipe": WIPE}
 
@@ -118,10 +122,11 @@ def new_account(user_id, username, password):
     """Three levels for a new account. Each has a real key pair from the
     start, linked down from the one above, so a duress password can be set
     later; the password opens level 0, and levels 1 and 2 hold the hash of
-    a random secret and an unused lock. Returns level 2's private key, for
-    the signing key; the caller commits."""
+    a random secret and an unused lock. The key pair for level 2's cover
+    files hangs below them, with no password of its own. Returns level 2's
+    private key, for the signing key; the caller commits."""
     db = get_db()
-    keys = [generate_encryption_key() for _ in range(LEVELS)]
+    keys = [generate_encryption_key() for _ in range(KEY_LEVELS)]
     rows = [0] * LEVELS
     # the rows go in in random order: their ids say nothing about levels
     order = list(range(LEVELS))
@@ -146,7 +151,7 @@ def new_account(user_id, username, password):
     db.execute(
         "UPDATE users SET duress_policy = ? WHERE id = ?", (seal_policy(username, policy), user_id)
     )
-    return keys[-1]
+    return keys[LEVELS - 1]
 
 
 def login_level(user, password):
@@ -355,7 +360,8 @@ class Keys:
 
     @property
     def bottom(self):
-        """The lowest level's private key, which the signing key hangs off."""
+        """Level 2's private key, the last a password opens, which the
+        signing key hangs off."""
         return self.private[LEVELS - 1]
 
 
@@ -381,7 +387,7 @@ def unlock(password):
         "SELECT level, link FROM level_keys WHERE user_id = ?", (user["id"],)
     ).fetchall())
     private = {level: key}
-    for lower in range(level + 1, LEVELS):
+    for lower in range(level + 1, KEY_LEVELS):
         key = follow_link(key, links[lower], link_aad(user["id"], lower))
         private[lower] = key
     return Keys(user["id"], private)
@@ -540,11 +546,10 @@ def move_files(keys, file_ids, down):
     session's level to the next one down, or back up. Each copy is opened
     and encrypted again to the other level's public key, so it takes the
     keys the password opened, and only copies at the level they move from
-    are touched. Returns how many moved, or None at the last level, which
-    has none below it."""
+    are touched. Level 2's go to the key pair below it, which no password
+    opens, so it moves files like the levels above. Returns how many
+    moved."""
     level, uid, db = g.level, g.user["id"], get_db()
-    if level + 1 >= LEVELS:
-        return None
     source, target = (level, level + 1) if down else (level + 1, level)
     moved = 0
     for file_id in file_ids:
@@ -581,7 +586,7 @@ def set_duress(keys, password, mode):
     level 1, level 2) the duress password, locking that level's own key,
     which keys reach, and clear any password further down: the chain below
     starts anew, so a password a coercer set there does not outlive this
-    one. mode is "cover" or "wipe". At level 2 there is no level below:
+    one. mode is "cover" or "wipe". At level 2, the last a password opens,
     nothing changes, and the page answers the same. Every level does the
     same Argon2 work, so the time taken says nothing either."""
     user, lower = g.user, g.level + 1
