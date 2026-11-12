@@ -214,12 +214,6 @@ Two-factor login belongs to the account: a duress session can turn it on or
 off, or replace the recovery codes, for the real password too, and the
 operator's `admin clear-totp` is the way back.
 
-![Setting a duress password](docs/screenshots/web-duress.png)
-
-The pages also work on a phone:
-
-<img src="docs/screenshots/web-mobile.png" alt="The file list on a phone" width="300">
-
 What the levels cannot hide:
 
 - The real password: a keylogger, or a password stolen earlier, ends all of
@@ -245,6 +239,12 @@ What the levels cannot hide:
   shows no upload for it.
 - Time: a request at level 0 follows one more link between keys than at
   level 1, microseconds next to the Argon2 check every password costs.
+
+![Setting a duress password](docs/screenshots/web-duress.png)
+
+The pages also work on a phone:
+
+<img src="docs/screenshots/web-mobile.png" alt="The file list on a phone" width="300">
 
 On first start the app creates two random keys in `instance/secrets/`:
 `secret_key` signs the cookies and CSRF tokens, and `master.key` protects
