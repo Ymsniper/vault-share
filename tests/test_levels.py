@@ -290,7 +290,7 @@ def test_setting_a_duress_password_answers_the_same_at_levels_0_and_1(app, alice
     assert download(deeper, notes).data == b"Notes from the meeting.\n"
 
 
-def test_level_two_answers_the_same_and_changes_nothing(app, alice):
+def test_a_duress_password_set_at_level_two_opens_nothing(app, alice):
     forced = at_level_one(app, alice)
     set_duress(forced, duress=DEEPER)
     deeper, _ = log_in(app, alice, DEEPER)
@@ -300,6 +300,51 @@ def test_level_two_answers_the_same_and_changes_nothing(app, alice):
     assert b"Duress password saved." in r.data
     with app.app_context():
         assert get_db().execute("SELECT * FROM credentials ORDER BY id").fetchall() == before
+    # the end of the chain: once its delay is over, it still opens nothing
+    _, r = log_in(app, alice, "harbor-lantern-quiet-41")
+    assert b"Incorrect username or password." in r.data
+
+
+def settings_in_use(client, saved):
+    """Every form of the Duress and Password pages, in an order that shows
+    what a saved duress password changes."""
+    me = client.password
+    return [
+        lambda: client.get("/auth/duress"),
+        lambda: client.get("/auth/password"),
+        lambda: set_duress(client, duress=saved),
+        lambda: change_password(client, saved, password=me),
+        lambda: set_duress(client, mode="wipe", duress=saved),
+        lambda: change_password(client, saved, password=me),
+        lambda: client.post("/auth/duress/remove", data={"password": me}, follow_redirects=True),
+        lambda: change_password(client, saved, password=me),
+    ]
+
+
+def test_level_two_settings_answer_like_level_one(app, alice, bob, monkeypatch):
+    """The Duress and Password pages answer at level 2 as at another
+    account's level 1, form after form, with the same Argon2 work. A duress
+    password saved at level 2 opens nothing, but the Password page there
+    refuses it as a new password, as the levels above refuse theirs, until
+    it is removed."""
+    one = at_level_one(app, bob)
+    forced = at_level_one(app, alice)
+    set_duress(forced, duress=DEEPER)
+    two, _ = log_in(app, alice, DEEPER)
+    argon2, _ = counted(monkeypatch)
+    answers, costs = [], []
+    for client in (two, one):
+        pages, cost = [], []
+        for step in settings_in_use(client, "harbor-lantern-quiet-41"):
+            argon2.clear()
+            pages.append(step().data)
+            cost.append(len(argon2))
+        answers.append([normalized(page, client.handle) for page in pages])
+        costs.append(cost)
+    assert answers[0] == answers[1]
+    assert costs[0] == costs[1]
+    assert b"Choose a password other than your duress password." in pages[3]
+    assert b"Password changed." in pages[7]
 
 
 def move(client, urls, direction, password=None):

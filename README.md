@@ -230,8 +230,9 @@ What the levels cannot hide:
 - An unconvincing cover vault: empty or stale cover files give it away,
   which is why the Duress page shows when they last changed.
 - The bottom: no password opens anything below level 2, so a duress
-  password set from a level 2 session is saved to nowhere. Finding that
-  out takes two 48-hour delays and three logins.
+  password set from a level 2 session opens nothing, though the pages
+  there answer as at the levels above. Finding that out takes two 48-hour
+  delays and three logins.
 - Honest senders: a file shared with the account while a duress window is
   open is readable by whoever holds the duress session. The alarm is there
   so that admins can act in that time.

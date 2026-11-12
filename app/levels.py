@@ -57,8 +57,10 @@ MODES = {"cover": COVER, "wipe": WIPE}
 # The sealed record of an account's levels, always the same length: which
 # credential row is each level's, then for every level its mode, when its
 # password starts to work and since when its window is open (epoch seconds,
-# 0 for never). Level 0's mode and times are never used.
-_FORMAT = "<3q3c3q3q"
+# 0 for never), and the hash of the duress password saved at level 2,
+# padded. Level 0's mode and times are never used.
+_HASH_SPACE = 128
+_FORMAT = f"<3q3c3q3q{_HASH_SPACE}s"
 
 
 @dataclass
@@ -67,6 +69,10 @@ class Policy:
     modes: list
     active_from: list
     window_since: list
+    # the duress password saved at level 2, the last a password opens, or
+    # "": it opens nothing, and the Password page alone reads it, to refuse
+    # it as a new password there as the levels above refuse theirs
+    beneath: str
 
 
 def _aad(username):
@@ -75,8 +81,12 @@ def _aad(username):
 
 
 def seal_policy(username, policy):
+    beneath = policy.beneath.encode()
+    if len(beneath) > _HASH_SPACE:
+        # struct would cut it short without a word
+        raise ValueError("the password hash does not fit the policy")
     data = struct.pack(
-        _FORMAT, *policy.rows, *policy.modes, *policy.active_from, *policy.window_since
+        _FORMAT, *policy.rows, *policy.modes, *policy.active_from, *policy.window_since, beneath
     )
     return encrypt(subkey(master_key(), "duress-policy"), data, _aad(username))
 
@@ -84,7 +94,10 @@ def seal_policy(username, policy):
 def open_policy(user):
     data = decrypt(subkey(master_key(), "duress-policy"), user["duress_policy"], _aad(user["username"]))
     values = struct.unpack(_FORMAT, data)
-    return Policy(list(values[0:3]), list(values[3:6]), list(values[6:9]), list(values[9:12]))
+    return Policy(
+        list(values[0:3]), list(values[3:6]), list(values[6:9]), list(values[9:12]),
+        values[12].rstrip(b"\0").decode(),
+    )
 
 
 def update_policy(user_id, change):
@@ -147,7 +160,7 @@ def new_account(user_id, username, password):
             "INSERT INTO level_keys (user_id, level, public_key, link) VALUES (?, ?, ?, ?)",
             (user_id, level, public_bytes(key), link),
         )
-    policy = Policy(rows, [COVER] * LEVELS, [0] * LEVELS, [0] * LEVELS)
+    policy = Policy(rows, [COVER] * LEVELS, [0] * LEVELS, [0] * LEVELS, "")
     db.execute(
         "UPDATE users SET duress_policy = ? WHERE id = ?", (seal_policy(username, policy), user_id)
     )
@@ -587,8 +600,9 @@ def set_duress(keys, password, mode):
     which keys reach, and clear any password further down: the chain below
     starts anew, so a password a coercer set there does not outlive this
     one. mode is "cover" or "wipe". At level 2, the last a password opens,
-    nothing changes, and the page answers the same. Every level does the
-    same Argon2 work, so the time taken says nothing either."""
+    the password opens nothing: only its hash is kept, for the Password
+    page, and the page answers the same. Every level does the same Argon2
+    work, so the time taken says nothing either."""
     user, lower = g.user, g.level + 1
     salt = os.urandom(16)
     password_hash = hash_password(password)
@@ -597,10 +611,13 @@ def set_duress(keys, password, mode):
     else:
         derive_key(password, salt)
     spares = [_unused_row() for _ in range(LEVELS - 2)]
-    if lower >= LEVELS:
-        return
 
     def change(policy):
+        _end_sessions_below(user["id"])
+        if lower >= LEVELS:
+            policy.beneath = password_hash
+            return
+        policy.beneath = ""
         get_db().execute(
             "UPDATE credentials SET password_hash = ?, kdf_salt = ?, lock = ? WHERE id = ?",
             (password_hash, salt, lock, policy.rows[lower]),
@@ -611,7 +628,6 @@ def set_duress(keys, password, mode):
         policy.active_from[lower] = int(time.time()) + current_app.config["DURESS_DELAY"]
         for below, row in zip(range(lower + 1, LEVELS), spares):
             _clear(policy, below, row)
-        _end_sessions_below(user["id"])
 
     update_policy(user["id"], change)
 
@@ -627,32 +643,38 @@ def _end_sessions_below(user_id):
 
 def remove_duress():
     """Take the password of every level below the session's away: each holds
-    the hash of a random secret and an unused lock again. Their keys and
-    files stay, under the levels above. The same work at every level."""
+    the hash of a random secret and an unused lock again, and the one saved
+    at level 2 goes. Their keys and files stay, under the levels above. The
+    same work at every level."""
     user = g.user
     spares = [_unused_row() for _ in range(LEVELS - 1)]
 
     def change(policy):
         for below, row in zip(range(g.level + 1, LEVELS), spares):
             _clear(policy, below, row)
+        policy.beneath = ""
         _end_sessions_below(user["id"])
 
     update_policy(user["id"], change)
 
 
 def opens_below(password):
-    """Whether password opens one of the levels below the session's (a
-    higher number): a new password must not be a duress password, or the
-    duress password would open this level. The levels above are never
-    tried, so no form can test their passwords."""
+    """Whether password is the duress password of a level below the
+    session's (a higher number), the one saved at level 2 included: a new
+    password must not be one, or the duress password would open this level,
+    and level 2 refuses the one saved there as the levels above refuse
+    theirs. The levels above are never tried, so no form can test their
+    passwords."""
     policy = open_policy(g.user)
-    rows = get_db().execute(
+    hashes = dict(get_db().execute(
         "SELECT id, password_hash FROM credentials WHERE user_id = ?", (g.user["id"],)
-    ).fetchall()
-    below = {policy.rows[lvl] for lvl in range(g.level + 1, LEVELS)}
-    found = [check_password(r["password_hash"], password) for r in rows if r["id"] in below]
+    ).fetchall())
+    below = [hashes[policy.rows[lvl]] for lvl in range(g.level + 1, LEVELS)]
+    if policy.beneath:
+        below.append(policy.beneath)
+    found = [check_password(stored, password) for stored in below]
     # the same number of checks at every level, so the time says nothing
-    for _ in range(LEVELS - 1 - len(found)):
+    for _ in range(LEVELS - len(found)):
         check_password_of_unknown_user(password)
     return any(found)
 
