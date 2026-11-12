@@ -25,7 +25,8 @@ by a local CA.
 - Registering needs an invite code, and every username gets a random tag.
   Bans and a cleanup by inviter and time window undo what a stolen admin
   login let in.
-- A duress password that opens an empty account, and can wipe it.
+- A duress password that opens a cover vault of its own, kept apart by
+  keys, and can wipe the rest.
 - The master key can also require a USB stick and a passphrase; pulling the
   stick locks the service.
 - A terminal console to run and manage the server.
