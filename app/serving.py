@@ -34,8 +34,11 @@ class Watchdog(threading.Thread):
         self._stopped = threading.Event()
 
     def set(self, sock, seconds):
+        self.set_until(sock, time.monotonic() + seconds)
+
+    def set_until(self, sock, when):
         with self._lock:
-            self._deadlines[sock] = time.monotonic() + seconds
+            self._deadlines[sock] = when
 
     def clear(self, sock):
         with self._lock:
@@ -67,6 +70,37 @@ class Watchdog(threading.Thread):
 
     def stop(self):
         self._stopped.set()
+
+
+class BodyClock:
+    """The connection's reader once a head is in: each read of the body runs
+    against the body's deadline, and nothing else does, so the time the app
+    spends between reads, or after them, is never cut."""
+
+    def __init__(self, raw, watchdog, sock, until):
+        self._raw, self._watchdog, self._sock, self._until = raw, watchdog, sock, until
+
+    def _timed(self, read, *args):
+        self._watchdog.set_until(self._sock, self._until)
+        try:
+            return read(*args)
+        finally:
+            self._watchdog.clear(self._sock)
+
+    def read(self, *args):
+        return self._timed(self._raw.read, *args)
+
+    def read1(self, *args):
+        return self._timed(self._raw.read1, *args)
+
+    def readinto(self, *args):
+        return self._timed(self._raw.readinto, *args)
+
+    def readline(self, *args):
+        return self._timed(self._raw.readline, *args)
+
+    def __getattr__(self, name):
+        return getattr(self._raw, name)
 
 
 class Handler(WSGIRequestHandler):
@@ -119,18 +153,12 @@ class Handler(WSGIRequestHandler):
                     size = max(0, int(self.headers.get("Content-Length") or 0))
                 except ValueError:
                     size = 0
+        self.server.watchdog.clear(self.connection)
         if size:
-            self.server.watchdog.set(
-                self.connection, self.server.head_seconds + size / self.server.min_rate
-            )
-        else:
-            self.server.watchdog.clear(self.connection)
+            until = time.monotonic() + self.server.head_seconds + size / self.server.min_rate
+            self.rfile = BodyClock(self.rfile, self.server.watchdog, self.connection, until)
         return ok
 
-    def send_response(self, *args, **kwargs):
-        # the answer starts, so the body is in; no clock runs on the answer
-        self.server.watchdog.clear(self.connection)
-        super().send_response(*args, **kwargs)
 
 
 def address_key(host, exempt_loopback=False):

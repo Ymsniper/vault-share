@@ -167,3 +167,32 @@ def test_a_logged_in_upload_is_not_held_to_the_stranger_limit(alice):
 
     url = new_file(alice, b"Minutes of the weekly meeting.\n" * 4000, "minutes.txt")
     assert alice.get(url).status_code == 200
+
+
+def test_a_view_slower_than_the_head_clock_is_still_answered(app, serve):
+    # the clocks time what the visitor sends, not the work the app does
+    # with it once it is in
+    @app.post("/slow-view")
+    def slow_view():
+        time.sleep(1.5)
+        return "done"
+
+    server = serve(head_seconds=1)
+    s = connect(server)
+    s.sendall(b"POST /slow-view HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n"
+              b"Content-Type: application/x-www-form-urlencoded\r\nContent-Length: 3\r\n\r\nx=1")
+    s.settimeout(5)
+    assert s.recv(64).startswith(b"HTTP/1.1 200")
+
+
+def test_a_download_goes_out_in_small_pieces(alice):
+    """Each write to a socket must finish within the 5-second wait, so a
+    download goes out in pieces, never as one block a slow reader could not
+    take in that time."""
+    from .test_files import new_file, password_of
+
+    url = new_file(alice, b"Minutes of the weekly meeting.\n" * 8000, "minutes.txt")
+    r = alice.post(f"{url}/download", data={"password": password_of(alice)}, buffered=False)
+    sizes = [len(piece) for piece in r.response]
+    assert sum(sizes) == 31 * 8000 and max(sizes) <= 64 * 1024
+
