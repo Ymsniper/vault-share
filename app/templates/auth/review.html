@@ -23,7 +23,8 @@
   <div>
     <p class="vs-kicker">Protection</p>
     <h1>Duress <em>review</em></h1>
-    <p class="vs-lede">Your duress password was used since {{ since }} UTC. This is what happened while it was in use. The page stays here until you log out.</p>
+    <p class="vs-lede">Your duress password was used since {{ since }} UTC. This is what happened while it was in use. Every login with your password comes back here until you say you are done.</p>
+    <p class="vs-note">What you do here shows in the duress vault: whoever logs in with the duress password again will see it. Leaving things as they are is always an option.</p>
   </div>
 </div>
 
@@ -58,7 +59,7 @@
     <form method="post" action="{{ url_for('settings.review_action', action='restore') }}" class="vs-panel">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <h2 class="vs-panel-title">Deleted</h2>
-      <p class="vs-note">Kept for 30 days. Restoring puts them back where they were.</p>
+      <p class="vs-note">Kept 30 days from when this review first showed them. Restoring puts them back where they were.</p>
       {{ choose(trashed, "restore") }}
       {{ password("restore") }}
       <button type="submit" class="btn btn-outline-secondary w-100">Restore</button>
@@ -86,10 +87,35 @@
   </div>
 </div>
 
+<form method="post" action="{{ url_for('settings.review_action', action='put-back') }}" class="vs-panel">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <h2 class="vs-panel-title">Removed from the list</h2>
+  <p class="vs-note">Shared with you, then taken off the list while it was in use. Put them back on your own list; the duress vault still finds them removed.</p>
+  {{ choose(dismissed, "put-back") }}
+  {{ password("put-back") }}
+  <button type="submit" class="btn btn-outline-secondary">Put back</button>
+</form>
+
 <section class="vs-panel">
   <h2 class="vs-panel-title">Your certificate</h2>
   <p class="vs-note">Whoever held the duress password could sign files in your name. To make the files signed since then fail, ask the operator to revoke your certificate from that time:</p>
   <p class="vs-mono vs-command">vault-share admin revoke --since '{{ since_local }}' '{{ g.user['username'] }}'</p>
   <p class="vs-note mb-0">Then change your duress password, or remove it, on the <a href="{{ url_for('settings.duress') }}">Duress page</a>.</p>
 </section>
+
+<form method="post" action="{{ url_for('settings.review_action', action='done') }}" class="vs-panel">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <h2 class="vs-panel-title">Done</h2>
+  <p class="vs-note">Ends this review: your logins go to your files again. Deleted files and files removed from the list that are still here:</p>
+  <div class="form-check">
+    <input class="form-check-input" type="radio" name="leftover" id="leftover-restore" value="restore" checked>
+    <label class="form-check-label" for="leftover-restore">Restore them all</label>
+  </div>
+  <div class="form-check">
+    <input class="form-check-input" type="radio" name="leftover" id="leftover-let-go" value="let-go">
+    <label class="form-check-label" for="leftover-let-go">Let them go now</label>
+  </div>
+  {{ password("done") }}
+  <button type="submit" class="btn btn-primary">Done</button>
+</form>
 {% endblock %}

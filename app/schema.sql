@@ -100,10 +100,7 @@ CREATE TABLE sessions (
     level INTEGER NOT NULL CHECK (level BETWEEN 0 AND 2),
     -- a two-factor secret this session is enrolling, sealed; it belongs to
     -- the session, so no other session of the account can read it
-    totp_pending BLOB,
-    -- when the login that opened this session closed duress windows: the
-    -- earliest one's start, for the review of what happened in them
-    review_since TEXT
+    totp_pending BLOB
 );
 
 -- the password of each of an account's three levels, in random order; the
@@ -171,9 +168,11 @@ CREATE TABLE files (
     -- HMAC covers exactly what is stored
     uploaded_at TEXT NOT NULL DEFAULT (datetime('now')),
     -- set when a duress session deleted the file: hidden from everyone,
-    -- kept 30 days for the real owner, then removed (app/levels.py)
+    -- kept for the real owner, and removed 30 days after review_from, when
+    -- a review first showed it (app/levels.py)
     trashed_at TEXT,
-    trashed_level INTEGER
+    trashed_level INTEGER,
+    review_from TEXT
 );
 
 CREATE TABLE shares (
@@ -199,6 +198,10 @@ CREATE TABLE file_keys (
     level INTEGER NOT NULL CHECK (level BETWEEN 0 AND 3),
     -- when the copy was made or moved to its level
     since TEXT NOT NULL DEFAULT (datetime('now')),
+    -- set when a duress session dismissed the file: the copy is kept, so the
+    -- review can put the file back, and goes 30 days after review_from
+    dismissed_level INTEGER,
+    review_from TEXT,
     PRIMARY KEY (file_id, user_id)
 );
 

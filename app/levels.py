@@ -56,11 +56,12 @@ MODES = {"cover": COVER, "wipe": WIPE}
 
 # The sealed record of an account's levels, always the same length: which
 # credential row is each level's, then for every level its mode, when its
-# password starts to work and since when its window is open (epoch seconds,
-# 0 for never), and the hash of the duress password saved at level 2,
-# padded. Level 0's mode and times are never used.
+# password starts to work, since when its window is open, and since when it
+# owes a review of the windows below it that its logins closed (epoch
+# seconds, 0 for never), and the hash of the duress password saved at the
+# last level, padded. Level 0's mode and times are never used.
 _HASH_SPACE = 128
-_FORMAT = f"<3q3c3q3q{_HASH_SPACE}s"
+_FORMAT = f"<{LEVELS}q{LEVELS}c{LEVELS}q{LEVELS}q{LEVELS}q{_HASH_SPACE}s"
 
 
 @dataclass
@@ -69,6 +70,7 @@ class Policy:
     modes: list
     active_from: list
     window_since: list
+    unreviewed_since: list
     # the duress password saved at level 2, the last a password opens, or
     # "": it opens nothing, and the Password page alone reads it, to refuse
     # it as a new password there as the levels above refuse theirs
@@ -86,7 +88,8 @@ def seal_policy(username, policy):
         # struct would cut it short without a word
         raise ValueError("the password hash does not fit the policy")
     data = struct.pack(
-        _FORMAT, *policy.rows, *policy.modes, *policy.active_from, *policy.window_since, beneath
+        _FORMAT, *policy.rows, *policy.modes, *policy.active_from, *policy.window_since,
+        *policy.unreviewed_since, beneath,
     )
     return encrypt(subkey(master_key(), "duress-policy"), data, _aad(username))
 
@@ -94,10 +97,8 @@ def seal_policy(username, policy):
 def open_policy(user):
     data = decrypt(subkey(master_key(), "duress-policy"), user["duress_policy"], _aad(user["username"]))
     values = struct.unpack(_FORMAT, data)
-    return Policy(
-        list(values[0:3]), list(values[3:6]), list(values[6:9]), list(values[9:12]),
-        values[12].rstrip(b"\0").decode(),
-    )
+    parts = [list(values[i * LEVELS:(i + 1) * LEVELS]) for i in range(5)]
+    return Policy(*parts, values[5 * LEVELS].rstrip(b"\0").decode())
 
 
 def update_policy(user_id, change):
@@ -160,7 +161,7 @@ def new_account(user_id, username, password):
             "INSERT INTO level_keys (user_id, level, public_key, link) VALUES (?, ?, ?, ?)",
             (user_id, level, public_bytes(key), link),
         )
-    policy = Policy(rows, [COVER] * LEVELS, [0] * LEVELS, [0] * LEVELS, "")
+    policy = Policy(rows, [COVER] * LEVELS, [0] * LEVELS, [0] * LEVELS, [0] * LEVELS, "")
     db.execute(
         "UPDATE users SET duress_policy = ? WHERE id = ?", (seal_policy(username, policy), user_id)
     )
@@ -220,10 +221,11 @@ TRASH_DAYS = 30
 def note_login(user, level):
     """At every completed login: a duress login opens its level's window,
     keeping its start if it is open already, and any login closes the
-    windows of the levels below its own (a higher number). Returns the
-    earliest start among those it closed, as UTC text, or None. The policy
-    is written again whatever the level, so every login makes the same
-    writes."""
+    windows of the levels below its own (a higher number). A login that
+    closed some owes a review of them from then on, kept in the policy
+    until it says done; what those levels trashed or dismissed starts its
+    30 days now, when the review first shows it. The policy is written
+    again whatever the level, so every login makes the same writes."""
     now = int(time.time())
 
     def change(policy):
@@ -234,23 +236,55 @@ def note_login(user, level):
                 policy.window_since[lower] = 0
         if level and not policy.window_since[level]:
             policy.window_since[level] = now
-        return min(closed, default=None)
+        if closed:
+            due = policy.unreviewed_since[level]
+            policy.unreviewed_since[level] = min([*closed, due] if due else closed)
+        return bool(closed)
 
-    since = update_policy(user["id"], change)
+    if update_policy(user["id"], change):
+        _start_the_clock(user["id"], level)
     purge_trash()
-    if since is None:
-        return None
-    return datetime.datetime.fromtimestamp(since, datetime.UTC).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _start_the_clock(uid, level):
+    db = get_db()
+    db.execute(
+        "UPDATE files SET review_from = datetime('now')"
+        " WHERE owner_id = ? AND trashed_level > ? AND review_from IS NULL",
+        (uid, level),
+    )
+    db.execute(
+        "UPDATE file_keys SET review_from = datetime('now')"
+        " WHERE user_id = ? AND dismissed_level > ? AND review_from IS NULL",
+        (uid, level),
+    )
+    db.commit()
+
+
+def _utc(seconds):
+    return datetime.datetime.fromtimestamp(seconds, datetime.UTC).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def review_due_at(user, level):
+    """Whether logins at this level owe a review: they go to it until the
+    owner says done."""
+    return bool(open_policy(user).unreviewed_since[level])
+
+
+def review_due():
+    """Whether the session's level owes a review, for the link every page
+    shows its sessions until then."""
+    return g.get("user") is not None and review_due_at(g.user, g.level)
 
 
 def review():
-    """What happened in the duress windows the session's login closed, or
-    None when it closed none: what the levels below it (a higher number) did
-    since the earliest of them opened."""
-    since = g.user["session_review_since"]
-    if since is None:
+    """What happened in the duress windows the session's level owes a review
+    of, or None when it owes none: what the levels below it (a higher
+    number) did since the earliest of them opened."""
+    due = open_policy(g.user).unreviewed_since[g.level]
+    if not due:
         return None
-    db, uid, level = get_db(), g.user["id"], g.level
+    db, uid, level, since = get_db(), g.user["id"], g.level, _utc(due)
     params = (uid, level, since)
     return {
         "since": since,
@@ -264,14 +298,30 @@ def review():
             " WHERE user_id = ? AND level > ? AND at >= ? AND action != 'login' ORDER BY id",
             params,
         ).fetchall(),
-        "trashed": db.execute(
-            "SELECT id, filename, trashed_at FROM files"
-            " WHERE owner_id = ? AND trashed_level > ? AND trashed_at >= ? ORDER BY trashed_at",
-            params,
-        ).fetchall(),
+        "trashed": _trashed(uid, level),
+        "dismissed": _dismissed(uid, level),
         "planted": _planted(*params),
         "arrived": _arrived(*params),
     }
+
+
+def _trashed(uid, level):
+    # whatever the levels below trashed and is still kept, however long ago
+    return get_db().execute(
+        "SELECT id, filename, trashed_at FROM files"
+        " WHERE owner_id = ? AND trashed_level > ? ORDER BY trashed_at",
+        (uid, level),
+    ).fetchall()
+
+
+def _dismissed(uid, level):
+    return get_db().execute(
+        "SELECT f.id, f.filename, u.username AS owner FROM file_keys c"
+        " JOIN files f ON f.id = c.file_id JOIN users u ON u.id = f.owner_id"
+        " WHERE c.user_id = ? AND c.dismissed_level > ? AND f.trashed_at IS NULL"
+        " ORDER BY f.filename",
+        (uid, level),
+    ).fetchall()
 
 
 def _planted(uid, level, since):
@@ -306,7 +356,11 @@ def restore(file_ids):
     found = _reviewed(data["trashed"], file_ids) if data else []
     db = get_db()
     for r in found:
-        db.execute("UPDATE files SET trashed_at = NULL, trashed_level = NULL WHERE id = ?", (r["id"],))
+        db.execute(
+            "UPDATE files SET trashed_at = NULL, trashed_level = NULL, review_from = NULL"
+            " WHERE id = ?",
+            (r["id"],),
+        )
     db.commit()
     return len(found)
 
@@ -329,29 +383,114 @@ def bring_back(keys, file_ids):
     data = review()
     found = _reviewed(data["arrived"], file_ids) if data else []
     for r in found:
-        copy = my_copy(r["id"])
-        key = unwrap_file_key(
-            keys.private[copy["level"]], copy["wrapped_key"], r["id"], g.user["id"], copy["level"]
-        )
-        _store(r["id"], g.user["id"], key, g.level)
+        _lift(keys, r["id"])
     get_db().commit()
     return len(found)
 
 
-def purge_trash():
-    """Remove the files duress sessions deleted more than 30 days ago."""
+def _lift(keys, file_id):
+    """The current user's copy of a file's key, opened with the keys the
+    password opened and encrypted again to the session's own level."""
+    uid = g.user["id"]
+    copy = get_db().execute(
+        "SELECT wrapped_key, level FROM file_keys WHERE file_id = ? AND user_id = ?",
+        (file_id, uid),
+    ).fetchone()
+    key = unwrap_file_key(keys.private[copy["level"]], copy["wrapped_key"], file_id, uid,
+                          copy["level"])
+    _store(file_id, uid, key, g.level)
+
+
+def put_back(keys, file_ids):
+    """Files a duress session dismissed in the reviewed windows, back on the
+    session's own list: the copy kept for them is encrypted again to its
+    level, so the duress session still finds them dismissed."""
+    data = review()
+    found = _reviewed(data["dismissed"], file_ids) if data else []
     db = get_db()
-    gone = [r["id"] for r in db.execute(
-        "SELECT id FROM files WHERE trashed_at < datetime('now', ?)", (f"-{TRASH_DAYS} days",)
-    )]
-    if not gone:
+    for r in found:
+        _lift(keys, r["id"])
+        db.execute(
+            "UPDATE shares SET dismissed_at = NULL WHERE file_id = ? AND recipient_id = ?",
+            (r["id"], g.user["id"]),
+        )
+    db.commit()
+    return len(found)
+
+
+def review_done(keys, leftover):
+    """The owner is done with the review: what is still trashed or dismissed
+    is restored or put back ("restore"), or let go now ("let-go"), and the
+    logins at this level stop going to the review."""
+    data = review()
+    if data is None:
         return
+    if leftover == "restore":
+        restore([r["id"] for r in data["trashed"]])
+        put_back(keys, [r["id"] for r in data["dismissed"]])
+    else:
+        _let_go([r["id"] for r in data["trashed"]], [r["id"] for r in data["dismissed"]])
+    level = g.level
+
+    def change(policy):
+        policy.unreviewed_since[level] = 0
+
+    update_policy(g.user["id"], change)
+
+
+def _let_go(trashed, dismissed):
+    db = get_db()
     db.execute("PRAGMA secure_delete = ON")
+    paths = [storage_path(file_id) for file_id in trashed]
+    for file_id in trashed:
+        db.execute("DELETE FROM files WHERE id = ?", (file_id,))
+    for file_id in dismissed:
+        db.execute(
+            "DELETE FROM file_keys WHERE file_id = ? AND user_id = ?", (file_id, g.user["id"])
+        )
+    db.commit()
+    _remove(paths)
+
+
+def purge_trash():
+    """Remove what duress sessions trashed or dismissed, 30 days after a
+    review first showed it: an owner who never logs in loses nothing."""
+    db = get_db()
+    cutoff = f"-{TRASH_DAYS} days"
+    gone = [r["id"] for r in db.execute(
+        "SELECT id FROM files WHERE review_from < datetime('now', ?)", (cutoff,)
+    )]
+    db.execute("PRAGMA secure_delete = ON")
+    dropped = db.execute(
+        "DELETE FROM file_keys WHERE dismissed_level IS NOT NULL"
+        " AND review_from < datetime('now', ?)", (cutoff,)
+    ).rowcount
+    if not gone and not dropped:
+        return
     paths = [storage_path(file_id) for file_id in gone]
     for file_id in gone:
         db.execute("DELETE FROM files WHERE id = ?", (file_id,))
     db.commit()
     _remove(paths)
+
+
+def dismiss(file_id):
+    """A recipient takes a shared file off their own list. From level 0 their
+    copy of its key goes; from a duress session it is kept, marked, so the
+    review can put the file back, while the file is gone from every list
+    as after any dismiss. The caller commits."""
+    db, uid, level = get_db(), g.user["id"], g.level
+    db.execute(
+        "UPDATE shares SET dismissed_at = datetime('now') WHERE file_id = ? AND recipient_id = ?",
+        (file_id, uid),
+    )
+    if level == 0:
+        db.execute("DELETE FROM file_keys WHERE file_id = ? AND user_id = ?", (file_id, uid))
+    else:
+        db.execute(
+            "UPDATE file_keys SET dismissed_level = ? WHERE file_id = ? AND user_id = ?",
+            (level, file_id, uid),
+        )
 
 
 def seal_pending(user_id, level):
@@ -448,7 +587,8 @@ def _store(file_id, user_id, key, level):
     get_db().execute(
         "INSERT INTO file_keys (file_id, user_id, wrapped_key, level) VALUES (?, ?, ?, ?)"
         " ON CONFLICT (file_id, user_id) DO UPDATE"
-        " SET wrapped_key = excluded.wrapped_key, level = excluded.level, since = datetime('now')",
+        " SET wrapped_key = excluded.wrapped_key, level = excluded.level, since = datetime('now'),"
+        " dismissed_level = NULL, review_from = NULL",
         (file_id, user_id, wrap_file_key(public, key, file_id, user_id, level), level),
     )
 

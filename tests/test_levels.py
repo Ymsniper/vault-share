@@ -535,14 +535,22 @@ def test_a_duress_session_deletes_softly(app, alice, bob, monkeypatch):
     for client in (forced, alice, bob):
         assert client.get(menu).status_code == 404
     assert b"menu.txt" not in cover_files(alice)
-    # ...but kept for 30 days, in case the real owner wants it back
+    # ...but kept for the real owner, however long they stay away
     assert os.path.exists(stored_path(app, menu))
-    tick(monkeypatch, 31 * 24 * 3600)
     with app.app_context():
         db = get_db()
         db.execute("UPDATE files SET trashed_at = datetime('now', '-31 days')")
         db.commit()
-    log_in(app, alice, PASSWORD)
+    log_in(app, bob, PASSWORD)
+    assert os.path.exists(stored_path(app, menu))
+    # and 30 days from when their review first shows it
+    real, _ = log_in(app, alice, PASSWORD)
+    assert b"menu.txt" in real.get("/auth/review").data
+    with app.app_context():
+        db = get_db()
+        db.execute("UPDATE files SET review_from = datetime('now', '-31 days')")
+        db.commit()
+    log_in(app, bob, PASSWORD)
     assert not os.path.exists(stored_path(app, menu))
     with app.app_context():
         assert get_db().execute("SELECT COUNT(*) FROM files").fetchone()[0] == 0
@@ -586,9 +594,111 @@ def test_the_next_real_login_gets_the_review(app, alice, bob):
         assert shown in page, shown
     # the certificate stays with the operator: the page gives the time
     assert b"admin revoke --since" in page
-    # a page of that session only: the next login has none
+    # what is done here shows in the duress vault: the page says so (D9)
+    assert b"whoever logs in with the duress password again will see" in page
+
+
+def review_done(client, leftover, password=PASSWORD):
+    data = {"leftover": leftover, "password": password}
+    return client.post("/auth/review/done", data=data, follow_redirects=True)
+
+
+def test_the_review_lasts_until_the_owner_says_done(app, alice, bob):
+    """Design revision 2, A2: every login goes to the review, through a
+    logout or a timeout, until the owner says done."""
+    forced, old, planted, arrived = a_duress_visit(app, alice, bob)
+    real, r = log_in(app, alice, PASSWORD)
+    assert r.headers["Location"] == "/auth/review"
+    real.post("/auth/logout")
+    again, r = log_in(app, alice, PASSWORD)
+    assert r.headers["Location"] == "/auth/review"
+    # a session that timed out
+    with app.app_context():
+        db = get_db()
+        db.execute("UPDATE sessions SET last_seen = datetime('now', '-31 minutes')")
+        db.commit()
+    assert again.get("/").headers["Location"].startswith("/auth/login")
+    again, r = log_in(app, alice, PASSWORD)
+    assert r.headers["Location"] == "/auth/review"
+    assert b"menu.txt" in again.get("/auth/review").data
+    # done, with the password; what is left is restored
+    assert b"Wrong password" in review_done(again, "restore", "a guess").data
+    assert again.get("/auth/review").status_code == 200
+    review_done(again, "restore")
+    assert download(again, old).data == MENU
     _, r = log_in(app, alice, PASSWORD)
     assert r.headers["Location"] == "/"
+    assert again.get("/auth/review").headers["Location"] == "/"
+
+
+def test_done_can_let_what_is_left_go(app, alice, bob):
+    forced, old, planted, arrived = a_duress_visit(app, alice, bob)
+    real, _ = log_in(app, alice, PASSWORD)
+    review_done(real, "let-go")
+    assert not os.path.exists(stored_path(app, old))
+    # the rest of what the window brought stays as it is
+    assert download(forced, planted).status_code == 200
+
+
+def test_other_open_sessions_get_the_review_link(app, alice, bob):
+    a_duress_visit(app, alice, bob)
+    # alice's own session was open all along; a new real login closes the
+    # window, and from then on her open session links to the review too
+    assert b'href="/auth/review"' not in alice.get("/").data
+    log_in(app, alice, PASSWORD)
+    assert b'href="/auth/review"' in alice.get("/").data
+    review_done(alice, "restore")
+    assert b'href="/auth/review"' not in alice.get("/").data
+
+
+def test_a_duress_dismiss_can_be_put_back(app, alice, bob):
+    """Design revision 2, A2: a dismiss in a duress session keeps the key
+    copy, so the review can put the file back; the duress session still
+    sees it dismissed."""
+    url = new_file(bob, name="figures.txt")
+    share(bob, url, alice.handle)
+    move(alice, [url], "down")
+    forced = at_level_one(app, alice)
+    dismiss(forced, url)
+    assert forced.get(url).status_code == 403
+    real, _ = log_in(app, alice, PASSWORD)
+    page = real.get("/auth/review").data
+    assert b"figures.txt" in page
+    assert b"Put back 1 file." in review_action(real, "put-back", [url]).data
+    assert download(real, url).status_code == 200
+    assert b"figures.txt" in shared_with_me(real)
+    assert forced.get(url).status_code == 403
+    # bob still sees his share, as after any dismiss
+    assert alice.handle.split("#")[0].encode() in bob.get(url).data
+
+
+def test_a_dismiss_at_level_one_answers_like_one_at_level_zero(app, alice, bob):
+    one = at_level_one(app, alice)
+    carol = logged_in(app, "carol")
+    answers = []
+    for client, recipient in ((one, alice), (carol, carol)):
+        url = new_file(bob, name="figures.txt")
+        share(bob, url, recipient.handle)
+        if client is one:
+            # shared while the window is open: it arrives at level 1
+            assert b"figures.txt" in shared_with_me(one)
+        before = len(rows(app))
+        r = dismiss(client, url, follow_redirects=True)
+        answers.append((normalized(r.data, client.handle), len(rows(app)) - before,
+                        client.get(url).status_code))
+    assert answers[0] == answers[1]
+
+
+def test_the_trash_waits_for_an_owner_who_never_logs_in(app, alice, bob):
+    forced = at_level_one(app, alice)
+    menu = new_file(forced, MENU, "menu.txt")
+    delete(forced, menu)
+    with app.app_context():
+        db = get_db()
+        db.execute("UPDATE files SET trashed_at = datetime('now', '-400 days')")
+        db.commit()
+    log_in(app, bob, PASSWORD)
+    assert os.path.exists(stored_path(app, menu))
 
 
 def review_action(client, action, urls, password=PASSWORD):

@@ -167,22 +167,27 @@ your cover files and opens, but only that session's level moves it back.
 The page also shows when the cover files last changed, since an empty or
 stale cover vault looks wrong.
 
-A duress login opens its level's window, which stays open until a login
-at a lower level number closes it. Meanwhile shares sent to the account
-arrive at that level, so whoever holds the duress session sees them arrive
-as on a real account, and files a duress session deletes are trashed
-instead of destroyed: hidden from everyone, recipients included, as if
-they were gone, and kept for 30 days for the real owner. The real password
-deletes for good. The login that closes a window opens on a review of what
-happened in it, for that session only: the duress logins, what was done,
-the files deleted (which it can restore), uploaded (which it can delete)
-or shared with the account meanwhile (which it can bring back to its own
-files), and the command the operator runs to revoke the certificate from
-the time the window opened, since whoever held the duress password could
-sign in the user's name. A level 1 session that closes a level 2 window
-gets the same review: every level looks like the top. The review belongs
-to that one session: once it ends, the files deleted in the window stay
-hidden and are removed after their 30 days, so restore them there.
+A duress login opens its level's window, which stays open until a login at a
+lower level number closes it. Meanwhile shares sent to the account arrive at
+that level, so whoever holds the duress session sees them arrive as on a
+real account, and files a duress session deletes are trashed instead of
+destroyed: hidden from everyone, recipients included, as if they were gone,
+and kept for the real owner. A file a duress session takes off its list is
+kept the same way, for the owner to put back. The real password deletes and
+dismisses for good. The login that closes a window owes a review of what
+happened in it, and every login with that password goes to the review, its
+other sessions linking to it, until the owner says done: through a logout, a
+timeout or months away. The review shows the duress logins, what was done,
+the files deleted (which it can restore), taken off the list (which it can
+put back), uploaded (which it can delete) or shared with the account
+meanwhile (which it can bring back to its own files), and the command the
+operator runs to revoke the certificate from the time the window opened,
+since whoever held the duress password could sign in the user's name. What
+it does shows in the duress vault, and the page says so. Deleted and removed
+files are kept 30 days from when the review first shows them, so an owner
+who never logs in loses nothing; "Done" restores what is left or lets it go.
+A level 1 session that closes a level 2 window gets the same review: every
+level looks like the top.
 
 A duress login is the silent alarm: its login row is written at its level,
 and the console shows it as `duress`. So does every admin session, at any

@@ -551,10 +551,10 @@ def revoke(id):
 @login_required
 @password_limit(current_account)
 def dismiss(id):
-    """A recipient takes a shared file off their own list. Their copy of its
-    key goes, the owner is not told and still sees the share, and sharing
-    again brings it back. Not logged: a file that is missing from someone's
-    list can always have been dismissed."""
+    """A recipient takes a shared file off their own list. The owner is not
+    told and still sees the share, and sharing again brings it back. Not
+    logged: a file that is missing from someone's list can always have been
+    dismissed. A duress session's dismiss can be undone from the review."""
     f = get_file(id)
     if f["owner_id"] == g.user["id"]:
         abort(403)
@@ -566,13 +566,8 @@ def dismiss(id):
         g.wrong_password = True
         flash("Wrong password: the file stays on your list.")
         return redirect(url_for("files.detail", id=f["id"]))
-    db = get_db()
-    db.execute(
-        "UPDATE shares SET dismissed_at = datetime('now') WHERE file_id = ? AND recipient_id = ?",
-        (f["id"], g.user["id"]),
-    )
-    db.execute("DELETE FROM file_keys WHERE file_id = ? AND user_id = ?", (f["id"], g.user["id"]))
-    db.commit()
+    levels.dismiss(f["id"])
+    get_db().commit()
     flash(f"Removed {f['filename']} from your list.", "success")
     return redirect(url_for("files.index"))
 

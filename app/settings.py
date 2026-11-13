@@ -126,8 +126,9 @@ def remove_duress():
 @bp.route("/review")
 @login_required
 def review():
-    """What happened while a duress password was in use, for the first login
-    after it: shown to that session only."""
+    """What happened while a duress password was in use. Every login with
+    the password whose login closed the window comes here, and its other
+    sessions link here, until the owner says done."""
     data = levels.review()
     if data is None:
         return redirect(url_for("files.index"))
@@ -138,7 +139,7 @@ def review():
 @login_required
 @password_limit(current_account)
 def review_action(action):
-    if action not in ("restore", "delete", "move"):
+    if action not in ("restore", "delete", "move", "put-back", "done"):
         abort(404)
     form = ReviewForm()
     if not form.validate():
@@ -154,8 +155,18 @@ def review_action(action):
         flash(f"Restored {plural(levels.restore(ids), 'file')}.", "success")
     elif action == "delete":
         flash(f"Deleted {plural(levels.remove_planted(ids), 'file')}.", "success")
-    else:
+    elif action == "move":
         flash(f"Moved {plural(levels.bring_back(keys, ids), 'file')}.", "success")
+    elif action == "put-back":
+        flash(f"Put back {plural(levels.put_back(keys, ids), 'file')}.", "success")
+    else:
+        leftover = request.form.get("leftover")
+        if leftover not in ("restore", "let-go"):
+            flash("Choose what happens to what is left.")
+            return redirect(url_for("settings.review"))
+        levels.review_done(keys, leftover)
+        flash("Review done.", "success")
+        return redirect(url_for("files.index"))
     return redirect(url_for("settings.review"))
 
 

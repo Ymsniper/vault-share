@@ -90,9 +90,14 @@ def create_app(test_config=None):
         if keyring.locked and request.endpoint != "static":
             raise Locked(keyring.missing())
 
-    from . import admin, auth, db, files, invites, settings, totp, unlock
+    from . import admin, auth, db, files, invites, levels, settings, totp, unlock
 
     db.init_app(app)
+
+    @app.context_processor
+    def review_link():
+        # until the owner says done, every page links to the review
+        return {"review_due": levels.review_due()}
 
     # next, a database made for another version of the tables pauses every
     # page too, rather than the ones that happen to read a changed column
