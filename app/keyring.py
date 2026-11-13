@@ -271,19 +271,15 @@ def reencrypt(database, old, new):
                 (record_mac(new_mac, f), f["id"]),
             )
 
-        old_totp, new_totp = subkey(old, "totp-secret"), subkey(new, "totp-secret")
         old_mode, new_mode = subkey(old, "duress-policy"), subkey(new, "duress-policy")
         for u in db.execute("SELECT * FROM fresh.users").fetchall():
-            totp = u["totp_secret"]
-            if totp is not None:
-                aad = f"totp:{u['id']}".encode()
-                totp = encrypt(new_totp, decrypt(old_totp, totp, aad), aad)
             aad = f"duress:{u['username']}".encode()
             mode = encrypt(new_mode, decrypt(old_mode, u["duress_policy"], aad), aad)
-            db.execute(
-                "UPDATE fresh.users SET totp_secret = ?, duress_policy = ? WHERE id = ?",
-                (totp, mode, u["id"]),
-            )
+            db.execute("UPDATE fresh.users SET duress_policy = ? WHERE id = ?", (mode, u["id"]))
+        # here, not at the top: app/levels.py imports this module
+        from .levels import reseal_factors
+
+        reseal_factors(db, old, new)
         db.commit()
         db.execute("DETACH DATABASE fresh")
     except Exception:

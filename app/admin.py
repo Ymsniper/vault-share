@@ -31,7 +31,7 @@ from .invites import (
     show_duration,
     to_local,
 )
-from .totp import WRONG_CODE, check_password_and_code, no_store, unseal, use_step
+from .totp import WRONG_CODE, check_password_and_code, no_store
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
 
@@ -89,6 +89,7 @@ def invites_page(new_code=None):
         left=left,
         more=plural(left, "more account"),
         over=over_the_limit(d, left),
+        two_factor_on=levels.two_factor()["on"],
     )
     return no_store(page)
 
@@ -110,7 +111,8 @@ def new_invite():
         # the address a new code was shown at, reloaded or bookmarked
         return redirect(url_for("admin.invites"))
     admin_only("invite")
-    if g.user["totp_secret"] is None:
+    state = levels.two_factor()
+    if not state["on"]:
         flash("Turn on two-factor login first: admins need it to make invite codes.")
         return redirect(url_for("admin.invites"))
     form = TotpForm()
@@ -126,11 +128,10 @@ def new_invite():
         audit("invite", "refused", detail="daily limit")
         flash(over_the_limit(d, accounts_left()))
         return redirect(url_for("admin.invites"))
-    secret = unseal(g.user["id"], g.user["totp_secret"])
-    step = check_password_and_code(form, secret, g.user["totp_last_step"])
+    step = check_password_and_code(form, state["secret"], state["step"])
     # the code from the phone cannot be used again, not even by a request
     # sent at the same moment
-    if step is not None and not use_step(g.user["id"], step):
+    if step is not None and not levels.use_step(step):
         g.wrong_password = True
         flash(WRONG_CODE)
         step = None
@@ -235,16 +236,13 @@ def unban_user(username):
 def clear_totp(username):
     """Turn off a user's two-factor login, for a lost phone and lost
     recovery codes: their password alone logs them in again, and they can
-    turn it back on. Raises ValueError."""
+    turn it back on. Every password of the account is reset alike, those of
+    duress sessions included. Raises ValueError."""
     user = user_by_handle(username)
-    if user["totp_secret"] is None:
+    if not levels.clear_two_factor(user["id"]):
+        get_db().rollback()
         raise ValueError(f"{username}'s two-factor login is not on.")
-    db = get_db()
-    db.execute(
-        "UPDATE users SET totp_secret = NULL, totp_last_step = NULL WHERE id = ?", (user["id"],)
-    )
-    db.execute("DELETE FROM totp_recovery WHERE user_id = ?", (user["id"],))
-    db.commit()
+    get_db().commit()
     audit("totp", "cleared", user_id=user["id"], detail="at the server")
 
 

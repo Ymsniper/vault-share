@@ -72,7 +72,7 @@ from app.invites import (
     show_duration,
     to_local,
 )
-from app import public_link, server_settings
+from app import levels, public_link, server_settings
 from app.serving import make_app_server
 from app.unlock import (
     FactorError,
@@ -668,7 +668,7 @@ class Console(App):
         try:
             with self.flask_app.app_context():
                 rows = get_db().execute(
-                    "SELECT u.username, u.banned_at, u.is_admin, u.totp_secret IS NOT NULL AS totp,"
+                    "SELECT u.id, u.username, u.banned_at, u.is_admin,"
                     " (SELECT CASE WHEN c.revoked_at IS NOT NULL THEN 'revoked'"
                     "  ELSE 'until ' || substr(c.not_after, 1, 10) END"
                     "  FROM certificates c WHERE c.user_id = u.id ORDER BY c.id DESC LIMIT 1)"
@@ -679,6 +679,8 @@ class Console(App):
                     "  AS inviter"
                     " FROM users u ORDER BY u.username"
                 ).fetchall()
+                # the real password's two-factor login, not a duress one's
+                totp = {r["id"]: levels.two_factor_of(r["id"])["on"] for r in rows}
         except (DatabaseError, OutdatedDatabase) as e:
             self.database_trouble(e)
             self.fill("#users", [])
@@ -689,7 +691,7 @@ class Console(App):
                 Text(r["username"]),
                 "banned" if r["banned_at"] else "",
                 "yes" if r["is_admin"] else "",
-                "on" if r["totp"] else "",
+                "on" if totp[r["id"]] else "",
                 Text(r["cert"] or "none"),
                 str(r["files"]),
                 Text(r["inviter"] or ""),

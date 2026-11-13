@@ -15,6 +15,7 @@ from textual.app import App
 from textual.coordinate import Coordinate
 from textual.widgets import Button, DataTable, Input, OptionList, RichLog, Static
 
+from app import levels
 from app.db import database_problem, get_db
 from app.serving import make_app_server
 from console import Ask, Choose, Console, Main, Show, Splash
@@ -740,7 +741,8 @@ def test_clear_two_factor_from_the_users_tab(app, alice):
 
     run(scenario)
     with app.app_context():
-        assert get_db().execute("SELECT totp_secret FROM users").fetchone()[0] is None
+        uid = get_db().execute("SELECT id FROM users").fetchone()[0]
+        assert not levels.two_factor_of(uid)["on"]
 
 
 async def until(pilot, condition, seconds=10):

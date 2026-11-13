@@ -6,11 +6,10 @@ import stat
 import pytest
 from sqlcipher3 import dbapi2 as sqlcipher
 
-from app import create_app
-from app.db import get_db
+from app import create_app, levels
+from app.db import SCHEMA_VERSION, get_db
 from app.levels import COVER, open_policy
 from app.keyring import USB_KEY_FILE, connect
-from app.totp import unseal
 from app.unlock import unlock_from_terminal, wants_passphrase
 
 from .samples import ARCHIVES
@@ -87,7 +86,7 @@ def test_adding_a_stick_keeps_everything_readable(app, alice, bob, stick):
         user = get_db().execute(
             "SELECT * FROM users WHERE username = ?", (alice.handle,)
         ).fetchone()
-        assert unseal(user["id"], user["totp_secret"]) == secret
+        assert levels.two_factor_of(user["id"])["secret"] == secret
         # the sealed levels open under the new master key
         assert open_policy(user).modes[1] == COVER
 
@@ -105,7 +104,7 @@ def test_a_key_change_keeps_the_database_version(app, stick):
     """Adding a stick or a passphrase copies the database under the new key;
     the copy keeps the version number the code checks it against."""
     before = user_version(app)
-    assert before == 1
+    assert before == SCHEMA_VERSION
     assert keys(app, "add-usb", stick).exit_code == 0
     assert user_version(app) == before
     assert keys(app, "set-passphrase", input=f"{PASSPHRASE}\n{PASSPHRASE}\n").exit_code == 0

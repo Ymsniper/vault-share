@@ -39,8 +39,10 @@ def test_setup_shows_a_qr_code_and_stores_the_secret_encrypted(app, alice):
 
     secret = turn_on(alice)
     with app.app_context():
-        stored = get_db().execute("SELECT totp_secret FROM users").fetchone()[0]
-    assert secret.encode() not in stored
+        stored = [r[0] for r in get_db().execute("SELECT sealed FROM two_factor")]
+    # a sealed record for each level, all of one length
+    assert len(stored) == 3 and len({len(blob) for blob in stored}) == 1
+    assert not any(secret.encode() in blob for blob in stored)
     assert alice.get("/auth/totp/qr.svg").status_code == 404
 
 
@@ -154,7 +156,7 @@ def test_a_code_works_once_even_when_sent_twice_at_once(app, alice, monkeypatch)
     assert b"Wrong code." in other.post("/auth/login/code", data={"code": same}).data
 
 
-def test_a_duress_session_turns_two_factor_on_for_the_account(app, alice):
+def test_a_duress_session_turning_it_on_changes_nothing_at_a_real_login(app, alice):
     from .test_duress import DURESS, log_in, set_duress
 
     set_duress(alice)
@@ -163,12 +165,51 @@ def test_a_duress_session_turns_two_factor_on_for_the_account(app, alice):
     # kept with its own session, so its QR code matches the key it shows,
     # and never offered to the account's other sessions
     assert secret_on_page(forced) == secret and secret_on_page(alice) != secret
-    # two-factor login belongs to the account, as the design says: turned on
-    # from a duress session it is on for the real password too (the server
-    # can turn it off again: admin clear-totp)
     r = forced.post("/auth/totp", data={"password": DURESS, "code": code(secret)})
     assert b"Two-factor login is on." in r.data
+    # on for the duress password only: the real one still logs in without a
+    # code, so whoever holds the duress password cannot lock the owner out
+    assert log_out_and_in(alice).headers["Location"] != "/auth/login/code"
+    _, r = log_in(app, alice, DURESS)
+    assert r.headers["Location"] == "/auth/login/code"
+
+
+def test_a_duress_session_turning_it_off_changes_nothing_at_a_real_login(
+    app, alice, monkeypatch
+):
+    from .test_duress import DURESS, log_in, set_duress
+
+    secret = turn_on(alice)
+    set_duress(alice)
+    forced, r = log_in(app, alice, DURESS)
+    assert r.headers["Location"] == "/auth/login/code"
+    forced.post("/auth/login/code", data={"code": code(secret, 1)})
+    later = time.time() + 60
+    monkeypatch.setattr(time, "time", lambda: later)
+    r = forced.post(
+        "/auth/totp/disable",
+        data={"password": DURESS, "code": code(secret, 1)},
+        follow_redirects=True,
+    )
+    assert b"Two-factor login is off." in r.data
+    # off for the duress password only
+    _, r = log_in(app, alice, DURESS)
+    assert r.headers["Location"] == "/"
     assert log_out_and_in(alice).headers["Location"] == "/auth/login/code"
+
+
+def test_a_code_used_at_one_level_is_refused_at_another(app, alice):
+    from .test_duress import DURESS, log_in, set_duress
+
+    secret = turn_on(alice)
+    set_duress(alice)
+    # the duress level inherits the secret, and with it the record of the
+    # last code used: one code cannot open two sessions
+    forced, _ = log_in(app, alice, DURESS)
+    same = code(secret, 1)
+    assert forced.post("/auth/login/code", data={"code": same}).headers["Location"] == "/"
+    log_out_and_in(alice)
+    assert b"Wrong code." in alice.post("/auth/login/code", data={"code": same}).data
 
 
 # letters and digits of the invite code alphabet, in four groups of four
@@ -246,12 +287,21 @@ def test_new_codes_need_the_password_and_a_code(alice):
 
 
 def test_the_server_can_turn_off_a_lost_phone(app, alice):
+    from .test_duress import DURESS, log_in, set_duress
+
+    # a duress level with two-factor login of its own is reset too
+    set_duress(alice)
+    forced, _ = log_in(app, alice, DURESS)
+    theirs = secret_on_page(forced)
+    forced.post("/auth/totp", data={"password": DURESS, "code": code(theirs)})
     _, codes = turn_on_with_codes(alice)
     r = app.test_cli_runner().invoke(args=["admin", "clear-totp", alice.handle])
     assert r.exit_code == 0, r.output
     assert "Two-factor login is off" in r.output
-    # her password alone logs her in again
-    assert log_out_and_in(alice).headers["Location"] == "/"
+    # her password alone logs her in again, and so does the duress one
+    assert log_out_and_in(alice).headers["Location"] != "/auth/login/code"
+    _, r = log_in(app, alice, DURESS)
+    assert r.headers["Location"] == "/"
     with app.app_context():
         db = get_db()
         assert db.execute("SELECT COUNT(*) FROM totp_recovery").fetchone()[0] == 0
@@ -261,7 +311,9 @@ def test_the_server_can_turn_off_a_lost_phone(app, alice):
     assert r.exit_code != 0 and "two-factor login is not on" in r.output
 
 
-def test_the_recovery_codes_belong_to_the_account(app, alice, monkeypatch):
+def test_new_codes_from_a_duress_session_change_nothing_at_a_real_login(
+    app, alice, monkeypatch
+):
     from .test_duress import DURESS, log_in, set_duress
 
     secret, old = turn_on_with_codes(alice)
@@ -274,8 +326,12 @@ def test_the_recovery_codes_belong_to_the_account(app, alice, monkeypatch):
     r = forced.post("/auth/totp/recovery", data={"password": DURESS, "code": code(secret)})
     new = recovery_codes(r.data)
     assert len(new) == 10
-    # replaced for the real password too, whose login then shows the review
+    # the owner's codes still work at a real login, and the new ones do not
     log_out_and_in(alice)
-    assert b"Wrong code." in alice.post("/auth/login/code", data={"recovery": old[0]}).data
-    r = alice.post("/auth/login/code", data={"recovery": new[0]})
+    assert b"Wrong code." in alice.post("/auth/login/code", data={"recovery": new[0]}).data
+    r = alice.post("/auth/login/code", data={"recovery": old[0]})
     assert r.headers["Location"] == "/auth/review"
+    # the duress level, which still inherits the secret, takes only its own
+    other, _ = log_in(app, alice, DURESS)
+    assert b"Wrong code." in other.post("/auth/login/code", data={"recovery": old[1]}).data
+    assert other.post("/auth/login/code", data={"recovery": new[1]}).headers["Location"] == "/"

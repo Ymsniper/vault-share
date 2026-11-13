@@ -8,21 +8,18 @@ DROP TABLE IF EXISTS level_keys;
 DROP TABLE IF EXISTS credentials;
 DROP TABLE IF EXISTS sessions;
 DROP TABLE IF EXISTS totp_recovery;
+DROP TABLE IF EXISTS two_factor;
 DROP TABLE IF EXISTS users;
 DROP TABLE IF EXISTS invites;
 DROP TABLE IF EXISTS invite_defaults;
 
--- the version of this layout, for vault-share migrate
-PRAGMA user_version = 1;
+-- the version of this layout, which the code checks (app/db.py)
+PRAGMA user_version = 2;
 
 CREATE TABLE users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT NOT NULL UNIQUE,
     is_admin INTEGER NOT NULL DEFAULT 0,
-    -- TOTP secret encrypted under a key derived from the master key, NULL
-    -- while two-factor login is off; last_step stops a code being reused
-    totp_secret BLOB,
-    totp_last_step INTEGER,
     -- sealed under the master key, always the same length (app/levels.py):
     -- which of the account's credentials is which level, and what each
     -- duress level does, so the database does not show who set one
@@ -35,14 +32,28 @@ CREATE TABLE users (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- each level's two-factor login, sealed under the master key, always the
+-- same length (app/levels.py): whether it is on, off or inherited from the
+-- level above, the TOTP secret, whether the level has recovery codes of its
+-- own, and the last time step used, so a code is never taken twice. Every
+-- account has a row for each level from the start
+CREATE TABLE two_factor (
+    user_id INTEGER NOT NULL REFERENCES users (id),
+    level INTEGER NOT NULL CHECK (level BETWEEN 0 AND 2),
+    sealed BLOB NOT NULL,
+    PRIMARY KEY (user_id, level)
+);
+
 -- codes that stand in for the phone at login, once each, for a lost phone;
 -- only their SHA-256 is kept, and they are random, 80 bits, so a copy of the
--- database gives none of them away
+-- database gives none of them away. Each level that turned two-factor login
+-- on, or asked for codes of its own, has a set
 CREATE TABLE totp_recovery (
     user_id INTEGER NOT NULL REFERENCES users (id),
+    level INTEGER NOT NULL CHECK (level BETWEEN 0 AND 2),
     code_hash TEXT NOT NULL,
     used_at TEXT,
-    PRIMARY KEY (user_id, code_hash)
+    PRIMARY KEY (user_id, level, code_hash)
 );
 
 -- one-time codes needed to register; only a SHA-256 of each code is kept,

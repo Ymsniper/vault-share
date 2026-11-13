@@ -21,7 +21,7 @@
   <div class="col-lg-4">
     <section class="vs-panel">
       <h2 class="vs-panel-title">Make a code</h2>
-      {% if not g.user['totp_secret'] %}
+      {% if not two_factor_on %}
       <p class="mb-0">Turn on <a href="{{ url_for('totp.setup') }}">two-factor login</a> first. Making a code asks for your password and a code from your phone, so a stolen password alone cannot let anyone in.</p>
       {% elif not defaults['admin_per_day'] %}
       <p class="mb-0">Making invite codes is switched off at the server.</p>

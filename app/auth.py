@@ -467,7 +467,7 @@ def login():
             audit("login", "refused", user_id=user["id"], detail="banned")
             flash("This account is disabled.")
         else:
-            if user["totp_secret"] is not None:
+            if levels.two_factor_at(user["id"], level)["on"]:
                 # right password, but no session until the code is right
                 # too; a duress login's alarm is this row, written now, and
                 # a wipe waits for the code, so the password alone destroys

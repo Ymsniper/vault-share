@@ -38,7 +38,7 @@ from .test_files import (
     upload,
     user_id,
 )
-from .test_totp import code, turn_on
+from .test_totp import RECOVERY_SHAPE, code, turn_on
 
 # a duress password set from a level 1 session, for level 2
 DEEPER = "lantern-quiet-harbor-29"
@@ -973,6 +973,22 @@ def normalized(html, handle):
     text = re.sub(r"\d{4}-\d{2}-\d{2}( \d{2}:\d{2}(:\d{2})?)?", "TIME", text)
     text = re.sub(r"<code>[A-Z2-7]{32}</code>", "<code>SECRET</code>", text)
     return re.sub(r"\b[0-9a-f]{16,}\b", "HEX", text)
+
+
+def test_the_two_factor_page_is_the_same_at_every_level(app):
+    """Design revision 2, A1: two-factor login is kept per level, and its
+    page answers the same at each, off, while being turned on, and on."""
+    a, b = logged_in(app, "alice"), logged_in(app, "alice")
+    forced = at_level_one(app, a)
+    pages = []
+    for client, password in ((forced, DURESS), (b, PASSWORD)):
+        seen = [client.get("/auth/totp").data]
+        secret = re.search(rb"<code>([A-Z2-7]{32})</code>", seen[0]).group(1).decode()
+        on = client.post("/auth/totp", data={"password": password, "code": code(secret)})
+        seen.append(re.sub(RECOVERY_SHAPE, b"CODE", on.data))
+        seen.append(client.get("/auth/totp").data)
+        pages.append([normalized(page, client.handle) for page in seen])
+    assert pages[0] == pages[1]
 
 
 def test_a_level_one_vault_looks_like_a_level_zero_one(app):

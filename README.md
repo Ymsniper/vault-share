@@ -213,9 +213,14 @@ account's other sessions at that level and below. A new password may not be
 a duress password of a level below, which would then open the upper one. A
 forgotten password still cannot be reset: it is the only way to its keys.
 
-Two-factor login belongs to the account: a duress session can turn it on or
-off, or replace the recovery codes, for the real password too, and the
-operator's `admin clear-totp` is the way back.
+Two-factor login is kept per level, as passwords are: each level has it on,
+off, or as the level above it does, which is where every duress level
+starts. A session that turns it on or off, or asks for new recovery codes,
+changes it for its own password only, so a duress session cannot lock the
+real password out, and the page looks the same at every level. A level that
+inherits the secret shares the record of the last code used, so one code
+never opens two sessions; one with codes of its own takes only those. The
+operator's `admin clear-totp` resets every level of the account.
 
 What the levels cannot hide:
 

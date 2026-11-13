@@ -164,6 +164,12 @@ def new_account(user_id, username, password):
     db.execute(
         "UPDATE users SET duress_policy = ? WHERE id = ?", (seal_policy(username, policy), user_id)
     )
+    # two-factor login off at level 0, and inherited by the levels below
+    for level in range(LEVELS):
+        db.execute(
+            "INSERT INTO two_factor (user_id, level, sealed) VALUES (?, ?, ?)",
+            (user_id, level, _seal_factor(user_id, level, OFF if level == 0 else INHERIT)),
+        )
     return keys[LEVELS - 1]
 
 
@@ -802,3 +808,194 @@ def _shown(row, viewer, level):
         else:
             row["detail"] = None
     return row
+
+
+# --- two-factor login, kept per level (design revision 2, A1)
+#
+# Each level has its own: on, off, or inherited from the level above. A
+# change in a session writes its own level only, so a duress session can
+# turn it on, off, or replace the recovery codes without touching a real
+# login. Level 0 is never inherited, and never reads the levels below it.
+
+INHERIT, OFF, ON = 0, 1, 2
+# mode, whether the level has recovery codes of its own, the secret in
+# base32 (zero bytes when there is none) and the last time step used (0 for
+# none): the same length for every level and account
+_FACTOR = struct.Struct("<BB32sq")
+
+
+def _factor_aad(user_id, level):
+    return f"totp|{user_id}|{level}".encode()
+
+
+def _seal_factor(user_id, level, mode, own=False, secret=None, step=None):
+    data = _FACTOR.pack(mode, 1 if own else 0, (secret or "").encode(), step or 0)
+    return encrypt(subkey(master_key(), "totp-secret"), data, _factor_aad(user_id, level))
+
+
+def _factors(user_id):
+    """Every level's two-factor record, all read and opened each time, so
+    finding one level's costs the same at every level."""
+    out = {}
+    for row in get_db().execute(
+        "SELECT level, sealed FROM two_factor WHERE user_id = ?", (user_id,)
+    ).fetchall():
+        data = decrypt(subkey(master_key(), "totp-secret"), row["sealed"],
+                       _factor_aad(user_id, row["level"]))
+        mode, own, secret, step = _FACTOR.unpack(data)
+        out[row["level"]] = {
+            "mode": mode, "own": bool(own), "secret": secret.rstrip(b"\0").decode() or None,
+            "step": step or None, "sealed": row["sealed"],
+        }
+    return out
+
+
+def _holder(factors, level, codes=False):
+    """The level whose record decides for this one: its own, unless it
+    inherits, then the nearest level above that does not. Recovery codes go
+    the same way, but a level that asked for codes of its own uses those
+    while still inheriting the secret."""
+    for lvl in range(level, 0, -1):
+        f = factors[lvl]
+        if f["mode"] != INHERIT or (codes and f["own"]):
+            return lvl
+    return 0
+
+
+def _factor_state(user_id, level):
+    factors = _factors(user_id)
+    holder = _holder(factors, level)
+    f = factors[holder]
+    return {"on": f["mode"] == ON, "secret": f["secret"], "step": f["step"]}
+
+
+def two_factor():
+    """The session's two-factor login as it sees it: whether it is on, the
+    secret and the last time step used."""
+    return _factor_state(g.user["id"], g.level)
+
+
+def two_factor_at(user_id, level):
+    """The two-factor login a login at this level must pass."""
+    return _factor_state(user_id, level)
+
+
+def two_factor_of(user_id):
+    """The account's own two-factor login, the real password's: for the
+    console and the server's commands."""
+    return _factor_state(user_id, 0)
+
+
+def pending_two_factor(user_id, blob):
+    """The two-factor login of a login waiting for its code."""
+    return _factor_state(user_id, pending_level(user_id, blob))
+
+
+def _write_factor(user_id, level, old, mode, own, secret, step):
+    """Write a level's record only over the one read: compare and swap, so
+    two requests can never both use one code. Returns whether it wrote."""
+    cur = get_db().execute(
+        "UPDATE two_factor SET sealed = ? WHERE user_id = ? AND level = ? AND sealed = ?",
+        (_seal_factor(user_id, level, mode, own, secret, step), user_id, level, old),
+    )
+    return cur.rowcount == 1
+
+
+def _store_codes(user_id, level, code_hashes):
+    db = get_db()
+    db.execute("DELETE FROM totp_recovery WHERE user_id = ? AND level = ?", (user_id, level))
+    db.executemany(
+        "INSERT INTO totp_recovery (user_id, level, code_hash) VALUES (?, ?, ?)",
+        [(user_id, level, h) for h in code_hashes],
+    )
+
+
+def turn_two_factor_on(secret, step, code_hashes):
+    """Two-factor login on for the session's own level, with this secret
+    and these recovery codes; no other level changes. The caller commits."""
+    uid, level = g.user["id"], g.level
+    f = _factors(uid)[level]
+    _write_factor(uid, level, f["sealed"], ON, True, secret, step)
+    _store_codes(uid, level, code_hashes)
+
+
+def turn_two_factor_off():
+    """Off for the session's own level only, its recovery codes gone. The
+    caller commits."""
+    uid, level = g.user["id"], g.level
+    f = _factors(uid)[level]
+    _write_factor(uid, level, f["sealed"], OFF, False, None, None)
+    get_db().execute("DELETE FROM totp_recovery WHERE user_id = ? AND level = ?", (uid, level))
+
+
+def replace_two_factor_codes(code_hashes):
+    """New recovery codes for the session's own level, which keeps
+    inheriting the secret if it did. The caller commits."""
+    uid, level = g.user["id"], g.level
+    f = _factors(uid)[level]
+    if not f["own"]:
+        _write_factor(uid, level, f["sealed"], f["mode"], True, f["secret"], f["step"])
+    _store_codes(uid, level, code_hashes)
+
+
+def _use_step(user_id, level, step):
+    """Record a code's time step on the level that holds the secret, unless
+    it or a later one was used there already. Commits."""
+    for _ in range(5):
+        factors = _factors(user_id)
+        holder = _holder(factors, level)
+        f = factors[holder]
+        if f["step"] is not None and f["step"] >= step:
+            return False
+        if _write_factor(user_id, holder, f["sealed"], f["mode"], f["own"], f["secret"], step):
+            get_db().commit()
+            return True
+    return False
+
+
+def use_step(step):
+    return _use_step(g.user["id"], g.level, step)
+
+
+def pending_use_step(user_id, blob, step):
+    return _use_step(user_id, pending_level(user_id, blob), step)
+
+
+def pending_use_code(user_id, blob, code_hash):
+    """Use one of the recovery codes a login waiting for its code may take:
+    its level's own set, or the one it inherits. Once each. Commits."""
+    holder = _holder(_factors(user_id), pending_level(user_id, blob), codes=True)
+    db = get_db()
+    cur = db.execute(
+        "UPDATE totp_recovery SET used_at = datetime('now')"
+        " WHERE user_id = ? AND level = ? AND code_hash = ? AND used_at IS NULL",
+        (user_id, holder, code_hash),
+    )
+    db.commit()
+    return cur.rowcount == 1
+
+
+def clear_two_factor(user_id):
+    """At the server, for a lost phone: off at level 0, inherited again at
+    every other level, no recovery codes left. Returns whether any level
+    had it on or codes of its own. The caller commits."""
+    factors = _factors(user_id)
+    was_on = any(f["mode"] == ON or f["own"] for f in factors.values())
+    for level, f in factors.items():
+        _write_factor(user_id, level, f["sealed"], OFF if level == 0 else INHERIT, False, None, None)
+    get_db().execute("DELETE FROM totp_recovery WHERE user_id = ?", (user_id,))
+    return was_on
+
+
+def reseal_factors(db, old, new):
+    """For keyring.reencrypt: every two-factor record of the database being
+    built, attached as fresh, sealed again under the new master key."""
+    old_key, new_key = subkey(old, "totp-secret"), subkey(new, "totp-secret")
+    for row in db.execute("SELECT user_id, level, sealed FROM fresh.two_factor").fetchall():
+        aad = _factor_aad(row["user_id"], row["level"])
+        db.execute(
+            "UPDATE fresh.two_factor SET sealed = ? WHERE user_id = ? AND level = ?",
+            (encrypt(new_key, decrypt(old_key, row["sealed"], aad), aad),
+             row["user_id"], row["level"]),
+        )
+

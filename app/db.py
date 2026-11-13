@@ -11,7 +11,7 @@ from .keyring import master_key
 
 # the version of the tables schema.sql makes, which it writes into the
 # database as PRAGMA user_version; code for one version refuses the others
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 RESET = ("Reset it with vault-share init-db, or Setup > Reset database in the console;"
          " that deletes every user, file and log entry.")

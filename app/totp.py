@@ -20,6 +20,7 @@ from security.crypto import decrypt, encrypt
 from security.keys import subkey
 from security.totp import matching_step, new_secret, qr_svg
 
+from . import levels
 from .audit import audit
 from .auth import (
     current_account,
@@ -52,51 +53,19 @@ def unseal(user_id, blob):
     return decrypt(key, blob, f"totp:{user_id}".encode()).decode()
 
 
-def use_step(user_id, step):
-    """Mark a code's time step used, unless it or a later one already was.
-    One statement, so two requests with the same code cannot both pass
-    between a check and an update."""
-    db = get_db()
-    cur = db.execute(
-        "UPDATE users SET totp_last_step = ?"
-        " WHERE id = ? AND (totp_last_step IS NULL OR totp_last_step < ?)",
-        (step, user_id, step),
-    )
-    db.commit()
-    return cur.rowcount == 1
-
-
 def recovery_code():
     """16 symbols of the invite code alphabet, 80 bits, in groups of four."""
     raw = "".join(secrets.choice(ALPHABET) for _ in range(16))
     return "-".join(raw[i : i + 4] for i in range(0, 16, 4))
 
 
-def new_recovery_codes(user_id):
-    """Ten single-use codes that stand in for the phone at login, replacing
-    any earlier ones; the caller commits, then shows them once. Only their
-    SHA-256 is kept: they are random, so the hashes give none of them away."""
+def new_recovery_codes():
+    """Ten single-use codes that stand in for the phone at login, and their
+    hashes, which replace the earlier ones: the codes are shown once, and
+    only their SHA-256 is kept. They are random, so the hashes give none of
+    them away."""
     codes = [recovery_code() for _ in range(10)]
-    db = get_db()
-    db.execute("DELETE FROM totp_recovery WHERE user_id = ?", (user_id,))
-    db.executemany(
-        "INSERT INTO totp_recovery (user_id, code_hash) VALUES (?, ?)",
-        [(user_id, code_hash(c)) for c in codes],
-    )
-    return codes
-
-
-def use_recovery_code(user_id, code):
-    """Mark one of the user's recovery codes used, if it is one and was not
-    used yet: one statement, so two requests cannot both use it."""
-    db = get_db()
-    cur = db.execute(
-        "UPDATE totp_recovery SET used_at = datetime('now')"
-        " WHERE user_id = ? AND code_hash = ? AND used_at IS NULL",
-        (user_id, code_hash(code)),
-    )
-    db.commit()
-    return cur.rowcount == 1
+    return codes, [code_hash(c) for c in codes]
 
 
 def codes_page(codes):
@@ -154,8 +123,10 @@ def check_password_and_code(form, secret, last_step):
 @login_required
 @password_limit(current_account)
 def setup():
-    """Turn two-factor login on: scan the QR code, then confirm a first code."""
-    if g.user["totp_secret"] is not None:
+    """Turn two-factor login on: scan the QR code, then confirm a first code.
+    It is on for the password this session logged in with; the account's
+    other passwords keep theirs."""
+    if levels.two_factor()["on"]:
         return no_store(render_template("auth/totp.html", enabled=True, form=TotpForm()))
 
     secret = pending_secret()
@@ -163,15 +134,12 @@ def setup():
     if form.validate_on_submit():
         step = check_password_and_code(form, secret, None)
         if step is not None:
+            codes, hashes = new_recovery_codes()
+            levels.turn_two_factor_on(secret, step, hashes)
             db = get_db()
-            db.execute(
-                "UPDATE users SET totp_secret = ?, totp_last_step = ? WHERE id = ?",
-                (seal(g.user["id"], secret), step, g.user["id"]),
-            )
             db.execute(
                 "UPDATE sessions SET totp_pending = NULL WHERE token_hash = ?", (g.session_hash,)
             )
-            codes = new_recovery_codes(g.user["id"])
             db.commit()
             audit("totp", "enabled")
             flash("Two-factor login is on.", "success")
@@ -195,23 +163,25 @@ def qr():
 @login_required
 @password_limit(current_account)
 def disable():
-    if g.user["totp_secret"] is None:
+    """Turn two-factor login off for the password this session logged in
+    with. The code is spent like a login's, so it cannot open another."""
+    state = levels.two_factor()
+    if not state["on"]:
         return redirect(url_for("totp.setup"))
     form = TotpForm()
     if not form.validate():
         flash(first_error(form))
         return redirect(url_for("totp.setup"))
-    secret = unseal(g.user["id"], g.user["totp_secret"])
-    if check_password_and_code(form, secret, g.user["totp_last_step"]) is None:
+    step = check_password_and_code(form, state["secret"], state["step"])
+    if step is not None and not levels.use_step(step):
+        g.wrong_password = True
+        flash(WRONG_CODE)
+        step = None
+    if step is None:
         audit("totp", "failed")
         return redirect(url_for("totp.setup"))
-    db = get_db()
-    db.execute(
-        "UPDATE users SET totp_secret = NULL, totp_last_step = NULL WHERE id = ?",
-        (g.user["id"],),
-    )
-    db.execute("DELETE FROM totp_recovery WHERE user_id = ?", (g.user["id"],))
-    db.commit()
+    levels.turn_two_factor_off()
+    get_db().commit()
     audit("totp", "disabled")
     flash("Two-factor login is off.", "success")
     return redirect(url_for("totp.setup"))
@@ -221,23 +191,25 @@ def disable():
 @login_required
 @password_limit(current_account)
 def new_recovery():
-    """New recovery codes, with the password and a code from the phone."""
-    if g.user["totp_secret"] is None:
+    """New recovery codes, with the password and a code from the phone, for
+    the password this session logged in with."""
+    state = levels.two_factor()
+    if not state["on"]:
         return redirect(url_for("totp.setup"))
     form = TotpForm()
     if not form.validate():
         flash(first_error(form))
         return redirect(url_for("totp.setup"))
-    secret = unseal(g.user["id"], g.user["totp_secret"])
-    step = check_password_and_code(form, secret, g.user["totp_last_step"])
-    if step is not None and not use_step(g.user["id"], step):
+    step = check_password_and_code(form, state["secret"], state["step"])
+    if step is not None and not levels.use_step(step):
         g.wrong_password = True
         flash(WRONG_CODE)
         step = None
     if step is None:
         audit("totp", "failed")
         return redirect(url_for("totp.setup"))
-    codes = new_recovery_codes(g.user["id"])
+    codes, hashes = new_recovery_codes()
+    levels.replace_two_factor_codes(hashes)
     get_db().commit()
     audit("totp", "new recovery codes")
     flash("New recovery codes: the old ones no longer work.", "success")
@@ -269,12 +241,13 @@ def login_code():
     recovery = "recovery" in request.form
     form = RecoveryForm() if recovery else CodeForm()
     if form.validate_on_submit():
+        blob = session["totp_mode"]
         if recovery:
-            right = use_recovery_code(user["id"], form.recovery.data)
+            right = levels.pending_use_code(user["id"], blob, code_hash(form.recovery.data))
         else:
-            secret = unseal(user["id"], user["totp_secret"])
-            step = matching_step(secret, form.code.data, user["totp_last_step"])
-            right = step is not None and use_step(user["id"], step)
+            state = levels.pending_two_factor(user["id"], blob)
+            step = matching_step(state["secret"], form.code.data, state["step"])
+            right = step is not None and levels.pending_use_step(user["id"], blob, step)
         if right:
             return finish_pending_login(user, session["totp_mode"], recovery=recovery)
         g.wrong_password = True
