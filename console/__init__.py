@@ -13,7 +13,10 @@ from functools import partial
 from pathlib import Path
 
 from flask.logging import default_handler
+import rich
+from rich.segment import Segments
 from rich.text import Text
+from rich.traceback import Traceback
 from sqlcipher3.dbapi2 import DatabaseError
 from textual import on, work
 from textual.app import App, ComposeResult
@@ -264,7 +267,7 @@ class Splash(Screen):
             self.typed += 1
             self.show_checks()
 
-    @work
+    @work(description="show_checks")
     async def show_checks(self):
         lines = Text()
         for label, value, ok in self.checks():
@@ -401,6 +404,17 @@ def row_text(table):
 class Console(App):
     CSS_PATH = "console.tcss"
     TITLE = "Vault-Share server"
+
+    def _fatal_error(self):
+        """Textual's own version prints every frame's local variables when the
+        console crashes, and a passphrase typed into it could be one of
+        them. The same report, without the variables."""
+        self.bell()
+        traceback = Traceback(show_locals=False, width=None, suppress=[rich])
+        self._exit_renderables.append(
+            Segments(self.console.render(traceback, self.console.options))
+        )
+        self._close_messages_no_wait()
 
     def __init__(self, flask_app, start_server=True):
         # the terminal's own palette, not a Textual theme
@@ -808,7 +822,7 @@ class Console(App):
         self.refresh_all()
         self.check_link()
 
-    @work(thread=True)
+    @work(thread=True, description="check_link")
     def check_link(self):
         found = public_link.describe(public_link.status(), self.flask_app.config["PORT"])
         self.call_from_thread(self.set_link, found)
@@ -833,7 +847,7 @@ class Console(App):
         else:
             self.push_screen(Ask("Unlock", [("Passphrase", True)]), self.unlock_with)
 
-    @work(thread=True)
+    @work(thread=True, description="unlock_with")
     def unlock_with(self, values):
         if not values:
             return
@@ -1005,14 +1019,14 @@ class Console(App):
                 apply_cleanup, accounts, codes, unban),
         )
 
-    @work(thread=True)
+    @work(thread=True, description="run_and_report")
     def run_and_report(self, action, *args):
         """Like run_task, but the message is what the action returns."""
         summary = self.task(action, *args)
         if summary:
             self.call_from_thread(self.notify, summary, timeout=12)
 
-    @work(thread=True)
+    @work(thread=True, description="run_task")
     def run_task(self, done, action, *args, stop_server=False):
         """An app task in its own thread, then a message saying it is done."""
         if self.task(action, *args, stop_server=stop_server) is not None:
@@ -1050,7 +1064,7 @@ class Console(App):
     def new_invite_pressed(self):
         self.make_invite()
 
-    @work(thread=True)
+    @work(thread=True, description="make_invite")
     def make_invite(self, uses=None, minutes=None):
         made = self.task(new_invite_code, uses, minutes)
         if made:
@@ -1175,7 +1189,7 @@ class Console(App):
         else:
             self.add_usb_with(mountpoint, None)
 
-    @work(thread=True)
+    @work(thread=True, description="add_usb_with")
     def add_usb_with(self, mountpoint, passphrase):
         code = self.task(add_usb, mountpoint, passphrase, stop_server=True)
         if code:
@@ -1317,7 +1331,7 @@ class Console(App):
                              "Unlocks the certificate authority's key so new users can register. "
                              "Kept in memory only. Leave it empty to skip."), got)
 
-    @work(thread=True)
+    @work(thread=True, description="run_script")
     def run_script(self, script, done, *folders):
         # a fixed script from this repo, no shell; its only arguments are
         # folders from the app's config, so it writes where the app reads
@@ -1391,7 +1405,7 @@ class Console(App):
     # Funnel decides what the internet can reach: the console never changes
     # it without asking, and only moves rules that pointed at the old port
 
-    @work(thread=True)
+    @work(thread=True, description="offer_link_move")
     def offer_link_move(self, old_port, new_port):
         config = public_link.status()
         self.call_from_thread(self.set_link, public_link.describe(config, new_port))
@@ -1417,7 +1431,7 @@ class Console(App):
                         + public_link.by_hand(found, new_port, https), timeout=20)
             self.check_link()
 
-    @work(thread=True)
+    @work(thread=True, description="move_link")
     def move_link(self, old_port, new_port):
         message = public_link.move(old_port, new_port, self.flask_app.config["HTTPS"])
         self.call_from_thread(self.notify, message, timeout=15)

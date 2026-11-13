@@ -395,7 +395,9 @@ The database records the version of its tables, and the code checks it
 once the app is unlocked. After an update that changed the tables, the
 console says so with the unlock and stays open, so that Setup > Reset
 database can be used; `vault-share serve` prints the same message and
-stops, other commands print it, and visitors see the paused page.
+stops, other commands print it, and visitors see the paused page. If the
+console ever crashes, its report leaves out the values of variables, so a
+passphrase typed into it is not printed.
 
 The lists keep their place while they update: the highlighted row and the
 rows in view stay put as new entries arrive, and the server log only

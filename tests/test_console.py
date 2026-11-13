@@ -1,11 +1,17 @@
+import ast
 import asyncio
 import errno
+import io
 import os
 import re
+import secrets
 import socket
+from pathlib import Path
 
 import pytest
+from rich.console import Console as Terminal
 from rich.text import Text
+from textual.app import App
 from textual.coordinate import Coordinate
 from textual.widgets import Button, DataTable, Input, OptionList, RichLog, Static
 
@@ -780,4 +786,47 @@ def test_an_older_database_leaves_the_console_open(app, alice):
 
     run(scenario)
     assert database_problem(started) is None
+
+
+def test_a_crash_report_shows_no_local_values(app):
+    """Textual prints every frame's local variables when the console crashes,
+    and a passphrase typed into it would be one of them."""
+    # the method replaced must still be Textual's, or the override does nothing
+    assert "_fatal_error" in vars(App) and "_fatal_error" in vars(Console)
+    console = Console(app, start_server=False)
+    console.bell = lambda: None
+    console._close_messages_no_wait = lambda: None
+    # made at run time, as a typed passphrase is: the report quotes the
+    # source lines around the error, and a literal would show there
+    marker = secrets.token_hex(12)
+    try:
+        typed = [marker]  # as the unlock dialog hands a passphrase over
+        raise RuntimeError(f"failed after {len(typed)} field")
+    except RuntimeError:
+        console._fatal_error()
+    out = Terminal(file=io.StringIO(), width=200)
+    for part in console._exit_renderables:
+        out.print(part)
+    report = out.file.getvalue()
+    assert "failed after 1 field" in report
+    assert marker not in report
+
+
+def test_every_worker_has_a_fixed_description():
+    """Textual describes a worker by its call, arguments included, so a
+    worker handed a passphrase would carry it wherever workers are shown."""
+    source = Path(__file__).parent.parent / "console" / "__init__.py"
+    workers = 0
+    for node in ast.walk(ast.parse(source.read_text())):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for d in node.decorator_list:
+            target = d.func if isinstance(d, ast.Call) else d
+            if isinstance(target, ast.Name) and target.id == "work":
+                workers += 1
+                assert isinstance(d, ast.Call) and any(
+                    k.arg == "description" and isinstance(k.value, ast.Constant)
+                    for k in d.keywords
+                ), node.name
+    assert workers >= 10
 
