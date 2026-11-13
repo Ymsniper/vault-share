@@ -255,6 +255,16 @@ What the levels cannot hide:
   shows no upload for it.
 - Time: a request at level 0 follows one more link between keys than at
   level 1, microseconds next to the Argon2 check every password costs.
+- A used duress password: it keeps working, and every later login with it
+  opens a new window, so files shared with the account from then on reach
+  whoever holds it. Ending it on its own would give the owner away; replace
+  or remove it once the danger has passed, knowing that a new one starts
+  to work 48 hours after it is saved and the old one stops at once.
+- The invite allowance: each level counts only the codes made at its own
+  level or below, since a shared count would show a duress session that
+  codes exist above it. An admin who knows their own duress passwords can
+  make a day's allowance at each level, and so can a coercer in an admin's
+  duress session; the cleanup by inviter and time window undoes it.
 
 ![Setting a duress password](docs/screenshots/web-duress.png)
 
