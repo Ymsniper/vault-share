@@ -391,6 +391,12 @@ remove the USB stick and the passphrase, create the CA and the HTTPS
 certificate, and reset the database. It uses the terminal's own colors.
 Every action also stays available as a `flask --app app ...` command.
 
+The database records the version of its tables, and the code checks it
+once the app is unlocked. After an update that changed the tables, the
+console says so with the unlock and stays open, so that Setup > Reset
+database can be used; `vault-share serve` prints the same message and
+stops, other commands print it, and visitors see the paused page.
+
 The lists keep their place while they update: the highlighted row and the
 rows in view stay put as new entries arrive, and the server log only
 follows new lines when you are at its bottom. In the Users, Invites and
@@ -560,6 +566,10 @@ certificate against the list:
 - Public encryption keys are read from the database, not certified by the
   CA: someone holding the master key could swap a user's public key and
   receive the next file shared with them.
+- A database made by an older version, before the duress levels, cannot be
+  brought up to date, only reset with `vault-share init-db`, which deletes
+  every user, file and log entry: its keys cannot be rebuilt without each
+  user's password.
 
 ## Tests
 

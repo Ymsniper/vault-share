@@ -9,9 +9,11 @@ from rich.text import Text
 from textual.coordinate import Coordinate
 from textual.widgets import Button, DataTable, Input, OptionList, RichLog, Static
 
-from app.db import get_db
+from app.db import database_problem, get_db
 from app.serving import make_app_server
 from console import Ask, Choose, Console, Main, Show, Splash
+
+from .test_keyring import PASSPHRASE, keys, restart
 
 
 def run(scenario):
@@ -733,3 +735,49 @@ def test_clear_two_factor_from_the_users_tab(app, alice):
     run(scenario)
     with app.app_context():
         assert get_db().execute("SELECT totp_secret FROM users").fetchone()[0] is None
+
+
+async def until(pilot, condition, seconds=10):
+    """Let the console's worker threads run until condition() holds."""
+    for _ in range(int(seconds * 10)):
+        if condition():
+            return
+        await pilot.pause(0.1)
+    raise AssertionError("the console never got there")
+
+
+def test_an_older_database_leaves_the_console_open(app, alice):
+    """Unlocking over a database made by an older version: the console says
+    so and stays open, so that Setup > Reset database can be reached."""
+    keys(app, "set-passphrase", input=f"{PASSPHRASE}\n{PASSPHRASE}\n")
+    with app.app_context():
+        db = get_db()
+        db.execute("PRAGMA user_version = 0")
+        db.commit()
+    started = restart(app)
+
+    async def scenario():
+        console = Console(started, start_server=False)
+        async with console.run_test(size=(120, 40)) as pilot:
+            await pilot.press("enter")
+            await pilot.pause()
+            await pilot.press("u")
+            await pilot.pause()
+            await answer(pilot, console, PASSPHRASE)
+            await until(pilot, lambda: any(
+                "older version" in str(n.message) for n in console._notifications))
+            assert isinstance(console.screen, Main)
+            assert not any(PASSPHRASE in str(n.message) for n in console._notifications)
+            await open_setup_tab(console, pilot)
+            assert "made by an older version" in setup_state(console)
+            # the way out is there, and works
+            await pilot.click("#reset-db")
+            await pilot.pause()
+            await answer(pilot, console, "erase")
+            await until(pilot, lambda: any(
+                "Database reset" in str(n.message) for n in console._notifications))
+            assert "encrypted with SQLCipher" in setup_state(console)
+
+    run(scenario)
+    assert database_problem(started) is None
+

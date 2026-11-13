@@ -93,6 +93,13 @@ def create_app(test_config=None):
     from . import admin, auth, db, files, invites, settings, totp, unlock
 
     db.init_app(app)
+
+    # next, a database made for another version of the tables pauses every
+    # page too, rather than the ones that happen to read a changed column
+    @app.before_request
+    def stop_when_outdated():
+        if request.endpoint != "static":
+            db.get_db()
     csrf.init_app(app)
     app.register_blueprint(auth.bp)
     app.register_blueprint(files.bp)
@@ -143,6 +150,13 @@ def create_app(test_config=None):
         # visitors only learn that the service is paused; why is for the
         # operator, in the server log
         app.logger.warning("locked: %s", e)
+        return render_template("locked.html"), 503
+
+    @app.errorhandler(db.OutdatedDatabase)
+    def show_outdated(e):
+        # the same for a database made for another version: the operator
+        # resets it, and the console and the server's terminal say how
+        app.logger.warning("database: %s", e.message)
         return render_template("locked.html"), 503
 
     # a plain page for every error, crashes included: no stack trace leaks

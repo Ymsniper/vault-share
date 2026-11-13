@@ -53,7 +53,7 @@ from app.admin import (
     revoke_certificate,
     unban_user,
 )
-from app.db import get_db, init_db
+from app.db import OutdatedDatabase, get_db, init_db
 from app.invites import (
     cancel_invite,
     create_invite,
@@ -455,8 +455,7 @@ class Console(App):
             factors.append("passphrase")
         return [
             ("key", " + ".join(factors), not k.locked or k.needs_passphrase),
-            ("database", "encrypted with SQLCipher" if os.path.exists(cfg["DATABASE"]) else
-             "not created yet: Setup > Reset database", os.path.exists(cfg["DATABASE"])),
+            ("database", *self.database_state()),
             ("CA", "ready" if os.path.exists(cfg["CA_CERT"]) else "missing: Setup > Create the CA",
              os.path.exists(cfg["CA_CERT"])),
             ("HTTPS", "on" if cfg["HTTPS"] else "off (plain HTTP on localhost)", True),
@@ -467,6 +466,22 @@ class Console(App):
             ("link", *self.link),
         ]
 
+    def database_state(self):
+        """The database line of the checks: whether there is one, and once the
+        key is at hand, whether this version of the code can use it."""
+        if not os.path.exists(self.flask_app.config["DATABASE"]):
+            return "not created yet: Setup > Reset database", False
+        if self.keyring.locked:
+            return "encrypted with SQLCipher", True
+        try:
+            with self.flask_app.app_context():
+                get_db()
+        except OutdatedDatabase as e:
+            return f"{e.state}: Setup > Reset database", False
+        except DatabaseError:
+            return "cannot be opened: Setup > Reset database", False
+        return "encrypted with SQLCipher", True
+
     def settings_text(self):
         cfg = self.flask_app.config
         return server_settings.describe(
@@ -474,10 +489,10 @@ class Console(App):
         )
 
     def setup_state(self):
-        """What the Setup tab shows: the CA, its passphrase and the HTTPS
-        certificate as they are right now."""
+        """What the Setup tab shows: the database, the CA, its passphrase and
+        the HTTPS certificate as they are right now."""
         cfg = self.flask_app.config
-        rows = []
+        rows = [("Database", self.database_state()[0])]
         if os.path.exists(cfg["CA_KEY"]):
             valid, dates = certificate_state(cfg["CA_CERT"])
             rows.append(("CA", f"ready, {dates}" if valid else dates))
@@ -650,12 +665,8 @@ class Console(App):
                     "  AS inviter"
                     " FROM users u ORDER BY u.username"
                 ).fetchall()
-        except DatabaseError:
-            # no database yet, or one from before invite codes and bans
-            if not self.warned_about_db:
-                self.warned_about_db = True
-                self.notify("The database is missing or from an older version: "
-                            "reset it in the Setup tab.", severity="error", timeout=15)
+        except (DatabaseError, OutdatedDatabase) as e:
+            self.database_trouble(e)
             self.fill("#users", [])
             return
         # plain Text, never markup: a name must not be able to style the screen
@@ -679,7 +690,8 @@ class Console(App):
         try:
             with self.flask_app.app_context():
                 rows = list_invites()
-        except DatabaseError:  # see load_users
+        except (DatabaseError, OutdatedDatabase) as e:
+            self.database_trouble(e)
             self.fill("#invites", [])
             return
         self.fill("#invites", [
@@ -699,14 +711,28 @@ class Console(App):
         if self.keyring.locked:
             self.fill("#audit", [])
             return
-        with self.flask_app.app_context():
-            # the same entries and filter as the web page
-            rows = log_entries(problems=self.audit_problems, limit=self.audit_limit)
+        try:
+            with self.flask_app.app_context():
+                # the same entries and filter as the web page
+                rows = log_entries(problems=self.audit_problems, limit=self.audit_limit)
+        except (DatabaseError, OutdatedDatabase) as e:
+            self.database_trouble(e)
+            self.fill("#audit", [])
+            return
         columns = ("at", "username", "action", "file_id", "outcome", "detail", "ip")
         self.fill("#audit", [
             (str(r["id"]), tuple(Text(str(r[c]) if r[c] is not None else "") for c in columns))
             for r in rows
         ])
+
+    def database_trouble(self, error):
+        """Say once why the tables are empty: no database yet, one made by
+        another version of Vault-Share, or one that does not open."""
+        if not self.warned_about_db:
+            self.warned_about_db = True
+            message = error.message if isinstance(error, OutdatedDatabase) else (
+                "The database is missing or from an older version: reset it in the Setup tab.")
+            self.notify(message, severity="error", timeout=30)
 
     def selected_user(self):
         return self.selected_key("#users")
@@ -816,8 +842,14 @@ class Console(App):
         except Exception as e:
             self.call_from_thread(self.notify, str(e), severity="error")
             return
-        record_unlock(self.flask_app)
-        self.call_from_thread(self.notify, "Unlocked.")
+        problem = record_unlock(self.flask_app)
+        if problem:
+            # said here, with the unlock, rather than by the tables after it
+            self.warned_about_db = True
+            self.call_from_thread(self.notify, f"Unlocked. {problem}", severity="error",
+                                  timeout=30)
+        else:
+            self.call_from_thread(self.notify, "Unlocked.")
         self.call_from_thread(self.refresh_all)
 
     # --- users
@@ -999,6 +1031,12 @@ class Console(App):
                 result = True
         except (ValueError, FactorError) as e:
             self.call_from_thread(self.notify, str(e), severity="error")
+            result = None
+        except OutdatedDatabase as e:
+            self.call_from_thread(self.notify, e.message, severity="error", timeout=30)
+            result = None
+        except DatabaseError as e:
+            self.call_from_thread(self.notify, f"The database failed: {e}", severity="error")
             result = None
         finally:
             if stop_server and was_running:

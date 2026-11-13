@@ -10,6 +10,7 @@ from flask.cli import AppGroup
 from security.passwords import derive_key, passphrase_problem
 
 from .audit import audit
+from .db import OutdatedDatabase
 from .keyring import (
     USB_KEY_FILE,
     Locked,
@@ -216,8 +217,14 @@ def unlock_from_terminal(app, ask=None, say=print):
 
 def record_unlock(app):
     """Write the unlock to the audit log, once there is a database: a
-    passphrase can be set before init-db, and opening the database here
-    would leave an empty file behind."""
-    if os.path.exists(app.config["DATABASE"]):
-        with app.app_context():
+    passphrase can be set before init-db. Returns None, or why the database
+    could not take the entry, for the caller to show: one made by another
+    version of Vault-Share is reported, not raised."""
+    if not os.path.exists(app.config["DATABASE"]):
+        return None
+    with app.app_context():
+        try:
             audit("unlock", "ok", user_id=None)
+        except OutdatedDatabase as e:
+            return e.message
+    return None

@@ -3,15 +3,29 @@ import threading
 import time
 
 from app import create_app
+from app.db import database_problem
 from app.serving import make_app_server
 from app.unlock import unlock_from_terminal, wants_passphrase
 
 app = create_app()
 
+
+def outdated():
+    """Print why the database cannot be used, if it cannot: then the server
+    stops, rather than answer every page with the paused one. Needs the app
+    unlocked."""
+    problem = database_problem(app)
+    if problem:
+        print(problem)
+    return problem is not None
+
+
 if __name__ == "__main__":
     keyring = app.extensions["keyring"]
     # locks the app within a second of the key USB stick being pulled out
     keyring.watch(app)
+    if not keyring.locked and outdated():
+        raise SystemExit(1)
     port = app.config["PORT"]
     try:
         server = make_app_server(app, port=port)
@@ -35,6 +49,9 @@ if __name__ == "__main__":
                         app.logger.exception("unlocking from the terminal failed")
                     if not keyring.locked:
                         print("Unlocked.")
+                        if outdated():
+                            server.shutdown()
+                            raise SystemExit(1)
                 elif not told:
                     print("The app is locked, and without a terminal the passphrase cannot be"
                           " asked: run vault-share serve in one, or use the console.")
