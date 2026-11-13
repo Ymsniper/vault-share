@@ -247,16 +247,19 @@ def note_login(user, level):
 
 
 def _start_the_clock(uid, level):
+    """The 30 days start when the real owner's review first shows a file: a
+    duress level's review starts none, or a coercer could have what lies
+    above it purged. The same statements run at every level."""
     db = get_db()
     db.execute(
         "UPDATE files SET review_from = datetime('now')"
-        " WHERE owner_id = ? AND trashed_level > ? AND review_from IS NULL",
-        (uid, level),
+        " WHERE owner_id = ? AND trashed_level > ? AND review_from IS NULL AND ? = 0",
+        (uid, level, level),
     )
     db.execute(
         "UPDATE file_keys SET review_from = datetime('now')"
-        " WHERE user_id = ? AND dismissed_level > ? AND review_from IS NULL",
-        (uid, level),
+        " WHERE user_id = ? AND dismissed_level > ? AND review_from IS NULL AND ? = 0",
+        (uid, level, level),
     )
     db.commit()
 
@@ -309,8 +312,9 @@ def _trashed(uid, level):
     # whatever the levels below trashed and is still kept, however long ago
     return get_db().execute(
         "SELECT id, filename, trashed_at FROM files"
-        " WHERE owner_id = ? AND trashed_level > ? ORDER BY trashed_at",
-        (uid, level),
+        " WHERE owner_id = ? AND trashed_level > ? AND COALESCE(let_go_level, 99) > ?"
+        " ORDER BY trashed_at",
+        (uid, level, level),
     ).fetchall()
 
 
@@ -318,9 +322,9 @@ def _dismissed(uid, level):
     return get_db().execute(
         "SELECT f.id, f.filename, u.username AS owner FROM file_keys c"
         " JOIN files f ON f.id = c.file_id JOIN users u ON u.id = f.owner_id"
-        " WHERE c.user_id = ? AND c.dismissed_level > ? AND f.trashed_at IS NULL"
-        " ORDER BY f.filename",
-        (uid, level),
+        " WHERE c.user_id = ? AND c.dismissed_level > ? AND COALESCE(c.let_go_level, 99) > ?"
+        " AND f.trashed_at IS NULL ORDER BY f.filename",
+        (uid, level, level),
     ).fetchall()
 
 
@@ -357,8 +361,8 @@ def restore(file_ids):
     db = get_db()
     for r in found:
         db.execute(
-            "UPDATE files SET trashed_at = NULL, trashed_level = NULL, review_from = NULL"
-            " WHERE id = ?",
+            "UPDATE files SET trashed_at = NULL, trashed_level = NULL, review_from = NULL,"
+            " let_go_level = NULL WHERE id = ?",
             (r["id"],),
         )
     db.commit()
@@ -439,15 +443,26 @@ def review_done(keys, leftover):
 
 
 def _let_go(trashed, dismissed):
-    db = get_db()
+    """At level 0, gone for good. At a duress level nothing is destroyed:
+    what it let go only leaves its own later reviews, and stays for the
+    review of the levels above, which can still undo it."""
+    db, uid, level = get_db(), g.user["id"], g.level
+    if level:
+        for file_id in trashed:
+            db.execute("UPDATE files SET let_go_level = ? WHERE id = ?", (level, file_id))
+        for file_id in dismissed:
+            db.execute(
+                "UPDATE file_keys SET let_go_level = ? WHERE file_id = ? AND user_id = ?",
+                (level, file_id, uid),
+            )
+        db.commit()
+        return
     db.execute("PRAGMA secure_delete = ON")
     paths = [storage_path(file_id) for file_id in trashed]
     for file_id in trashed:
         db.execute("DELETE FROM files WHERE id = ?", (file_id,))
     for file_id in dismissed:
-        db.execute(
-            "DELETE FROM file_keys WHERE file_id = ? AND user_id = ?", (file_id, g.user["id"])
-        )
+        db.execute("DELETE FROM file_keys WHERE file_id = ? AND user_id = ?", (file_id, uid))
     db.commit()
     _remove(paths)
 
@@ -480,6 +495,7 @@ def dismiss(file_id):
     review can put the file back, while the file is gone from every list
     as after any dismiss. The caller commits."""
     db, uid, level = get_db(), g.user["id"], g.level
+    _keep_window_open()
     db.execute(
         "UPDATE shares SET dismissed_at = datetime('now') WHERE file_id = ? AND recipient_id = ?",
         (file_id, uid),
@@ -491,6 +507,19 @@ def dismiss(file_id):
             "UPDATE file_keys SET dismissed_level = ? WHERE file_id = ? AND user_id = ?",
             (level, file_id, uid),
         )
+
+
+def _keep_window_open():
+    """A duress session that trashes or dismisses keeps its level's window
+    open, opening it again if a login above closed it meanwhile, so the next
+    login above reviews what it did. The policy is written at every level."""
+    level, now = g.level, int(time.time())
+
+    def change(policy):
+        if level and not policy.window_since[level]:
+            policy.window_since[level] = now
+
+    update_policy(g.user["id"], change)
 
 
 def seal_pending(user_id, level):
@@ -588,7 +617,7 @@ def _store(file_id, user_id, key, level):
         "INSERT INTO file_keys (file_id, user_id, wrapped_key, level) VALUES (?, ?, ?, ?)"
         " ON CONFLICT (file_id, user_id) DO UPDATE"
         " SET wrapped_key = excluded.wrapped_key, level = excluded.level, since = datetime('now'),"
-        " dismissed_level = NULL, review_from = NULL",
+        " dismissed_level = NULL, review_from = NULL, let_go_level = NULL",
         (file_id, user_id, wrap_file_key(public, key, file_id, user_id, level), level),
     )
 
@@ -628,6 +657,7 @@ def discard(file_id):
     if it were gone and kept 30 days, so a coercer cannot destroy what the
     real owner might want back. The caller removes nothing else."""
     db = get_db()
+    _keep_window_open()
     if g.level == 0:
         _remove([storage_path(file_id)])
         db.execute("DELETE FROM files WHERE id = ?", (file_id,))
@@ -719,7 +749,9 @@ def move_files(keys, file_ids, down):
     moved = 0
     for file_id in file_ids:
         copy = db.execute(
-            "SELECT wrapped_key FROM file_keys WHERE file_id = ? AND user_id = ? AND level = ?",
+            "SELECT wrapped_key FROM file_keys WHERE file_id = ? AND user_id = ? AND level = ?"
+            # a copy kept for a dismiss belongs to the review, not to a move
+            " AND dismissed_level IS NULL",
             (file_id, uid, source),
         ).fetchone()
         if copy is None:

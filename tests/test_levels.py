@@ -751,6 +751,60 @@ def test_a_new_duress_password_takes_the_owners_code(app, alice, monkeypatch):
     assert other.post("/auth/login/code", data={"code": code(secret, 1)}).headers["Location"] == "/"
 
 
+def test_let_go_at_a_duress_level_destroys_nothing(app, alice):
+    forced = at_level_one(app, alice)
+    menu = new_file(forced, MENU, "menu.txt")
+    set_duress(forced, "wipe", duress=DEEPER)
+    log_in(app, alice, DEEPER)
+    again, r = log_in(app, alice, DURESS)
+    assert r.headers["Location"] == "/auth/review"
+    assert b"Review done." in review_done(again, "let-go", DURESS).data
+    real, _ = log_in(app, alice, PASSWORD)
+    assert b"menu.txt" in real.get("/auth/review").data
+    assert b"Restored 1 file." in review_action(real, "restore", [menu]).data
+    assert download(real, menu).data == MENU
+
+
+def test_a_duress_level_starts_no_clock(app, alice, bob):
+    forced = at_level_one(app, alice)
+    set_duress(forced, duress=DEEPER)
+    deeper, _ = log_in(app, alice, DEEPER)
+    notes = new_file(deeper, b"Notes from the meeting.\n", "notes.txt")
+    delete(deeper, notes)
+    # level 1's login closes level 2's window: its review is no reason to
+    # start the 30 days, which only the real owner's review starts
+    log_in(app, alice, DURESS)
+    with app.app_context():
+        assert get_db().execute("SELECT review_from FROM files").fetchone()[0] is None
+    real, _ = log_in(app, alice, PASSWORD)
+    assert b"notes.txt" in real.get("/auth/review").data
+    assert b"Restored 1 file." in review_action(real, "restore", [notes]).data
+
+
+def test_a_cover_move_leaves_a_dismissed_file_in_the_review(app, alice, bob):
+    forced = at_level_one(app, alice)
+    url = new_file(bob, name="figures.txt")
+    share(bob, url, alice.handle)
+    dismiss(forced, url)
+    assert b"Moved 0 files." in move(forced, [url], "down").data
+    real, _ = log_in(app, alice, PASSWORD)
+    assert b"figures.txt" in real.get("/auth/review").data
+    assert b"Put back 1 file." in review_action(real, "put-back", [url]).data
+
+
+def test_a_duress_session_that_outlives_the_owners_done_is_reviewed(app, alice):
+    forced = at_level_one(app, alice)
+    menu = new_file(forced, MENU, "menu.txt")
+    real, _ = log_in(app, alice, PASSWORD)
+    review_done(real, "restore")
+    # the duress session is still open, and deletes after the owner's done
+    delete(forced, menu)
+    again, r = log_in(app, alice, PASSWORD)
+    assert r.headers["Location"] == "/auth/review"
+    assert b"menu.txt" in again.get("/auth/review").data
+    assert b"Restored 1 file." in review_action(again, "restore", [menu]).data
+
+
 def review_action(client, action, urls, password=PASSWORD):
     data = {"file": [file_id(u) for u in urls], "password": password}
     return client.post(f"/auth/review/{action}", data=data, follow_redirects=True)

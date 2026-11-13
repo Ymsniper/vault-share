@@ -172,7 +172,10 @@ CREATE TABLE files (
     -- a review first showed it (app/levels.py)
     trashed_at TEXT,
     trashed_level INTEGER,
-    review_from TEXT
+    review_from TEXT,
+    -- set when a duress level's review let the file go: it leaves that
+    -- level's later reviews, and stays for the review of the levels above
+    let_go_level INTEGER
 );
 
 CREATE TABLE shares (
@@ -202,6 +205,7 @@ CREATE TABLE file_keys (
     -- review can put the file back, and goes 30 days after review_from
     dismissed_level INTEGER,
     review_from TEXT,
+    let_go_level INTEGER,
     PRIMARY KEY (file_id, user_id)
 );
 
