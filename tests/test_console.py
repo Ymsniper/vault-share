@@ -829,4 +829,3 @@ def test_every_worker_has_a_fixed_description():
                     for k in d.keywords
                 ), node.name
     assert workers >= 10
-
