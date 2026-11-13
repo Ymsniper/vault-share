@@ -611,9 +611,15 @@ def arrival_level(user_id):
 
 
 def give_copy(file_id, user_id, key):
-    """A recipient's copy of the file key, at the level a share arrives at.
-    The caller commits."""
-    _store(file_id, user_id, key, arrival_level(user_id))
+    """A recipient's copy of the file key, at the level a share arrives at,
+    or deeper (a higher number) when they already hold one there: a share
+    never lifts a file out of the cover files. A copy kept for a duress
+    session's dismiss comes back at its level too. The caller commits."""
+    arrival = arrival_level(user_id)
+    held = get_db().execute(
+        "SELECT level FROM file_keys WHERE file_id = ? AND user_id = ?", (file_id, user_id)
+    ).fetchone()
+    _store(file_id, user_id, key, max(arrival, held["level"]) if held else arrival)
 
 
 def discard(file_id):

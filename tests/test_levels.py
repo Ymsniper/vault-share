@@ -429,6 +429,22 @@ def test_moving_asks_for_the_password(app, alice):
     assert b"contract.txt" in my_files(alice)
 
 
+def test_a_new_share_keeps_a_file_in_the_cover_files(app, alice, bob):
+    """Design revision 2, A4: sharing a file again outside a window leaves
+    the recipient's copy where they put it."""
+    url = new_file(bob, name="figures.txt")
+    share(bob, url, alice.handle)
+    move(alice, [url], "down")
+    share(bob, url, alice.handle)
+    assert b"figures.txt" in cover_files(alice)
+    assert b"figures.txt" not in shared_with_me(alice)
+    # inside a window a share still brings a file down, as designed
+    forced = at_level_one(app, alice)
+    mine = new_file(bob, name="minutes.txt")
+    share(bob, mine, alice.handle)
+    assert b"minutes.txt" in shared_with_me(forced)
+
+
 def test_a_session_moves_only_what_it_sees(app, alice):
     real = new_file(alice)
     forced = at_level_one(app, alice)

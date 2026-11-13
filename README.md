@@ -149,23 +149,24 @@ than an empty account that refuses things. What keeps your other files from
 it is keys, not hidden buttons. Every account has three levels, each with
 its own X25519 key pair: the real password opens level 0, the duress
 password level 1, and a duress password set from a level 1 session opens
-level 2. A level's private key is locked under its password and also
-linked down from the level above, so a password opens its own level and
-the ones below it, never the one above. One more key pair, linked down
-from level 2's and opened by no password, keeps level 2's cover files.
-Every session believes it is the top: it sees its own files, and the
-levels below it as its cover files, and every page looks the same at each
-level. A password asked inside a session is checked against that
-session's level only, so no form there can test another password. The
-signing key hangs off level 2, which every password reaches, so files
-uploaded at any level carry the same certificate. The Duress page moves
-files between your own vault and the cover files, yours or shared with
-you: each move encrypts the key copy again to the other level's public
-key, so it asks for the password, and it is not logged. Moves go one
-level at a time: a file a duress session moved further down shows among
-your cover files and opens, but only that session's level moves it back.
-The page also shows when the cover files last changed, since an empty or
-stale cover vault looks wrong.
+level 2. A level's private key is locked under its password and also linked
+down from the level above, so a password opens its own level and the ones
+below it, never the one above. One more key pair, linked down from level 2's
+and opened by no password, keeps level 2's cover files. Every session
+believes it is the top: it sees its own files, and the levels below it as
+its cover files, and every page looks the same at each level. A password
+asked inside a session is checked against that session's level only, so no
+form there can test another password. The signing key hangs off level 2,
+which every password reaches, so files uploaded at any level carry the same
+certificate. The Duress page moves files between your own vault and the
+cover files, yours or shared with you: each move encrypts the key copy again
+to the other level's public key, so it asks for the password, and it is not
+logged. Moves go one level at a time: a file a duress session moved further
+down shows among your cover files and opens, but only that session's level
+moves it back. A file shared again stays where its recipient keeps it,
+deeper if a duress window brings it down, so a share never takes a file out
+of the cover files. The page also shows when the cover files last changed,
+since an empty or stale cover vault looks wrong.
 
 A duress login opens its level's window, which stays open until a login at a
 lower level number closes it. Meanwhile shares sent to the account arrive at
