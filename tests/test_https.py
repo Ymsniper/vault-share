@@ -6,6 +6,7 @@ import ssl
 import stat
 import subprocess
 import threading
+import time
 from urllib.parse import urlencode
 
 import pytest
@@ -205,3 +206,22 @@ def test_the_server_does_not_name_werkzeug(ca_dir, https_port):
     conn.request("GET", "/auth/login")
     assert conn.getresponse().getheader("Server") == "Vault-Share"
     conn.close()
+
+
+def test_a_silent_tls_handshake_is_cut_with_the_head(https_app):
+    # the head's clock starts before the handshake, so a client that opens
+    # a connection and never sends its hello cannot hold a thread for long
+    server = make_app_server(https_app, port=0, head_seconds=1)
+    thread = threading.Thread(target=server.serve_forever)
+    thread.start()
+    silent = socket.create_connection(("127.0.0.1", server.port))
+    try:
+        silent.settimeout(3)
+        start = time.monotonic()
+        assert silent.recv(64) == b""
+        assert time.monotonic() - start < 2.5
+    finally:
+        silent.close()
+        server.shutdown()
+        thread.join()
+

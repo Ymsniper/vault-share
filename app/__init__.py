@@ -105,12 +105,14 @@ def create_app(test_config=None):
     def stop_when_outdated():
         if request.endpoint != "static":
             db.get_db()
-    csrf.init_app(app)
     app.register_blueprint(auth.bp)
     app.register_blueprint(files.bp)
     app.register_blueprint(admin.bp)
     app.register_blueprint(totp.bp)
     app.register_blueprint(settings.bp)
+    # after the blueprints, so the session is looked up, and a stranger's
+    # body limited, before the CSRF check reads the form
+    csrf.init_app(app)
     app.cli.add_command(unlock.keys_cli)
     app.cli.add_command(invites.invite_cli)
     app.cli.add_command(server_settings.settings_command)

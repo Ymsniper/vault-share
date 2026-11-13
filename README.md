@@ -573,11 +573,15 @@ certificate against the list:
 
 - The server is Werkzeug's development server, with each TLS handshake in
   its connection's own thread. It serves at most 64 connections at once,
-  one thread each; more wait for a free thread, and a silent connection
-  gives its thread back after 30 seconds. Many slow connections can still
-  fill the 64 threads and make everyone wait, but not pile up threads or
-  memory. Waitress, which reads requests without holding a thread, does not
-  speak TLS. Argon2, the part that needs memory, runs at most four at once.
+  one thread each, and at most 8 for one address (an IPv6 /48; not this
+  machine behind a proxy). The TLS handshake and the request head must
+  arrive within 10 seconds, a body at 32 KiB a second on average, and a
+  silent connection is dropped after 5 seconds; one thread watches every
+  deadline. A visitor without a session sends at most 64 KiB, refused
+  before it is read. Someone with many addresses who keeps opening new
+  connections can still cause waits of a few seconds, and behind a proxy,
+  where every visitor shares one address, only the deadlines help. Argon2,
+  the part that needs memory, runs at most four at once.
 - Public encryption keys are read from the database, not certified by the
   CA: someone holding the master key could swap a user's public key and
   receive the next file shared with them.

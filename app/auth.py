@@ -502,8 +502,20 @@ def logout():
     return response
 
 
+# what a visitor without a session may send: every form they can use fits
+STRANGER_BODY = 64 * 1024
+
+
 @bp.before_app_request
 def load_logged_in_user():
+    _find_user()
+    if g.user is None:
+        # a larger body is refused before it is read, before the CSRF check
+        # reads the form (app/__init__.py registers that one after this)
+        request.max_content_length = STRANGER_BODY
+
+
+def _find_user():
     g.user = g.level = None
     token = request.cookies.get(SESSION_COOKIE)
     if not token or current_app.extensions["keyring"].locked:
