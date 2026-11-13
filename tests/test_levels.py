@@ -181,6 +181,37 @@ def test_the_real_admin_sees_the_alarm_and_the_duress_session_a_login(app, alice
     assert ALARM not in forced.get("/admin/log?problems=1").data
 
 
+def test_a_level_one_admin_sees_the_alarm_of_level_two(app, alice):
+    """One step down the alarm works as at the top: a level 1 admin session
+    sees its account's level 2 logins as the alarm, as level 0 sees level
+    1's, or it would know it is not the top."""
+    make_admin(app, alice)
+    forced = at_level_one(app, alice)
+    set_duress(forced, duress=DEEPER)
+    for url in ("/admin/log", "/admin/log?problems=1"):
+        assert ALARM not in forced.get(url).data
+    log_in(app, alice, DEEPER)
+    for url in ("/admin/log", "/admin/log?problems=1"):
+        assert forced.get(url).data.count(ALARM) == 1
+
+
+def test_every_admin_session_sees_another_account_s_alarm(app, alice, bob):
+    """Another account's duress login is the alarm at every level, as the
+    real session shows it: otherwise an accomplice with a duress password
+    on an account of their own could tell a duress admin session apart."""
+    make_admin(app, alice)
+    forced = at_level_one(app, alice)
+    set_duress(bob)
+
+    def alarms():
+        return [viewer.get(url).data.count(ALARM)
+                for viewer in (alice, forced) for url in ("/admin/log", "/admin/log?problems=1")]
+
+    before = alarms()
+    log_in(app, bob, DURESS)
+    assert [a - b for a, b in zip(alarms(), before)] == [1, 1, 1, 1]
+
+
 def test_a_level_one_admin_sees_no_level_zero_rows(app, alice, bob, monkeypatch):
     make_admin(app, alice)
     secret = turn_on(alice)

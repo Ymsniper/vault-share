@@ -185,31 +185,33 @@ to that one session: once it ends, the files deleted in the window stay
 hidden and are removed after their 30 days, so restore them there.
 
 A duress login is the silent alarm: its login row is written at its level,
-and admins at level 0 and the console show it as `duress`; at the duress
-level itself it is a plain login. An admin's session at level 1 sees the
-log without the rows its account wrote at level 0 or that others wrote
-about its level 0 files, and the invites page lists and counts only the
-codes made at its level or below. With the wipe option, the duress
-password destroys the files and key copies of the level that set it, at
-once, and nothing else: the keys stay, so the levels below keep working.
-With two-factor login on, the wipe waits for the code, like the login
-itself, so a leaked duress password alone destroys nothing; the alarm is
-written as soon as the password is typed. A new duress password starts to
-work 48 hours after it is saved, at every level alike, so whoever watches
-one being set cannot try it on the spot, and saving a new one stops the old
-one at once. Setting or removing a duress password also clears any set
-further down, so a password a coercer set from a duress session does not
-outlive it. Every account has all
-three levels from the start, a level without a password looks like one with a
-password in the database, the record of which is which is sealed under the
-master key, and setting or removing a duress password is not logged.
-The "Password" page changes the password a session logged in with, at
-its own level only: it locks that level's key again under the new password,
-so every file still opens and nothing needs encrypting again, and it ends
-the account's other sessions at that level and below. A new password may
-not be a duress password of a level below, which would then open the
-upper one. A forgotten password still cannot be reset: it is the only way
-to its keys.
+and the console shows it as `duress`. So does every admin session, at any
+level, for another account's duress logins and for its own account's logins
+at a level below its own; at the duress level itself it is a plain login. A
+duress admin session thus shows the alarms a real one would, other people's
+included: hiding them would give it away to anyone who set a duress password
+on an account of their own. An admin's session at level 1 sees the log
+without the rows its account wrote at level 0 or that others wrote about its
+level 0 files, and the invites page lists and counts only the codes made at
+its level or below. With the wipe option, the duress password destroys the
+files and key copies of the level that set it, at once, and nothing else:
+the keys stay, so the levels below keep working. With two-factor login on,
+the wipe waits for the code, like the login itself, so a leaked duress
+password alone destroys nothing; the alarm is written as soon as the
+password is typed. A new duress password starts to work 48 hours after it is
+saved, at every level alike, so whoever watches one being set cannot try it
+on the spot, and saving a new one stops the old one at once. Setting or
+removing a duress password also clears any set further down, so a password a
+coercer set from a duress session does not outlive it. Every account has all
+three levels from the start, a level without a password looks like one with
+a password in the database, the record of which is which is sealed under the
+master key, and setting or removing a duress password is not logged. The
+"Password" page changes the password a session logged in with, at its own
+level only: it locks that level's key again under the new password, so every
+file still opens and nothing needs encrypting again, and it ends the
+account's other sessions at that level and below. A new password may not be
+a duress password of a level below, which would then open the upper one. A
+forgotten password still cannot be reset: it is the only way to its keys.
 
 Two-factor login belongs to the account: a duress session can turn it on or
 off, or replace the recovery codes, for the real password too, and the
