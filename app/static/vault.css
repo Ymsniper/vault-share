@@ -374,7 +374,7 @@ code {
 }
 
 .vs-nav-links a {
-  padding: 0.95rem 1.1rem;
+  padding: 0.95rem 0.9rem;
   color: #b9b9b7;
   font-size: 0.86rem;
   text-decoration: none;
@@ -409,6 +409,14 @@ code {
   font-size: 0.7rem;
   letter-spacing: 0.16em;
   text-transform: uppercase;
+}
+
+/* a long username stops at 20 characters here; all of it shows on hover */
+.vs-user > span:last-child {
+  max-width: 20ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .vs-user {
@@ -1510,6 +1518,44 @@ code {
   }
 }
 
+/* a choice between a few options: each one a row of the same list, the
+   chosen one lit like a picked file */
+.vs-choices {
+  margin: 0 0 1rem;
+  border: 1px solid var(--vs-line-2);
+}
+
+.vs-choices .form-check {
+  margin: 0;
+  padding: 0.75rem 0.9rem 0.75rem 2.6rem;
+  border-bottom: 1px solid var(--vs-line);
+  transition: background-color 0.12s;
+}
+
+.vs-choices .form-check:last-child {
+  border-bottom: 0;
+}
+
+.vs-choices .form-check-label {
+  cursor: pointer;
+}
+
+.vs-choices .form-check:has(:checked) {
+  background: var(--vs-raise);
+  box-shadow: inset 2px 0 var(--vs-hi);
+}
+
+/* a page waiting for the owner: a lit square before its menu link */
+.vs-nav-due::before {
+  content: "";
+  display: inline-block;
+  width: 0.45rem;
+  height: 0.45rem;
+  margin-right: 0.5rem;
+  background: var(--vs-hi);
+  vertical-align: 0.1em;
+}
+
 /* the review's list of logins: time and network side by side */
 .vs-logins li {
   gap: 2rem;
@@ -1760,10 +1806,11 @@ code {
   }
 }
 
-@media (max-width: 720px) {
-  /* the menu is one row that scrolls sideways, fading out at the right
-     edge as a hint; the empty space at its end lets the last item clear
-     the fade */
+/* below 1100px an admin's eight links and the account no longer fit one
+   line: the menu becomes one row that scrolls sideways, fading out at the
+   right edge as a hint, rather than stacking; the empty space at its end
+   lets the last item clear the fade */
+@media (max-width: 1100px) {
   .vs-nav {
     overflow-x: auto;
     scrollbar-width: none;
@@ -1788,7 +1835,9 @@ code {
     padding: 0.85rem 0.8rem;
     white-space: nowrap;
   }
+}
 
+@media (max-width: 720px) {
   .vs-main {
     padding-top: 2rem;
   }

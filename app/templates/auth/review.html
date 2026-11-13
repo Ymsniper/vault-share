@@ -55,7 +55,7 @@
 </section>
 
 <div class="row g-4 vs-even">
-  <div class="col-lg-4">
+  <div class="col-lg-6">
     <form method="post" action="{{ url_for('settings.review_action', action='restore') }}" class="vs-panel">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <h2 class="vs-panel-title">Deleted</h2>
@@ -65,7 +65,7 @@
       <button type="submit" class="btn btn-outline-secondary w-100">Restore</button>
     </form>
   </div>
-  <div class="col-lg-4">
+  <div class="col-lg-6">
     <form method="post" action="{{ url_for('settings.review_action', action='delete') }}" class="vs-panel">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <h2 class="vs-panel-title">Uploaded</h2>
@@ -75,7 +75,7 @@
       <button type="submit" class="btn btn-outline-danger w-100">Delete</button>
     </form>
   </div>
-  <div class="col-lg-4">
+  <div class="col-lg-6">
     <form method="post" action="{{ url_for('settings.review_action', action='move') }}" class="vs-panel">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <h2 class="vs-panel-title">Received</h2>
@@ -85,16 +85,17 @@
       <button type="submit" class="btn btn-outline-secondary w-100">Bring back</button>
     </form>
   </div>
+  <div class="col-lg-6">
+    <form method="post" action="{{ url_for('settings.review_action', action='put-back') }}" class="vs-panel">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <h2 class="vs-panel-title">Removed from the list</h2>
+      <p class="vs-note">Shared with you, then taken off the list while it was in use. Put them back on your own list; the duress vault still finds them removed.</p>
+      {{ choose(dismissed, "put-back") }}
+      {{ password("put-back") }}
+      <button type="submit" class="btn btn-outline-secondary w-100">Put back</button>
+    </form>
+  </div>
 </div>
-
-<form method="post" action="{{ url_for('settings.review_action', action='put-back') }}" class="vs-panel">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <h2 class="vs-panel-title">Removed from the list</h2>
-  <p class="vs-note">Shared with you, then taken off the list while it was in use. Put them back on your own list; the duress vault still finds them removed.</p>
-  {{ choose(dismissed, "put-back") }}
-  {{ password("put-back") }}
-  <button type="submit" class="btn btn-outline-secondary">Put back</button>
-</form>
 
 <section class="vs-panel">
   <h2 class="vs-panel-title">Your certificate</h2>
@@ -107,13 +108,15 @@
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <h2 class="vs-panel-title">Done</h2>
   <p class="vs-note">Ends this review: your logins go to your files again. Deleted files and files removed from the list that are still here:</p>
-  <div class="form-check">
-    <input class="form-check-input" type="radio" name="leftover" id="leftover-restore" value="restore" checked>
-    <label class="form-check-label" for="leftover-restore">Restore them all</label>
-  </div>
-  <div class="form-check">
-    <input class="form-check-input" type="radio" name="leftover" id="leftover-let-go" value="let-go">
-    <label class="form-check-label" for="leftover-let-go">Let them go now</label>
+  <div class="vs-choices">
+    <div class="form-check">
+      <input class="form-check-input" type="radio" name="leftover" id="leftover-restore" value="restore" checked>
+      <label class="form-check-label" for="leftover-restore">Restore them all</label>
+    </div>
+    <div class="form-check">
+      <input class="form-check-input" type="radio" name="leftover" id="leftover-let-go" value="let-go">
+      <label class="form-check-label" for="leftover-let-go">Let them go now</label>
+    </div>
   </div>
   {{ password("done") }}
   <button type="submit" class="btn btn-primary">Done</button>
