@@ -256,6 +256,10 @@ def reencrypt(database, old, new):
         new_key = subkey(new, "database").hex()
         db.execute(f"ATTACH DATABASE '{attach_path}' AS fresh KEY \"x'{new_key}'\"")
         db.execute("SELECT sqlcipher_export('fresh')")
+        # the export copies tables, not the version number the code checks
+        # the database against; PRAGMA takes no parameters, so int() it is
+        version = int(db.execute("PRAGMA main.user_version").fetchone()[0])
+        db.execute(f"PRAGMA fresh.user_version = {version}")
 
         old_mac, new_mac = subkey(old, "file-record-hmac"), subkey(new, "file-record-hmac")
         for f in db.execute("SELECT * FROM fresh.files").fetchall():

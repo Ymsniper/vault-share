@@ -96,6 +96,22 @@ def test_adding_a_stick_keeps_everything_readable(app, alice, bob, stick):
         connect(app.config["DATABASE"], keyring(app).machine).execute("SELECT * FROM users").fetchall()
 
 
+def user_version(app):
+    with app.app_context():
+        return get_db().execute("PRAGMA user_version").fetchone()[0]
+
+
+def test_a_key_change_keeps_the_database_version(app, stick):
+    """Adding a stick or a passphrase copies the database under the new key;
+    the copy keeps the version number the code checks it against."""
+    before = user_version(app)
+    assert before == 1
+    assert keys(app, "add-usb", stick).exit_code == 0
+    assert user_version(app) == before
+    assert keys(app, "set-passphrase", input=f"{PASSPHRASE}\n{PASSPHRASE}\n").exit_code == 0
+    assert user_version(app) == before
+
+
 def test_pulling_the_stick_locks_the_app(app, alice, stick):
     url = new_file(alice)
     keys(app, "add-usb", stick)
