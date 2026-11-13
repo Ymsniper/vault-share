@@ -110,6 +110,17 @@ def test_a_slow_head_is_cut_at_its_deadline(serve):
     assert took is not None and took < 2
 
 
+def test_a_request_cut_at_its_deadline_never_reaches_the_app(app, serve):
+    seen = []
+    app.before_request(lambda: seen.append(1))
+    server = serve(head_seconds=1)
+    slow = connect(server)
+    slow.sendall(b"GET /auth/login HTTP/1.1\r\n")
+    trickle(slow, [f"X-Slow-{i}: 1\r\n".encode() for i in range(20)], 0.3)
+    time.sleep(0.3)
+    assert seen == []
+
+
 def test_a_slow_body_is_cut_at_the_minimum_rate(serve):
     server = serve(head_seconds=1, min_rate=10)
     slow = connect(server)

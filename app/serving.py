@@ -30,6 +30,7 @@ class Watchdog(threading.Thread):
         super().__init__(name="deadlines", daemon=True)
         self._lock = threading.Lock()
         self._deadlines = {}
+        self._cut = set()
         self._stopped = threading.Event()
 
     def set(self, sock, seconds):
@@ -40,6 +41,16 @@ class Watchdog(threading.Thread):
         with self._lock:
             self._deadlines.pop(sock, None)
 
+    def was_cut(self, sock):
+        """Whether this connection ran late and was ended: a head cut short
+        reads as complete, and must not reach the app."""
+        with self._lock:
+            return sock in self._cut
+
+    def forget(self, sock):
+        with self._lock:
+            self._cut.discard(sock)
+
     def run(self):
         while not self._stopped.wait(0.25):
             now = time.monotonic()
@@ -47,6 +58,7 @@ class Watchdog(threading.Thread):
                 late = [s for s, t in self._deadlines.items() if t <= now]
                 for s in late:
                     del self._deadlines[s]
+                    self._cut.add(s)
             for s in late:
                 try:
                     s.shutdown(socket.SHUT_RDWR)
@@ -81,6 +93,7 @@ class Handler(WSGIRequestHandler):
             super().handle()
         finally:
             self.server.watchdog.clear(self.connection)
+            self.server.watchdog.forget(self.connection)
 
     def handle_one_request(self):
         # a later request on the same connection, should there be one, gets
@@ -92,6 +105,10 @@ class Handler(WSGIRequestHandler):
 
     def parse_request(self):
         ok = super().parse_request()
+        if ok and self.server.watchdog.was_cut(self.connection):
+            # the head ended because the connection was cut, not by itself
+            self.close_connection = True
+            return False
         # the head is in; what is left is the body, at a minimum rate
         size = 0
         if ok:
