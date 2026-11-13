@@ -746,6 +746,21 @@ def _clear(policy, level, row):
     policy.active_from[level] = 0
 
 
+def _fresh_start(user_id, policy, lower_levels):
+    """Levels whose password was replaced or cleared start as new ones: their
+    two-factor login inherited from above again, with no codes of their own,
+    and no review owed, so nothing the old holder set up reaches the new
+    one."""
+    db = get_db()
+    for level in lower_levels:
+        db.execute(
+            "UPDATE two_factor SET sealed = ? WHERE user_id = ? AND level = ?",
+            (_seal_factor(user_id, level, INHERIT), user_id, level),
+        )
+        db.execute("DELETE FROM totp_recovery WHERE user_id = ? AND level = ?", (user_id, level))
+        policy.unreviewed_since[level] = 0
+
+
 def set_duress(keys, password, mode):
     """Give the level below the session's (from level 0, level 1; from
     level 1, level 2) the duress password, locking that level's own key,
@@ -780,6 +795,7 @@ def set_duress(keys, password, mode):
         policy.active_from[lower] = int(time.time()) + current_app.config["DURESS_DELAY"]
         for below, row in zip(range(lower + 1, LEVELS), spares):
             _clear(policy, below, row)
+        _fresh_start(user["id"], policy, range(lower, LEVELS))
 
     update_policy(user["id"], change)
 
@@ -804,6 +820,7 @@ def remove_duress():
     def change(policy):
         for below, row in zip(range(g.level + 1, LEVELS), spares):
             _clear(policy, below, row)
+        _fresh_start(user["id"], policy, range(g.level + 1, LEVELS))
         policy.beneath = ""
         _end_sessions_below(user["id"])
 

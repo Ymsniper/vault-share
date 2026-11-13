@@ -38,7 +38,7 @@ from .test_files import (
     upload,
     user_id,
 )
-from .test_totp import RECOVERY_SHAPE, code, turn_on
+from .test_totp import RECOVERY_SHAPE, code, secret_on_page, turn_on
 
 # a duress password set from a level 1 session, for level 2
 DEEPER = "lantern-quiet-harbor-29"
@@ -717,6 +717,40 @@ def test_the_trash_waits_for_an_owner_who_never_logs_in(app, alice, bob):
     assert os.path.exists(stored_path(app, menu))
 
 
+def test_a_new_duress_password_starts_without_the_old_holders_two_factor(app, alice):
+    """A replaced duress password starts afresh, its two-factor login
+    inherited again, so a code the old holder set up is never asked of the
+    new one; after a remove and a new one alike."""
+    set_duress(alice)
+    forced, _ = log_in(app, alice, DURESS)
+    theirs = secret_on_page(forced)
+    forced.post("/auth/totp", data={"password": DURESS, "code": code(theirs)})
+    set_duress(alice, duress="harbor-lantern-quiet-41")
+    again, r = log_in(app, alice, "harbor-lantern-quiet-41")
+    assert r.headers["Location"] != "/auth/login/code"
+    theirs = secret_on_page(again)
+    again.post("/auth/totp", data={"password": "harbor-lantern-quiet-41", "code": code(theirs)})
+    alice.post("/auth/duress/remove", data={"password": PASSWORD})
+    set_duress(alice, duress="copper-window-orchard-58")
+    _, r = log_in(app, alice, "copper-window-orchard-58")
+    assert r.headers["Location"] != "/auth/login/code"
+
+
+def test_a_new_duress_password_takes_the_owners_code(app, alice, monkeypatch):
+    secret = turn_on(alice)
+    set_duress(alice)
+    forced, _ = log_in(app, alice, DURESS)
+    forced.post("/auth/login/code", data={"code": code(secret, 1)})
+    tick(monkeypatch, 60)
+    # the holder turns it off for the duress password
+    forced.post("/auth/totp/disable", data={"password": DURESS, "code": code(secret, 1)})
+    set_duress(alice, duress="harbor-lantern-quiet-41")
+    other, r = log_in(app, alice, "harbor-lantern-quiet-41")
+    assert r.headers["Location"] == "/auth/login/code"
+    tick(monkeypatch, 60)
+    assert other.post("/auth/login/code", data={"code": code(secret, 1)}).headers["Location"] == "/"
+
+
 def review_action(client, action, urls, password=PASSWORD):
     data = {"file": [file_id(u) for u in urls], "password": password}
     return client.post(f"/auth/review/{action}", data=data, follow_redirects=True)
@@ -1133,9 +1167,9 @@ def normalized(html, handle):
     return re.sub(r"\b[0-9a-f]{16,}\b", "HEX", text)
 
 
-def test_the_two_factor_page_is_the_same_at_every_level(app):
+def test_the_two_factor_page_is_the_same_at_every_level(app, monkeypatch):
     """Design revision 2, A1: two-factor login is kept per level, and its
-    page answers the same at each, off, while being turned on, and on."""
+    page answers the same at each: off, turned on, new codes, turned off."""
     a, b = logged_in(app, "alice"), logged_in(app, "alice")
     forced = at_level_one(app, a)
     pages = []
@@ -1143,10 +1177,18 @@ def test_the_two_factor_page_is_the_same_at_every_level(app):
         seen = [client.get("/auth/totp").data]
         secret = re.search(rb"<code>([A-Z2-7]{32})</code>", seen[0]).group(1).decode()
         on = client.post("/auth/totp", data={"password": password, "code": code(secret)})
-        seen.append(re.sub(RECOVERY_SHAPE, b"CODE", on.data))
+        seen.append(on.data)
         seen.append(client.get("/auth/totp").data)
-        pages.append([normalized(page, client.handle) for page in seen])
+        seen.append(client.post("/auth/totp/recovery",
+                                data={"password": password, "code": code(secret, 1)}).data)
+        tick(monkeypatch, 30)
+        seen.append(client.post("/auth/totp/disable", follow_redirects=True,
+                                data={"password": password, "code": code(secret, 1)}).data)
+        tick(monkeypatch, 30)
+        pages.append([normalized(re.sub(RECOVERY_SHAPE, b"CODE", page), client.handle)
+                      for page in seen])
     assert pages[0] == pages[1]
+    assert b"Two-factor login is off." in pages[1][-1].encode()
 
 
 def test_a_level_one_vault_looks_like_a_level_zero_one(app):
