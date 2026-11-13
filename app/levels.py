@@ -883,19 +883,28 @@ def wipe(user, level):
                 "UPDATE files SET trashed_at = datetime('now'), trashed_level = ? WHERE id = ?",
                 (level, file_id),
             )
-    # copies of other people's file keys: the shares end with them. Never
-    # the user's own: a trashed file keeps its key, to be restored
+    # copies of other people's file keys: taken off the list as a dismiss
+    # takes them, so their senders see nothing change; gone for good when
+    # level 0 armed the wipe, kept for the review otherwise. Never the
+    # user's own: a trashed file keeps its key, to be restored
     for r in db.execute(
         "SELECT c.file_id FROM file_keys c JOIN files f ON f.id = c.file_id"
         " WHERE c.user_id = ? AND c.level = ? AND f.owner_id != c.user_id",
         (user["id"], target),
     ).fetchall():
+        if target == 0:
+            db.execute(
+                "DELETE FROM file_keys WHERE file_id = ? AND user_id = ?",
+                (r["file_id"], user["id"]),
+            )
+        else:
+            db.execute(
+                "UPDATE file_keys SET dismissed_level = ? WHERE file_id = ? AND user_id = ?",
+                (level, r["file_id"], user["id"]),
+            )
         db.execute(
-            "DELETE FROM file_keys WHERE file_id = ? AND user_id = ?", (r["file_id"], user["id"])
-        )
-        db.execute(
-            "UPDATE shares SET revoked_at = datetime('now')"
-            " WHERE file_id = ? AND recipient_id = ? AND revoked_at IS NULL",
+            "UPDATE shares SET dismissed_at = datetime('now')"
+            " WHERE file_id = ? AND recipient_id = ? AND dismissed_at IS NULL",
             (r["file_id"], user["id"]),
         )
     db.commit()

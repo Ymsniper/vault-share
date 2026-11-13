@@ -818,6 +818,38 @@ def test_a_wipe_destroys_level_zero_and_nothing_else(app, alice, bob):
     assert f"Signature valid, signed by {alice.handle}.".encode() in alice.get(after).data
 
 
+def test_a_wipe_leaves_the_senders_page_as_it_was(app, alice, bob):
+    """Design revision 2, A3: a wipe takes the account's incoming shares off
+    its list, as a dismiss does, rather than ending them, so a sender sees
+    nothing change at the moment of the wipe."""
+    received = new_file(bob, name="figures.txt")
+    share(bob, received, alice.handle)
+    set_duress(alice, "wipe")
+    bob.get(received)  # past the "Shared with" message
+    before = normalized(bob.get(received).data, bob.handle)
+    log_in(app, alice, DURESS)
+    assert b"figures.txt" not in shared_with_me(alice)
+    assert normalized(bob.get(received).data, bob.handle) == before
+
+
+def test_a_level_two_wipe_keeps_received_files_for_the_review(app, alice, bob):
+    forced = at_level_one(app, alice)
+    received = new_file(bob, name="figures.txt")
+    share(bob, received, alice.handle)
+    assert b"figures.txt" in shared_with_me(forced)
+    set_duress(forced, "wipe", duress=DEEPER)
+    bob.get(received)  # past the "Shared with" message
+    before = normalized(bob.get(received).data, bob.handle)
+    log_in(app, alice, DEEPER)
+    assert forced.get(received).status_code == 403
+    assert normalized(bob.get(received).data, bob.handle) == before
+    # armed at level 1, the wipe is soft: the review can put it back
+    real, _ = log_in(app, alice, PASSWORD)
+    assert b"figures.txt" in real.get("/auth/review").data
+    assert b"Put back 1 file." in review_action(real, "put-back", [received]).data
+    assert download(real, received).status_code == 200
+
+
 def test_a_level_two_wipe_leaves_level_zero_intact(app, alice):
     real = new_file(alice)
     forced = at_level_one(app, alice)

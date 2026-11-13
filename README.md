@@ -200,9 +200,11 @@ without the rows its account wrote at level 0 or that others wrote about its
 level 0 files, and the invites page lists and counts only the codes made at
 its level or below. With the wipe option, the duress password destroys the
 files and key copies of the level that set it, at once, and nothing else:
-the keys stay, so the levels below keep working. With two-factor login on,
-the wipe waits for the code, like the login itself, so a leaked duress
-password alone destroys nothing; the alarm is written as soon as the
+the keys stay, so the levels below keep working. Files shared with it leave
+its list as after a dismiss, so their senders see nothing change, and when a
+duress session armed the wipe, the review can put them back. With two-factor
+login on, the wipe waits for the code, like the login itself, so a leaked
+duress password alone destroys nothing; the alarm is written as soon as the
 password is typed. A new duress password starts to work 48 hours after it is
 saved, at every level alike, so whoever watches one being set cannot try it
 on the spot, and saving a new one stops the old one at once. Setting or
