@@ -28,10 +28,11 @@ from security.keys import subkey
 
 from . import levels, limiter
 from .audit import audit, network_of
-from .db import get_db
+from .db import OutdatedDatabase, get_db
 from .forms import LoginForm, NewPasswordForm, RegisterForm, first_error
 from .identity import load_app_ca, new_identity
 from .invites import INVALID, usable_invite, use_invite
+from .pages import ALWAYS_SERVED
 
 bp = Blueprint("auth", __name__, url_prefix="/auth")
 
@@ -518,7 +519,14 @@ STRANGER_BODY = 64 * 1024
 
 @bp.before_app_request
 def load_logged_in_user():
-    _find_user()
+    try:
+        _find_user()
+    except OutdatedDatabase:
+        # only a page that needs no database gets this far (app/pages.py),
+        # and it is served as to a visitor
+        if request.endpoint not in ALWAYS_SERVED:
+            raise
+        g.user = g.level = None
     if g.user is None:
         # a larger body is refused before it is read, before the CSRF check
         # reads the form (app/__init__.py registers that one after this)

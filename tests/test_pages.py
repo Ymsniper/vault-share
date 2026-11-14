@@ -31,6 +31,7 @@ LOGGED_IN = [
     "/admin/log",
     "/admin/log?problems=1",
     "/admin/invites",
+    "/security",
 ]
 
 

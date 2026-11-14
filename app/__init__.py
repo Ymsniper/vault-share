@@ -85,12 +85,12 @@ def create_app(test_config=None):
 
     # first of the checks, so nothing touches the database while locked;
     # there is no unlock page, the console or the server's terminal unlocks
+    from . import admin, auth, db, files, invites, levels, pages, settings, totp, unlock
+
     @app.before_request
     def stop_when_locked():
-        if keyring.locked and request.endpoint != "static":
+        if keyring.locked and request.endpoint not in pages.ALWAYS_SERVED:
             raise Locked(keyring.missing())
-
-    from . import admin, auth, db, files, invites, levels, settings, totp, unlock
 
     db.init_app(app)
 
@@ -103,13 +103,14 @@ def create_app(test_config=None):
     # page too, rather than the ones that happen to read a changed column
     @app.before_request
     def stop_when_outdated():
-        if request.endpoint != "static":
+        if request.endpoint not in pages.ALWAYS_SERVED:
             db.get_db()
     app.register_blueprint(auth.bp)
     app.register_blueprint(files.bp)
     app.register_blueprint(admin.bp)
     app.register_blueprint(totp.bp)
     app.register_blueprint(settings.bp)
+    app.register_blueprint(pages.bp)
     # after the blueprints, so the session is looked up, and a stranger's
     # body limited, before the CSRF check reads the form
     csrf.init_app(app)

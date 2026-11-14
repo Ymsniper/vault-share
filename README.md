@@ -62,6 +62,12 @@ code: make the first one with `vault-share invite new` (see below).
 
 ![Logging in](docs/screenshots/web-login.png)
 
+The page at `/security`, linked from every page's footer, tells users what
+this server stores and cannot read, what it records and for how long, which
+cookies it sets, and what its operator can do. Anyone can read it, logged in
+or not, and it stays up while the service is paused, since it needs neither
+the database nor the master key.
+
 Uploading asks for your password again: it unlocks your private key to sign
 the file. Each file's record carries an HMAC over all of its fields, from
 the owner and the hash to the name, the description and the signature, so a
