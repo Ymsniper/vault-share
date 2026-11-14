@@ -79,7 +79,7 @@ def test_a_password_cannot_become_the_duress_password(app, alice):
     r = change(alice, PASSWORD, DURESS)
     assert b"Choose a password other than your duress password." in r.data
     forced, _ = log_in(app, alice, DURESS)
-    assert b"<h1>My <em>files</em></h1>" in forced.get("/").data
+    assert b"<h1>My files</h1>" in forced.get("/").data
 
 
 def test_a_change_at_level_zero_does_not_show_at_level_one(app, alice):
