@@ -189,18 +189,35 @@ kept the same way, for the owner to put back. The real password deletes and
 dismisses for good. The login that closes a window owes a review of what
 happened in it, and every login with that password goes to the review, its
 other sessions linking to it, until the owner says done: through a logout, a
-timeout or months away. The review shows the duress logins, what was done,
-the files deleted (which it can restore), taken off the list (which it can
-put back), uploaded (which it can delete) or shared with the account
-meanwhile (which it can bring back to its own files), and the command the
-operator runs to revoke the certificate from the time the window opened,
-since whoever held the duress password could sign in the user's name. It
-says plainly that whoever holds the duress password can log in with it
-again and will see what is shared from then on, and offers to keep it or
-to replace it there. What it does shows in the duress vault, and the page
-says so. Deleted and removed files are kept 30 days from when the review
-first shows them, so an owner who never logs in loses nothing; "Done"
-restores what is left or lets it go.
+timeout or months away. The review shows the duress logins, what was done
+(with no invite code numbers), the files deleted, taken off the list,
+uploaded or shared with the account meanwhile, and the command the operator
+runs to revoke the certificate from the time the window opened, since
+whoever held the duress password could sign in the user's name. Each of its
+actions says whether whoever holds the duress password will see it, and the
+quiet ones are the defaults:
+
+- A deleted file: a private copy is quiet. The file is decrypted with the
+  reviewing session's keys and stored again as a new file of its own, with
+  a new id, key, signature and record HMAC; the deleted one stays deleted
+  and leaves the review. Restoring it for everyone is loud. A copy signs
+  what it copies, so the list marks the files uploaded while the window
+  was open.
+- An uploaded file: a label is quiet, a chip on the reviewing session's own
+  lists only (table `labels`). Deleting it is loud.
+- A file shared meanwhile: leaving it is quiet. Bringing it back to the
+  reviewing session's own files is loud: to the duress vault it looks as if
+  the sender stopped sharing it, which is safe only with an honest sender,
+  whose name the list shows.
+- A file taken off the list: putting it back is quiet, as the duress vault
+  still finds it removed.
+
+The review also says plainly that whoever holds the duress password can log
+in with it again and will see what is shared from then on, and offers to
+keep it or to replace it, which is not quiet once the old one stops. Deleted
+and removed files are kept 30 days from when the review first shows them, so
+an owner who never logs in loses nothing; "Done" restores what is left,
+which is loud, or lets it go, which is quiet.
 A duress session that closes the window of a level below its own gets the
 same review: every level looks like the top.
 

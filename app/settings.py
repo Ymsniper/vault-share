@@ -15,8 +15,9 @@ from flask import (
 from security.passwords import password_problem
 
 from . import levels
-from .auth import current_account, login_required, password_limit, password_ok
 from .audit import audit
+from .auth import current_account, login_required, password_limit, password_ok
+from .files import keep_private_copies
 from .forms import (
     ChangePasswordForm,
     CoverForm,
@@ -141,7 +142,7 @@ def review():
 @login_required
 @password_limit(current_account)
 def review_action(action):
-    if action not in ("restore", "delete", "move", "put-back", "done"):
+    if action not in ("copy", "restore", "label", "delete", "move", "put-back", "done"):
         abort(404)
     form = ReviewForm()
     if not form.validate():
@@ -153,8 +154,15 @@ def review_action(action):
         flash("Wrong password.")
         return redirect(url_for("settings.review"))
     ids = [i for i in request.form.getlist("file") if FILE_ID.fullmatch(i)][:500]
-    if action == "restore":
+    if action == "copy":
+        kept, problems = keep_private_copies(keys, ids)
+        flash(f"Saved a private copy of {plural(kept, 'file')}.", "success")
+        if problems:
+            flash("Not copied: " + "; ".join(p.rstrip(".") for p in problems) + ".")
+    elif action == "restore":
         flash(f"Restored {plural(levels.restore(ids), 'file')}.", "success")
+    elif action == "label":
+        flash(f"Labelled {plural(levels.label(ids), 'file')} for you only.", "success")
     elif action == "delete":
         flash(f"Deleted {plural(levels.remove_planted(ids), 'file')}.", "success")
     elif action == "move":

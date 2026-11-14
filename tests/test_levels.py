@@ -1051,6 +1051,190 @@ def review_action(client, action, urls, password=PASSWORD):
     return client.post(f"/auth/review/{action}", data=data, follow_redirects=True)
 
 
+QUIET = b"the duress vault sees no change"
+LOUD = b"the duress vault will see"
+
+
+def seen(client, urls):
+    """What a session sees: its lists, the Duress page and the given file
+    pages, normalized."""
+    return [normalized(client.get(u).data, client.handle) for u in ["/", "/auth/duress", *urls]]
+
+
+def test_quiet_review_actions_leave_the_duress_vault_as_it_was(app, alice, bob):
+    """Design revision 2, A5: the review's quiet actions, its defaults, change
+    nothing that whoever logs in with the duress password again can see: a
+    private copy of a deleted file, a label on an uploaded one, a removed
+    one put back, an arrived one left where it is."""
+    forced, old, planted, arrived = a_duress_visit(app, alice, bob)
+    report = new_file(bob, b"Report.\n", "report.txt")
+    share(bob, report, alice.handle)
+    dismiss(forced, report)
+    forced.get("/")  # the message of the dismiss, shown once
+    real, _ = log_in(app, alice, PASSWORD)
+    page = real.get("/auth/review").data
+    # every action says which kind it is, five quiet and five loud: copy
+    # or restore, label or delete, leave or bring back, put back, replace,
+    # and Done's let go or restore
+    assert page.count(QUIET) == 5 and page.count(LOUD) == 5
+    before = seen(forced, [old, planted, arrived, report])
+    for action, urls, shown in (
+        ("copy", [old], b"Saved a private copy of 1 file."),
+        ("label", [planted], b"Labelled 1 file for you only."),
+        ("put-back", [report], b"Put back 1 file."),
+    ):
+        assert shown in review_action(real, action, urls).data
+    assert seen(forced, [old, planted, arrived, report]) == before
+
+
+def test_a_private_copy_opens_at_the_owners_level_and_is_signed(app, alice, bob):
+    forced, old, planted, arrived = a_duress_visit(app, alice, bob)
+    real, _ = log_in(app, alice, PASSWORD)
+    review_action(real, "copy", [old])
+    uid = alice_id(app, alice)
+    with app.app_context():
+        db = get_db()
+        copies = db.execute(
+            "SELECT f.id, c.level FROM files f JOIN file_keys c ON c.file_id = f.id"
+            " AND c.user_id = f.owner_id WHERE f.owner_id = ? AND f.filename = 'menu.txt'"
+            " AND f.trashed_at IS NULL", (uid,)
+        ).fetchall()
+        still = db.execute("SELECT trashed_at FROM files WHERE id = ?", (file_id(old),)).fetchone()
+    # a new file of the real level's own, and the deleted one still deleted
+    assert len(copies) == 1 and copies[0]["level"] == 0 and copies[0]["id"] != file_id(old)
+    assert still["trashed_at"] is not None
+    url = f"/files/{copies[0]['id']}"
+    assert download(real, url).data == MENU
+    assert b"Signature valid" in real.get(url).data
+    forced.get("/")  # the message of the delete, shown once
+    assert b"menu.txt" in my_files(real) and b"menu.txt" not in forced.get("/").data
+
+
+def test_a_label_shows_on_the_labelling_levels_lists_only(app, alice, bob):
+    forced, old, planted, arrived = a_duress_visit(app, alice, bob)
+    real, _ = log_in(app, alice, PASSWORD)
+    chip = b"uploaded under duress"
+    assert chip not in real.get("/").data
+    review_action(real, "label", [planted])
+    assert chip in cover_files(real)
+    assert chip not in forced.get("/").data
+    # and it goes with the file
+    review_action(real, "delete", [planted])
+    with app.app_context():
+        assert get_db().execute("SELECT COUNT(*) FROM labels").fetchone()[0] == 0
+
+
+def copies_of_menu(app, alice):
+    with app.app_context():
+        return get_db().execute(
+            "SELECT COUNT(*) FROM files WHERE owner_id = ? AND filename = 'menu.txt'"
+            " AND trashed_at IS NULL", (alice_id(app, alice),)
+        ).fetchone()[0]
+
+
+def test_done_after_a_private_copy_brings_nothing_back(app, alice, bob):
+    """A copied file leaves the review: neither Done's default nor a second
+    copy brings the deleted one back beside it."""
+    forced, old, planted, arrived = a_duress_visit(app, alice, bob)
+    forced.get("/")
+    real, _ = log_in(app, alice, PASSWORD)
+    review_action(real, "copy", [old])
+    before = seen(forced, [old])
+    assert b"Saved a private copy of 0 files." in review_action(real, "copy", [old]).data
+    assert b"Review done." in review_done(real, "restore").data
+    assert seen(forced, [old]) == before
+    assert copies_of_menu(app, alice) == 1
+
+
+def deleted_entry(page, name):
+    panel = page.split("Deleted</h2>")[1].split("</form>")[0]
+    return re.search(r"<li>(?:(?!</li>).)*" + re.escape(name) + r"(?:(?!</li>).)*</li>",
+                     panel, re.S).group(0)
+
+
+def test_the_review_marks_a_deleted_file_uploaded_while_it_was_in_use(app, alice, bob):
+    """A private copy signs what it copies: the list says which deleted files
+    were uploaded in the window, maybe by whoever held the password."""
+    older = new_file(alice, b"Older notes.\n", "older.txt")
+    move(alice, [older], "down")
+    # times go by the second: the window opens in a later one
+    time.sleep(1.1)
+    forced, old, planted, arrived = a_duress_visit(app, alice, bob)
+    delete(forced, older)
+    real, _ = log_in(app, alice, PASSWORD)
+    page = real.get("/auth/review").data.decode()
+    assert "uploaded while it was in use" in deleted_entry(page, "menu.txt")
+    assert "uploaded while it was in use" not in deleted_entry(page, "older.txt")
+
+
+def test_quiet_actions_answer_the_same_one_level_down(app, alice, bob):
+    """A level 1 session reviewing a level 2 window copies and labels as
+    another account's level 0 does with its level 1 window."""
+    one = at_level_one(app, alice)
+    set_duress(one, duress=DEEPER)
+    two, _ = log_in(app, alice, DEEPER)
+    visits = []
+    for visitor in (two, at_level_one(app, bob)):
+        old = new_file(visitor, MENU, "menu.txt")
+        planted = new_file(visitor, b"Not mine.\n", "planted.txt")
+        delete(visitor, old)
+        visits.append((old, planted))
+    reviewers = [log_in(app, alice, DURESS), log_in(app, bob, PASSWORD)]
+    pages = []
+    for (client, r), (old, planted) in zip(reviewers, visits):
+        assert r.headers["Location"] == "/auth/review"
+        steps = [client.get("/auth/review"),
+                 review_action(client, "copy", [old], password=client.password),
+                 review_action(client, "label", [planted], password=client.password),
+                 client.get("/")]
+        pages.append([normalized(step.data, client.handle) for step in steps])
+    assert pages[0] == pages[1]
+    assert b"uploaded under duress" in reviewers[0][0].get("/").data
+
+
+def test_a_replaced_password_starts_without_the_old_holders_labels(app, alice):
+    one = at_level_one(app, alice)
+    set_duress(one, duress=DEEPER)
+    two, _ = log_in(app, alice, DEEPER)
+    planted = new_file(two, b"Not mine.\n", "planted.txt")
+    again, _ = log_in(app, alice, DURESS)
+    review_action(again, "label", [planted], password=DURESS)
+    assert b"uploaded under duress" in cover_files(again)
+    set_duress(alice, duress=NEW)
+    fresh, r = log_in(app, alice, NEW)
+    assert b"planted.txt" in cover_files(fresh)
+    assert b"uploaded under duress" not in fresh.get("/").data
+
+
+def test_the_review_shows_no_code_number(app, alice):
+    """A level reviewing a deeper admin session's window sees its invites
+    without their numbers, as the log shows them."""
+    at_level_one(app, alice)
+    with app.app_context():
+        db = get_db()
+        db.execute(
+            "INSERT INTO audit_log (user_id, action, outcome, detail, level)"
+            " VALUES (?, 'invite', 'ok', 'code 7, 5 people, 7 days', 1)", (alice_id(app, alice),)
+        )
+        db.commit()
+    real, _ = log_in(app, alice, PASSWORD)
+    page = real.get("/auth/review").data
+    assert b"a code, 5 people, 7 days" in page and not re.search(rb"code \d", page)
+
+
+def test_a_copy_that_fails_its_checks_is_reported(app, alice, bob):
+    forced, old, planted, arrived = a_duress_visit(app, alice, bob)
+    with open(stored_path(app, old), "r+b") as fp:
+        fp.seek(20)
+        fp.write(b"\0" * 8)
+    real, _ = log_in(app, alice, PASSWORD)
+    r = review_action(real, "copy", [old])
+    assert b"Saved a private copy of 0 files." in r.data
+    assert b"Not copied: menu.txt: Verification failed: the stored file was modified." in r.data
+    # it stays in the list, to restore or let go
+    assert b"menu.txt" in real.get("/auth/review").data.split(b"Deleted</h2>")[1]
+
+
 def test_the_review_restores_deletes_and_brings_back(app, alice, bob):
     forced, old, planted, arrived = a_duress_visit(app, alice, bob)
     real, _ = log_in(app, alice, PASSWORD)

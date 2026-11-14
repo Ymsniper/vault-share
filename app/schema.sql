@@ -1,4 +1,5 @@
 DROP TABLE IF EXISTS audit_log;
+DROP TABLE IF EXISTS labels;
 DROP TABLE IF EXISTS file_keys;
 DROP TABLE IF EXISTS shares;
 DROP TABLE IF EXISTS files;
@@ -14,7 +15,7 @@ DROP TABLE IF EXISTS invites;
 DROP TABLE IF EXISTS invite_defaults;
 
 -- the version of this layout, which the code checks (app/db.py)
-PRAGMA user_version = 3;
+PRAGMA user_version = 4;
 
 CREATE TABLE users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -211,6 +212,16 @@ CREATE TABLE file_keys (
     review_from TEXT,
     let_go_level INTEGER,
     PRIMARY KEY (file_id, user_id)
+);
+
+-- a file a duress session uploaded, labelled by the review of the level
+-- above it, for that level only (app/levels.py): a chip on that level's own
+-- lists, which the duress vault never shows
+CREATE TABLE labels (
+    user_id INTEGER NOT NULL REFERENCES users (id),
+    level INTEGER NOT NULL CHECK (level BETWEEN 0 AND 7),
+    file_id TEXT NOT NULL REFERENCES files (id) ON DELETE CASCADE,
+    PRIMARY KEY (user_id, level, file_id)
 );
 
 CREATE TABLE audit_log (

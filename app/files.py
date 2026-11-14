@@ -78,6 +78,18 @@ def mac_of(f):
     return record_mac(mac_key(), f)
 
 
+def file_record(id):
+    """A file's record with its owner and certificate, or None."""
+    return get_db().execute(
+        "SELECT f.*, u.username AS owner, u.banned_at AS owner_banned_at,"
+        " c.pem AS cert_pem, c.serial AS cert_serial, c.not_after AS cert_not_after,"
+        " COALESCE(c.invalid_from, c.revoked_at) AS cert_invalid_from"
+        " FROM files f JOIN users u ON u.id = f.owner_id"
+        " JOIN certificates c ON c.id = f.cert_id WHERE f.id = ?",
+        (str(id),),
+    ).fetchone()
+
+
 def get_file(id, owner_only=False):
     """Load a file the current user may use, or stop with 404 or 403.
 
@@ -88,14 +100,7 @@ def get_file(id, owner_only=False):
     """
     id = str(id)
     db = get_db()
-    f = db.execute(
-        "SELECT f.*, u.username AS owner, u.banned_at AS owner_banned_at,"
-        " c.pem AS cert_pem, c.serial AS cert_serial, c.not_after AS cert_not_after,"
-        " COALESCE(c.invalid_from, c.revoked_at) AS cert_invalid_from"
-        " FROM files f JOIN users u ON u.id = f.owner_id"
-        " JOIN certificates c ON c.id = f.cert_id WHERE f.id = ?",
-        (id,),
-    ).fetchone()
+    f = file_record(id)
     # a file a duress session deleted is gone for everyone, recipients too
     if f is None or f["trashed_at"] is not None:
         abort(404)
@@ -230,6 +235,97 @@ def upload_page():
     )
 
 
+def store_file(keys, name, description, mime, checked, data):
+    """Sign, encrypt and record a new file of the current user's, with its
+    owner's copy of the key where the session keeps its files. Returns
+    (file_id, None), or (None, why) when the certificate needs renewing and
+    the certificate authority cannot do it. The caller commits."""
+    username = g.user["username"]
+    signer = get_db().execute(
+        "SELECT id, pem, revoked_at FROM certificates WHERE user_id = ? ORDER BY id DESC LIMIT 1",
+        (g.user["id"],),
+    ).fetchone()
+    ca_cert = load_ca_certificate(current_app.config["CA_CERT"])
+    cert_problem = certificate_problem(load_certificate(signer["pem"]), ca_cert, username)
+    if signer["revoked_at"] is None and cert_problem is None:
+        key, cert_id = keys.signing_key(), signer["id"]
+    else:
+        # no usable certificate (revoked or expired): a new key pair,
+        # locked where the old one was
+        try:
+            key, cert_id = new_identity(g.user["id"], username, keys.bottom, load_app_ca())
+        except (OSError, ValueError) as e:
+            current_app.logger.error("cannot load the CA: %s", e)
+            return None, "Your certificate needs renewing, but the certificate authority is not set up."
+        audit("renew_certificate", "ok")
+
+    file_id = str(uuid.uuid4())
+    digest = sha256(data)
+    signature = sign_digest(key, digest)
+
+    # a new random key for every file, kept only as copies encrypted to
+    # the public keys of the people who may open it: for now the owner
+    file_key = new_key()
+    with open(storage_path(file_id), "wb") as out:
+        out.write(encrypt(file_key, data, file_id.encode()))
+    record = {
+        "id": file_id,
+        "owner_id": g.user["id"],
+        "filename": name,
+        "description": description,
+        "mime": mime,
+        "checked": int(checked),
+        "size": len(data),
+        "sha256": digest.hex(),
+        "signature": signature,
+        "cert_id": cert_id,
+        # after the certificate was chosen or renewed, which starts at the
+        # second it was issued; SQLite's own format, which the pages slice
+        "uploaded_at": datetime.datetime.now(datetime.UTC).strftime(TIME_FORMAT),
+    }
+    # over exactly the values stored
+    record["record_mac"] = record_mac(mac_key(), record)
+    get_db().execute(
+        "INSERT INTO files"
+        " (id, owner_id, filename, description, mime, checked, size, sha256, signature,"
+        " cert_id, uploaded_at, record_mac)"
+        " VALUES (:id, :owner_id, :filename, :description, :mime, :checked, :size, :sha256,"
+        " :signature, :cert_id, :uploaded_at, :record_mac)",
+        record,
+    )
+    # the owner's copy of the file key, where the session keeps its files
+    levels.keep_own_copy(file_id, file_key)
+    return file_id, None
+
+
+def keep_private_copies(keys, file_ids):
+    """The quiet way back for files a duress session deleted (design
+    revision 2, A5): each one is opened with the keys of the session
+    reviewing it and stored again as a new file of its own, with a new id,
+    key, signature and record HMAC. The deleted one stays deleted, so the
+    duress vault sees no change, and leaves this review. Returns how many
+    were kept and why the others were not."""
+    kept, problems = 0, []
+    for f in map(file_record, levels.reviewed_trash(file_ids)):
+        try:
+            data, problem = open_file(f, levels.file_key(f["id"], keys))
+        except InvalidTag:
+            data, problem = None, "the copy of its key was modified"
+        if data is None:
+            problems.append(f"{f['filename']}: {problem}")
+            continue
+        file_id, error = store_file(keys, f["filename"], f["description"], f["mime"],
+                                    f["checked"], data)
+        if error is not None:
+            problems.append(f"{f['filename']}: {error}")
+            continue
+        levels.copied(f["id"])
+        get_db().commit()
+        audit("upload", "ok", file_id=file_id, detail="a private copy from the review")
+        kept += 1
+    return kept, problems
+
+
 @bp.route("/upload", methods=("GET", "POST"))
 @login_required
 @password_limit(current_account)
@@ -250,73 +346,17 @@ def upload():
 
         # the password opens the account's keys, the signing key among
         # them, so a wrong one counts toward the same lockout as a login
-        username = g.user["username"]
         keys = levels.unlock(form.password.data)
         if keys is None:
             g.wrong_password = True
             audit("upload", "refused", detail="wrong password")
             flash("Wrong password: your signing key stays locked and nothing was uploaded.")
             return upload_page()
-
-        signer = get_db().execute(
-            "SELECT id, pem, revoked_at FROM certificates WHERE user_id = ? ORDER BY id DESC LIMIT 1",
-            (g.user["id"],),
-        ).fetchone()
-        ca_cert = load_ca_certificate(current_app.config["CA_CERT"])
-        cert_problem = certificate_problem(load_certificate(signer["pem"]), ca_cert, username)
-        if signer["revoked_at"] is None and cert_problem is None:
-            key, cert_id = keys.signing_key(), signer["id"]
-        else:
-            # no usable certificate (revoked or expired): a new key pair,
-            # locked where the old one was
-            try:
-                key, cert_id = new_identity(g.user["id"], username, keys.bottom, load_app_ca())
-            except (OSError, ValueError) as e:
-                current_app.logger.error("cannot load the CA: %s", e)
-                flash(
-                    "Your certificate needs renewing, but the certificate authority is not set up."
-                )
-                return upload_page()
-            audit("renew_certificate", "ok")
-
-        file_id = str(uuid.uuid4())
-        digest = sha256(data)
-        signature = sign_digest(key, digest)
-
-        # a new random key for every file, kept only as copies encrypted to
-        # the public keys of the people who may open it: for now the owner
-        file_key = new_key()
-        with open(storage_path(file_id), "wb") as out:
-            out.write(encrypt(file_key, data, file_id.encode()))
-        record = {
-            "id": file_id,
-            "owner_id": g.user["id"],
-            "filename": name,
-            "description": form.description.data or "",
-            "mime": mime,
-            "checked": int(checked),
-            "size": len(data),
-            "sha256": digest.hex(),
-            "signature": signature,
-            "cert_id": cert_id,
-            # after the certificate was chosen or renewed, which starts at the
-            # second it was issued; SQLite's own format, which the pages slice
-            "uploaded_at": datetime.datetime.now(datetime.UTC).strftime(TIME_FORMAT),
-        }
-        # over exactly the values stored
-        record["record_mac"] = record_mac(mac_key(), record)
-        db = get_db()
-        db.execute(
-            "INSERT INTO files"
-            " (id, owner_id, filename, description, mime, checked, size, sha256, signature,"
-            " cert_id, uploaded_at, record_mac)"
-            " VALUES (:id, :owner_id, :filename, :description, :mime, :checked, :size, :sha256,"
-            " :signature, :cert_id, :uploaded_at, :record_mac)",
-            record,
-        )
-        # the owner's copy of the file key, where the session keeps its files
-        levels.keep_own_copy(file_id, file_key)
-        db.commit()
+        file_id, error = store_file(keys, name, form.description.data or "", mime, checked, data)
+        if error is not None:
+            flash(error)
+            return upload_page()
+        get_db().commit()
         audit("upload", "ok", file_id=file_id, detail=None if checked else "archive, not checked")
         flash(f"Uploaded {name}.", "success")
         return redirect(url_for("files.detail", id=file_id))

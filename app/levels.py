@@ -338,25 +338,27 @@ def review():
             " AND action = 'login' AND outcome = 'ok' ORDER BY id",
             params,
         ).fetchall(),
-        "events": db.execute(
+        "events": [_without_code_numbers(dict(r)) for r in db.execute(
             "SELECT at, action, outcome, file_id, detail FROM audit_log"
             " WHERE user_id = ? AND level > ? AND at >= ? AND action != 'login' ORDER BY id",
             params,
-        ).fetchall(),
-        "trashed": _trashed(uid, level),
+        )],
+        "trashed": _trashed(uid, level, since),
         "dismissed": _dismissed(uid, level),
         "planted": _planted(*params),
         "arrived": _arrived(*params),
     }
 
 
-def _trashed(uid, level):
-    # whatever the levels below trashed and is still kept, however long ago
+def _trashed(uid, level, since):
+    # whatever the levels below trashed and is still kept, however long ago;
+    # in_window marks a file uploaded while the window was open, which a
+    # private copy would sign anew
     return get_db().execute(
-        "SELECT id, filename, trashed_at FROM files"
+        "SELECT id, filename, trashed_at, uploaded_at >= ? AS in_window FROM files"
         " WHERE owner_id = ? AND trashed_level > ? AND COALESCE(let_go_level, 99) > ?"
         " ORDER BY trashed_at",
-        (uid, level, level),
+        (since, uid, level, level),
     ).fetchall()
 
 
@@ -406,6 +408,37 @@ def restore(file_ids):
             "UPDATE files SET trashed_at = NULL, trashed_level = NULL, review_from = NULL,"
             " let_go_level = NULL WHERE id = ?",
             (r["id"],),
+        )
+    db.commit()
+    return len(found)
+
+
+def reviewed_trash(file_ids):
+    """The ids of the files a duress session trashed in the reviewed windows,
+    among file_ids, for private copies (design revision 2, A5)."""
+    data = review()
+    return [r["id"] for r in _reviewed(data["trashed"], file_ids)] if data else []
+
+
+def copied(file_id):
+    """A trashed file kept as a private copy leaves this level's reviews, as
+    a let-go file does, so neither Done nor a second copy brings it back,
+    and stays trashed for the duress vault, for the review of the levels
+    above, and for the 30 days. The caller commits."""
+    get_db().execute("UPDATE files SET let_go_level = ? WHERE id = ?", (g.level, file_id))
+
+
+def label(file_ids):
+    """Label files a duress session uploaded in the reviewed windows, for
+    the session's level only: a chip on its own lists, and nothing the
+    duress vault can see. Not logged, as moves to cover are not."""
+    data = review()
+    found = _reviewed(data["planted"], file_ids) if data else []
+    db = get_db()
+    for r in found:
+        db.execute(
+            "INSERT OR IGNORE INTO labels (user_id, level, file_id) VALUES (?, ?, ?)",
+            (g.user["id"], g.level, r["id"]),
         )
     db.commit()
     return len(found)
@@ -755,34 +788,37 @@ def file_lists(q):
     level, those shared with it at this level, and the cover files, every
     copy at a level below."""
     db, uid, level = get_db(), g.user["id"], g.level
+    params = {"uid": uid, "level": level, "q": q}
+    # each row says whether this level labelled it (A5): the same statement
+    # at every level
     mine = db.execute(
-        "SELECT f.id, f.filename, f.size, f.uploaded_at, f.checked FROM files f"
+        "SELECT f.id, f.filename, f.size, f.uploaded_at, f.checked, EXISTS (SELECT 1 FROM labels l WHERE l.user_id = :uid AND l.level = :level AND l.file_id = f.id) AS labelled FROM files f"
         " JOIN file_keys c ON c.file_id = f.id AND c.user_id = f.owner_id"
-        " WHERE f.owner_id = ? AND c.level = ? AND f.trashed_at IS NULL"
-        " AND instr(lower(f.filename), lower(?)) > 0"
+        " WHERE f.owner_id = :uid AND c.level = :level AND f.trashed_at IS NULL"
+        " AND instr(lower(f.filename), lower(:q)) > 0"
         " ORDER BY f.uploaded_at DESC, f.rowid DESC",
-        (uid, level, q),
+        params,
     ).fetchall()
     shared = db.execute(
-        "SELECT f.*, u.username AS owner FROM files f"
+        "SELECT f.*, u.username AS owner, EXISTS (SELECT 1 FROM labels l WHERE l.user_id = :uid AND l.level = :level AND l.file_id = f.id) AS labelled FROM files f"
         " JOIN shares s ON s.file_id = f.id"
         " JOIN users u ON u.id = f.owner_id"
         " JOIN file_keys c ON c.file_id = f.id AND c.user_id = s.recipient_id"
-        " WHERE s.recipient_id = ? AND s.revoked_at IS NULL AND s.dismissed_at IS NULL"
-        " AND u.banned_at IS NULL AND c.level = ? AND f.trashed_at IS NULL"
+        " WHERE s.recipient_id = :uid AND s.revoked_at IS NULL AND s.dismissed_at IS NULL"
+        " AND u.banned_at IS NULL AND c.level = :level AND f.trashed_at IS NULL"
         " ORDER BY f.uploaded_at DESC, f.rowid DESC",
-        (uid, level),
+        params,
     ).fetchall()
     cover = db.execute(
-        "SELECT f.*, u.username AS owner FROM files f"
-        " JOIN file_keys c ON c.file_id = f.id AND c.user_id = ?"
+        "SELECT f.*, u.username AS owner, EXISTS (SELECT 1 FROM labels l WHERE l.user_id = :uid AND l.level = :level AND l.file_id = f.id) AS labelled FROM files f"
+        " JOIN file_keys c ON c.file_id = f.id AND c.user_id = :uid"
         " JOIN users u ON u.id = f.owner_id"
         " LEFT JOIN shares s ON s.file_id = f.id AND s.recipient_id = c.user_id"
-        " WHERE c.level > ? AND f.trashed_at IS NULL AND (f.owner_id = c.user_id"
+        " WHERE c.level > :level AND f.trashed_at IS NULL AND (f.owner_id = c.user_id"
         "  OR (s.file_id IS NOT NULL AND s.revoked_at IS NULL AND s.dismissed_at IS NULL"
         "   AND u.banned_at IS NULL))"
         " ORDER BY f.uploaded_at DESC, f.rowid DESC",
-        (uid, level),
+        params,
     ).fetchall()
     return mine, shared, cover
 
@@ -871,8 +907,8 @@ def _clear(policy, first, user_id):
 def _fresh_start(user_id, policy, first):
     """The levels from first down, whose password was replaced or cleared,
     start as new ones: their two-factor login inherited from above again,
-    with no codes of their own, and no review owed, so nothing the old
-    holder set up reaches the new one. The same statements for every level,
+    with no codes of their own, no labels and no review owed, so nothing
+    the old holder set up reaches the new one. The same statements for every level,
     as in _clear."""
     db = get_db()
     for level in range(1, LEVELS):
@@ -884,6 +920,9 @@ def _fresh_start(user_id, policy, first):
         db.execute(
             "DELETE FROM totp_recovery WHERE user_id = ? AND level = ? AND ?",
             (user_id, level, really),
+        )
+        db.execute(
+            "DELETE FROM labels WHERE user_id = ? AND level = ? AND ?", (user_id, level, really)
         )
         if really:
             policy.unreviewed_since[level] = 0
@@ -1140,6 +1179,12 @@ def _code(match):
     return "an invite code" if match.group(1) else "a code"
 
 
+def _without_code_numbers(row):
+    if row["detail"]:
+        row["detail"] = _CODE_NUMBER.sub(_code, row["detail"])
+    return row
+
+
 def _shown(row, viewer, level):
     """A row as the viewer sees it. A duress login below the viewer's own
     level, or any duress login of someone else, is the alarm, with its mode
@@ -1154,8 +1199,7 @@ def _shown(row, viewer, level):
             row["detail"] = None
     if viewer is not None:
         row["file_id"] = row["subject_id"] = row["subject_level"] = row["level"] = None
-        if row["detail"]:
-            row["detail"] = _CODE_NUMBER.sub(_code, row["detail"])
+        _without_code_numbers(row)
     return row
 
 

@@ -6,7 +6,7 @@
 {% macro choose(rows, prefix) -%}
   <ul class="vs-picklist">
     {% for r in rows %}
-    <li><input class="form-check-input" type="checkbox" name="file" id="{{ prefix }}-{{ r['id'] }}" value="{{ r['id'] }}"><label for="{{ prefix }}-{{ r['id'] }}"><span class="vs-type">{{ file_type(r['filename']) }}</span><span class="vs-pick-name">{{ r['filename'] }}{% if r['owner'] %} <span class="vs-meta">from {{ r['owner']|handle }}</span>{% endif %}</span></label></li>
+    <li><input class="form-check-input" type="checkbox" name="file" id="{{ prefix }}-{{ r['id'] }}" value="{{ r['id'] }}"><label for="{{ prefix }}-{{ r['id'] }}"><span class="vs-type">{{ file_type(r['filename']) }}</span><span class="vs-pick-name">{{ r['filename'] }}{% if r['owner'] %} <span class="vs-meta">from {{ r['owner']|handle }}</span>{% endif %}{% if r['in_window'] %} <span class="vs-meta">uploaded while it was in use</span>{% endif %}</span></label></li>
     {% else %}
     <li class="vs-picklist-empty">Nothing.</li>
     {% endfor %}
@@ -24,7 +24,7 @@
     <p class="vs-kicker">Protection</p>
     <h1>Duress <em>review</em></h1>
     <p class="vs-lede">Your duress password was used since {{ since }} UTC. This is what happened while it was in use. Every login with your password comes back here until you say you are done.</p>
-    <p class="vs-note">What you do here shows in the duress vault: whoever logs in with the duress password again will see it. Leaving things as they are is always an option.</p>
+    <p class="vs-note">Each action says whether it is quiet or shows in the duress vault, where whoever logs in with the duress password again will see it. The quiet ones are the defaults, and leaving things as they are is always an option.</p>
   </div>
 </div>
 
@@ -56,43 +56,51 @@
 
 <div class="row g-4 vs-even">
   <div class="col-lg-6">
-    <form method="post" action="{{ url_for('settings.review_action', action='restore') }}" class="vs-panel">
+    <form method="post" action="{{ url_for('settings.review_action', action='copy') }}" class="vs-panel">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <h2 class="vs-panel-title">Deleted</h2>
-      <p class="vs-note">Kept 30 days from when this review first showed them. Restoring puts them back where they were.</p>
-      {{ choose(trashed, "restore") }}
-      {{ password("restore") }}
-      <button type="submit" class="btn btn-outline-secondary w-100">Restore</button>
+      <p class="vs-note">Kept 30 days from when this review first showed them.</p>
+      {{ choose(trashed, "trashed") }}
+      {{ password("trashed") }}
+      <button type="submit" class="btn btn-primary w-100">Save a private copy</button>
+      <p class="vs-note">Quiet: a new file of yours with the same content, signed by you now, and the deleted one leaves this list; the duress vault sees no change. Look twice at a file uploaded while it was in use before you sign it.</p>
+      <button type="submit" formaction="{{ url_for('settings.review_action', action='restore') }}" class="btn btn-outline-secondary w-100">Restore for everyone</button>
+      <p class="vs-note mb-0">Back where they were: the duress vault will see them return.</p>
     </form>
   </div>
   <div class="col-lg-6">
-    <form method="post" action="{{ url_for('settings.review_action', action='delete') }}" class="vs-panel">
+    <form method="post" action="{{ url_for('settings.review_action', action='label') }}" class="vs-panel">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <h2 class="vs-panel-title">Uploaded</h2>
       <p class="vs-note">Files uploaded in your name while it was in use.</p>
-      {{ choose(planted, "delete") }}
-      {{ password("delete") }}
-      <button type="submit" class="btn btn-outline-danger w-100">Delete</button>
+      {{ choose(planted, "planted") }}
+      {{ password("planted") }}
+      <button type="submit" class="btn btn-primary w-100">Leave them, labelled for you only</button>
+      <p class="vs-note">Quiet: a mark on your own lists only; the duress vault sees no change.</p>
+      <button type="submit" formaction="{{ url_for('settings.review_action', action='delete') }}" class="btn btn-outline-danger w-100">Delete</button>
+      <p class="vs-note mb-0">Gone for good: the duress vault will see them disappear.</p>
     </form>
   </div>
   <div class="col-lg-6">
     <form method="post" action="{{ url_for('settings.review_action', action='move') }}" class="vs-panel">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <h2 class="vs-panel-title">Received</h2>
-      <p class="vs-note">Shared with you while it was in use, so whoever held it saw them. Bring them back to your own files.</p>
+      <p class="vs-note">Shared with you while it was in use, so whoever held it saw them. To leave them where they are, do nothing: the duress vault sees no change.</p>
       {{ choose(arrived, "move") }}
       {{ password("move") }}
       <button type="submit" class="btn btn-outline-secondary w-100">Bring back</button>
+      <p class="vs-note mb-0">To your own files: the duress vault will see them go, as if their senders had stopped sharing them. Bring back only what you trust its sender to have shared honestly.</p>
     </form>
   </div>
   <div class="col-lg-6">
     <form method="post" action="{{ url_for('settings.review_action', action='put-back') }}" class="vs-panel">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <h2 class="vs-panel-title">Removed from the list</h2>
-      <p class="vs-note">Shared with you, then taken off the list while it was in use. Put them back on your own list; the duress vault still finds them removed.</p>
+      <p class="vs-note">Shared with you, then taken off the list while it was in use.</p>
       {{ choose(dismissed, "put-back") }}
       {{ password("put-back") }}
-      <button type="submit" class="btn btn-outline-secondary w-100">Put back</button>
+      <button type="submit" class="btn btn-primary w-100">Put back</button>
+      <p class="vs-note mb-0">Quiet: back on your own list, while the duress vault still finds them removed; the duress vault sees no change.</p>
     </form>
   </div>
 </div>
@@ -131,6 +139,7 @@
     </div>
     {{ password("replace") }}
     <button type="submit" class="btn btn-outline-secondary">Replace</button>
+    <p class="vs-note mt-2 mb-0">Not quiet: once the new one works, the duress vault will see the old one fail.</p>
   </form>
 </section>
 
@@ -141,11 +150,11 @@
   <div class="vs-choices">
     <div class="form-check">
       <input class="form-check-input" type="radio" name="leftover" id="leftover-restore" value="restore" checked>
-      <label class="form-check-label" for="leftover-restore">Restore them all</label>
+      <label class="form-check-label" for="leftover-restore">Restore them all <span class="vs-meta">(the duress vault will see them return)</span></label>
     </div>
     <div class="form-check">
       <input class="form-check-input" type="radio" name="leftover" id="leftover-let-go" value="let-go">
-      <label class="form-check-label" for="leftover-let-go">Let them go now</label>
+      <label class="form-check-label" for="leftover-let-go">Let them go now <span class="vs-meta">(the duress vault sees no change)</span></label>
     </div>
   </div>
   {{ password("done") }}
