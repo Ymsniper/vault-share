@@ -351,14 +351,17 @@ def review():
 
 
 def _trashed(uid, level, since):
-    # whatever the levels below trashed and is still kept, however long ago;
-    # in_window marks a file uploaded while the window was open, which a
-    # private copy would sign anew
+    # whatever the levels below trashed and is still kept, however long ago,
+    # but what this level kept a private copy of; in_window marks a file
+    # uploaded while the window was open, which a private copy would sign
+    # anew
     return get_db().execute(
-        "SELECT id, filename, trashed_at, uploaded_at >= ? AS in_window FROM files"
-        " WHERE owner_id = ? AND trashed_level > ? AND COALESCE(let_go_level, 99) > ?"
+        "SELECT id, filename, trashed_at, uploaded_at >= :since AS in_window FROM files"
+        " WHERE owner_id = :uid AND trashed_level > :level"
+        " AND COALESCE(let_go_level, 99) > :level AND NOT EXISTS (SELECT 1 FROM copied k"
+        "  WHERE k.user_id = :uid AND k.level = :level AND k.file_id = files.id)"
         " ORDER BY trashed_at",
-        (since, uid, level, level),
+        {"since": since, "uid": uid, "level": level},
     ).fetchall()
 
 
@@ -421,11 +424,14 @@ def reviewed_trash(file_ids):
 
 
 def copied(file_id):
-    """A trashed file kept as a private copy leaves this level's reviews, as
-    a let-go file does, so neither Done nor a second copy brings it back,
-    and stays trashed for the duress vault, for the review of the levels
-    above, and for the 30 days. The caller commits."""
-    get_db().execute("UPDATE files SET let_go_level = ? WHERE id = ?", (g.level, file_id))
+    """A trashed file kept as a private copy leaves this level's reviews
+    only, so neither Done nor a second copy brings it back here, and stays
+    trashed for the duress vault, in the reviews of the levels between, and
+    for the 30 days. The caller commits."""
+    get_db().execute(
+        "INSERT OR IGNORE INTO copied (user_id, level, file_id) VALUES (?, ?, ?)",
+        (g.user["id"], g.level, file_id),
+    )
 
 
 def label(file_ids):
@@ -907,8 +913,8 @@ def _clear(policy, first, user_id):
 def _fresh_start(user_id, policy, first):
     """The levels from first down, whose password was replaced or cleared,
     start as new ones: their two-factor login inherited from above again,
-    with no codes of their own, no labels and no review owed, so nothing
-    the old holder set up reaches the new one. The same statements for every level,
+    with no codes of their own, no labels or copies and no review owed, so
+    nothing the old holder set up reaches the new one. The same statements for every level,
     as in _clear."""
     db = get_db()
     for level in range(1, LEVELS):
@@ -923,6 +929,9 @@ def _fresh_start(user_id, policy, first):
         )
         db.execute(
             "DELETE FROM labels WHERE user_id = ? AND level = ? AND ?", (user_id, level, really)
+        )
+        db.execute(
+            "DELETE FROM copied WHERE user_id = ? AND level = ? AND ?", (user_id, level, really)
         )
         if really:
             policy.unreviewed_since[level] = 0

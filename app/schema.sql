@@ -1,5 +1,6 @@
 DROP TABLE IF EXISTS audit_log;
 DROP TABLE IF EXISTS labels;
+DROP TABLE IF EXISTS copied;
 DROP TABLE IF EXISTS file_keys;
 DROP TABLE IF EXISTS shares;
 DROP TABLE IF EXISTS files;
@@ -218,6 +219,16 @@ CREATE TABLE file_keys (
 -- above it, for that level only (app/levels.py): a chip on that level's own
 -- lists, which the duress vault never shows
 CREATE TABLE labels (
+    user_id INTEGER NOT NULL REFERENCES users (id),
+    level INTEGER NOT NULL CHECK (level BETWEEN 0 AND 7),
+    file_id TEXT NOT NULL REFERENCES files (id) ON DELETE CASCADE,
+    PRIMARY KEY (user_id, level, file_id)
+);
+
+-- a file a duress session deleted, which the review of a level above kept
+-- a private copy of (app/levels.py): it leaves that level's reviews only,
+-- and stays trashed, in the reviews of the levels between too
+CREATE TABLE copied (
     user_id INTEGER NOT NULL REFERENCES users (id),
     level INTEGER NOT NULL CHECK (level BETWEEN 0 AND 7),
     file_id TEXT NOT NULL REFERENCES files (id) ON DELETE CASCADE,

@@ -11,7 +11,7 @@ from cryptography.exceptions import InvalidTag
 from sqlcipher3 import dbapi2 as sqlcipher
 
 from app import create_app, levels
-from app.admin import log_entries
+from app.admin import log_entries, revoke_certificate
 from app.auth import show_handle
 from app.db import get_db, init_db
 from app.invites import create_admin_invite
@@ -1073,10 +1073,10 @@ def test_quiet_review_actions_leave_the_duress_vault_as_it_was(app, alice, bob):
     forced.get("/")  # the message of the dismiss, shown once
     real, _ = log_in(app, alice, PASSWORD)
     page = real.get("/auth/review").data
-    # every action says which kind it is, five quiet and five loud: copy
-    # or restore, label or delete, leave or bring back, put back, replace,
-    # and Done's let go or restore
-    assert page.count(QUIET) == 5 and page.count(LOUD) == 5
+    # every action says which kind it is, five quiet and six loud: copy or
+    # restore, label or delete, leave or bring back, put back, the
+    # certificate, replace, and Done's let go or restore
+    assert page.count(QUIET) == 5 and page.count(LOUD) == 6
     before = seen(forced, [old, planted, arrived, report])
     for action, urls, shown in (
         ("copy", [old], b"Saved a private copy of 1 file."),
@@ -1233,6 +1233,45 @@ def test_a_copy_that_fails_its_checks_is_reported(app, alice, bob):
     assert b"Not copied: menu.txt: Verification failed: the stored file was modified." in r.data
     # it stays in the list, to restore or let go
     assert b"menu.txt" in real.get("/auth/review").data.split(b"Deleted</h2>")[1]
+
+
+def test_a_private_copy_leaves_the_reviews_of_the_levels_between_as_they_were(app, alice):
+    """Three levels down: what level 0 copies stays in the review level 1
+    owes of level 2's window, where whoever holds level 1 would notice an
+    entry gone."""
+    one = at_level_one(app, alice)
+    set_duress(one, duress=DEEPER)
+    two, _ = log_in(app, alice, DEEPER)
+    old = new_file(two, MENU, "menu.txt")
+    delete(two, old)
+    middle, r = log_in(app, alice, DURESS)
+    assert r.headers["Location"] == "/auth/review"
+    real, r = log_in(app, alice, PASSWORD)
+    assert r.headers["Location"] == "/auth/review"
+    before = seen(middle, ["/auth/review"])
+    assert "menu.txt" in before[-1].split("Deleted</h2>")[1].split("</form>")[0]
+    assert b"Saved a private copy of 1 file." in review_action(real, "copy", [old]).data
+    assert seen(middle, ["/auth/review"]) == before
+
+
+def test_after_the_revocation_a_copy_takes_only_what_was_signed_before(app, alice, bob):
+    """The review advises revoking the certificate from the window's start:
+    a file from before it still copies, under a new certificate, and one
+    uploaded in the window no longer passes its checks."""
+    older = new_file(alice, b"Older notes.\n", "older.txt")
+    move(alice, [older], "down")
+    # times go by the second: the window opens in a later one
+    time.sleep(1.1)
+    forced, old, planted, arrived = a_duress_visit(app, alice, bob)
+    delete(forced, older)
+    real, _ = log_in(app, alice, PASSWORD)
+    since = re.search(rb"was used since (\S+ \S+) UTC", real.get("/auth/review").data).group(1)
+    with app.app_context():
+        revoke_certificate(alice.handle, since=since.decode())
+    r = review_action(real, "copy", [older, old])
+    assert b"Saved a private copy of 1 file." in r.data
+    assert b"Not copied: menu.txt: Verification failed: the certificate was revoked." in r.data
+    assert b"older.txt" in my_files(real)
 
 
 def test_the_review_restores_deletes_and_brings_back(app, alice, bob):

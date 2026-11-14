@@ -200,9 +200,11 @@ quiet ones are the defaults:
 - A deleted file: a private copy is quiet. The file is decrypted with the
   reviewing session's keys and stored again as a new file of its own, with
   a new id, key, signature and record HMAC; the deleted one stays deleted
-  and leaves the review. Restoring it for everyone is loud. A copy signs
-  what it copies, so the list marks the files uploaded while the window
-  was open.
+  and leaves the review of the session that copied it only (table
+  `copied`). Restoring it for everyone is loud. A copy signs what it
+  copies, so the list marks the files uploaded while the window was open,
+  and once the certificate is revoked from the window's start, as the
+  review advises, those no longer pass their checks and are not copied.
 - An uploaded file: a label is quiet, a chip on the reviewing session's own
   lists only (table `labels`). Deleting it is loud.
 - A file shared meanwhile: leaving it is quiet. Bringing it back to the
@@ -299,6 +301,11 @@ What the levels cannot hide:
   saved, or removes it, and whoever holds it then notices.
 - The first 48 hours: a first duress password does not work yet, so a
   login forced in that time has only the real password to give.
+- The reviews in between: putting a removed file back, and letting go at
+  "Done", also take it out of the reviews owed by the duress levels between
+  the reviewing session and the one that removed or deleted it, which
+  whoever holds such a level can notice. A private copy and a label leave
+  those reviews as they were.
 - The invite allowance: each level counts only the codes made at its own
   level or below, since a shared count would show a duress session that
   codes exist above it. An admin who knows their own duress passwords can
