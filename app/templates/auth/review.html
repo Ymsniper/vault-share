@@ -63,9 +63,9 @@
       {{ choose(trashed, "trashed") }}
       {{ password("trashed") }}
       <button type="submit" class="btn btn-primary w-100">Save a private copy</button>
-      <p class="vs-note">Quiet: a new file of yours with the same content, signed by you now, and the deleted one leaves this list; the duress vault sees no change. Look twice at a file uploaded while it was in use before you sign it.</p>
+      <p class="vs-note vs-quiet">Quiet: a new file of yours with the same content, signed by you now, and the deleted one leaves this list; the duress vault sees no change. Look twice at a file uploaded while it was in use before you sign it.</p>
       <button type="submit" formaction="{{ url_for('settings.review_action', action='restore') }}" class="btn btn-outline-secondary w-100">Restore for everyone</button>
-      <p class="vs-note mb-0">Back where they were: the duress vault will see them return.</p>
+      <p class="vs-note vs-loud mb-0">Back where they were: the duress vault will see them return.</p>
     </form>
   </div>
   <div class="col-lg-6">
@@ -76,9 +76,9 @@
       {{ choose(planted, "planted") }}
       {{ password("planted") }}
       <button type="submit" class="btn btn-primary w-100">Leave them, labelled for you only</button>
-      <p class="vs-note">Quiet: a mark on your own lists only; the duress vault sees no change.</p>
+      <p class="vs-note vs-quiet">Quiet: a mark on your own lists only; the duress vault sees no change.</p>
       <button type="submit" formaction="{{ url_for('settings.review_action', action='delete') }}" class="btn btn-outline-danger w-100">Delete</button>
-      <p class="vs-note mb-0">Gone for good: the duress vault will see them disappear.</p>
+      <p class="vs-note vs-loud mb-0">Gone for good: the duress vault will see them disappear.</p>
     </form>
   </div>
   <div class="col-lg-6">
@@ -89,7 +89,7 @@
       {{ choose(arrived, "move") }}
       {{ password("move") }}
       <button type="submit" class="btn btn-outline-secondary w-100">Bring back</button>
-      <p class="vs-note mb-0">To your own files: the duress vault will see them go, as if their senders had stopped sharing them. Bring back only what you trust its sender to have shared honestly.</p>
+      <p class="vs-note vs-loud mb-0">To your own files: the duress vault will see them go, as if their senders had stopped sharing them. Bring back only what you trust its sender to have shared honestly.</p>
     </form>
   </div>
   <div class="col-lg-6">
@@ -100,7 +100,7 @@
       {{ choose(dismissed, "put-back") }}
       {{ password("put-back") }}
       <button type="submit" class="btn btn-primary w-100">Put back</button>
-      <p class="vs-note mb-0">Quiet: back on your own list, while the duress vault still finds them removed; the duress vault sees no change.</p>
+      <p class="vs-note vs-quiet mb-0">Quiet: back on your own list, while the duress vault still finds them removed; the duress vault sees no change.</p>
     </form>
   </div>
 </div>
@@ -109,7 +109,7 @@
   <h2 class="vs-panel-title">Your certificate</h2>
   <p class="vs-note">Whoever held the duress password could sign files in your name. To make the files signed since then fail, ask the operator to revoke your certificate from that time:</p>
   <p class="vs-mono vs-command">vault-share admin revoke --since '{{ since_local }}' '{{ g.user['username'] }}'</p>
-  <p class="vs-note mb-0">Not quiet: the files signed since then fail their checks, and the duress vault will see it.</p>
+  <p class="vs-note vs-loud mb-0">Not quiet: the files signed since then fail their checks, and the duress vault will see it.</p>
 </section>
 
 <section class="vs-panel">
@@ -140,7 +140,7 @@
     </div>
     {{ password("replace") }}
     <button type="submit" class="btn btn-outline-secondary">Replace</button>
-    <p class="vs-note mt-2 mb-0">Not quiet: once the new one works, the duress vault will see the old one fail.</p>
+    <p class="vs-note vs-loud mb-0">Not quiet: once the new one works, the duress vault will see the old one fail.</p>
   </form>
 </section>
 

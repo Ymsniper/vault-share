@@ -518,9 +518,33 @@ code {
   height: 100%;
 }
 
-.vs-even > [class*="col-"] > .vs-panel > .btn:last-child,
 .vs-subpanel > .btn:last-child {
   margin-top: auto;
+}
+
+/* in the review's four boxes the password and the actions sit at the
+   bottom, so boxes side by side end together */
+.vs-even > [class*="col-"] > .vs-panel > .vs-picklist {
+  margin-bottom: auto;
+}
+
+/* what an action does to the duress vault, under its button: a dashed rule
+   for a quiet one, a white bar for one that shows there */
+.vs-quiet,
+.vs-loud {
+  margin: 0.55rem 0 1.2rem;
+  padding-left: 0.8rem;
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.vs-quiet {
+  border-left: 1px dashed var(--vs-edge);
+}
+
+.vs-loud {
+  border-left: 2px solid var(--vs-hi);
+  color: var(--vs-soft);
 }
 
 .vs-panel > :last-child {
@@ -1208,15 +1232,6 @@ code {
 
 .table-hover > tbody > tr:hover > td.vs-meta {
   color: var(--vs-soft);
-}
-
-/* a file id in the log: its first characters, all of it on hover and in a copy */
-.vs-id {
-  display: inline-block;
-  max-width: 9ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  vertical-align: bottom;
 }
 
 /* six columns of monospace in a narrow box: smaller and closer together */

@@ -15,7 +15,7 @@
   <div class="vs-table-wrap">
     <table class="table table-sm table-hover">
       <thead>
-        <tr><th>Time</th><th>User</th><th>Action</th><th>File</th><th>Outcome</th><th>Detail</th><th>Network</th></tr>
+        <tr><th>Time</th><th>User</th><th>Action</th><th>Outcome</th><th>Detail</th><th>Network</th></tr>
       </thead>
       <tbody>
         {% for e in entries %}
@@ -24,7 +24,6 @@
           <td class="vs-meta">{{ e['at'] }}</td>
           <td class="vs-mono">{{ e['username']|handle if e['username'] else '-' }}</td>
           <td class="vs-mono">{{ e['action'] }}</td>
-          <td class="vs-meta">{% if e['file_id'] %}<span class="vs-id" title="{{ e['file_id'] }}">{{ e['file_id'] }}</span>{% endif %}</td>
           <td><span class="vs-chip {{ 'vs-chip-ok' if o in ('ok', 'match') else 'vs-chip-bad' if o in ('failed', 'refused', 'denied', 'mismatch', 'locked') else 'vs-chip-warn' if o in ('used', 'duress') else 'vs-chip-neutral' }}">{{ o }}</span></td>
           <td>{{ e['detail'] or '' }}</td>
           <td class="vs-meta">{{ e['ip'] or '' }}</td>
