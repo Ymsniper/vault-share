@@ -19,6 +19,7 @@ by it. No view asks whether a session is a duress one.
 import datetime
 import hmac
 import os
+import re
 import secrets
 import struct
 import threading
@@ -1094,51 +1095,67 @@ def wipe(user, level):
     threading.Thread(target=_remove, args=(paths,), name="wipe", daemon=True).start()
 
 
+# What a session's log shows: security events only (design revision 2, B3).
+# File activity stays at the console, so no file can lack its upload row in
+# a duress session's log, and no session can count another's files or
+# shares; a refused access shows without its file.
+WEB_ACTIONS = ("login", "logout", "password", "register", "invite", "totp", "access",
+               "read_log", "ban", "unban", "admin", "certificate", "unlock", "settings")
+_WEB = "|" + "|".join(WEB_ACTIONS) + "|"
+# invite code numbers count the codes made, those of the levels above too
+_CODE_NUMBER = re.compile(r"\b(invite )?code \d+")
+
+
 def audit_rows(problems=False, before=None, limit=200):
     """Audit entries, newest first, as the current session sees them, or
     all of them at the server (console, command line).
 
-    A session at level k > 0 does not see the rows its own account's
-    sessions wrote at a level above (a smaller number), nor the rows others
-    wrote about a file the account holds at a level above: the current
-    copy says so, or the level recorded on the row once the file is gone.
-    Rows no session wrote (registering, the server's commands) show at
-    every level. A login at a level below the viewer's is its duress
-    alarm; at level 0 and at the server, every duress login is one."""
+    A session sees the security events only (WEB_ACTIONS), without file
+    ids or invite code numbers. A session at level k > 0 does not see the
+    rows its own account's sessions wrote at a level above (a smaller
+    number). Rows no session wrote (registering, the server's commands)
+    show at every level. A login at a level below the viewer's is its
+    duress alarm; at level 0 and at the server, every duress login is
+    one."""
     viewer = g.user["id"] if g.get("user") is not None else None
     level = g.level if viewer is not None else 0
     rows = get_db().execute(
         "SELECT a.*, u.username FROM audit_log a"
         " LEFT JOIN users u ON u.id = a.user_id"
-        " LEFT JOIN files f ON f.id = a.file_id"
-        " LEFT JOIN file_keys c ON c.file_id = f.id AND c.user_id = f.owner_id"
-        # IS rather than =, so a row without a user or a file is not lost
-        # to a NULL comparison
-        " WHERE (:level = 0 OR NOT ("
-        "  (a.user_id IS :viewer AND a.level IS NOT NULL AND a.level < :level)"
-        "  OR (a.user_id IS NOT :viewer AND COALESCE(f.owner_id, a.subject_id) IS :viewer"
-        "   AND COALESCE(c.level, a.subject_level, 0) < :level)))"
+        " WHERE (:web = '' OR instr(:web, '|' || a.action || '|') > 0)"
+        # IS rather than =, so a row without a user is not lost to a NULL
+        # comparison
+        " AND NOT (a.user_id IS :viewer AND a.level IS NOT NULL AND a.level < :level)"
         " AND (:problems = 0 OR a.outcome IN ('failed', 'refused', 'denied', 'locked', 'mismatch')"
         "  OR (a.action = 'login' AND a.level > CASE WHEN a.user_id IS :viewer THEN :level ELSE 0 END))"
         " AND (:before IS NULL OR a.id < :before)"
         " ORDER BY a.id DESC LIMIT :limit",
-        {"level": level, "viewer": viewer, "problems": int(problems), "before": before,
-         "limit": limit},
+        {"web": _WEB if viewer is not None else "", "level": level, "viewer": viewer,
+         "problems": int(problems), "before": before, "limit": limit},
     ).fetchall()
     return [_shown(dict(r), viewer, level) for r in rows]
+
+
+def _code(match):
+    return "an invite code" if match.group(1) else "a code"
 
 
 def _shown(row, viewer, level):
     """A row as the viewer sees it. A duress login below the viewer's own
     level, or any duress login of someone else, is the alarm, with its mode
     and never its level number, which would tell a session that it is not
-    the top. Any other login says nothing about its level."""
+    the top. Any other login says nothing about its level. A session gets
+    no file, level or code number at all."""
     if row["action"] == "login" and row["level"]:
         own_top = level if row["user_id"] == viewer else 0
         if row["level"] > own_top:
             row["outcome"] = "duress"
         else:
             row["detail"] = None
+    if viewer is not None:
+        row["file_id"] = row["subject_id"] = row["subject_level"] = row["level"] = None
+        if row["detail"]:
+            row["detail"] = _CODE_NUMBER.sub(_code, row["detail"])
     return row
 
 

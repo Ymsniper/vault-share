@@ -258,17 +258,20 @@ def revoke_certificate(username, since=None, all_files=False):
     db = get_db()
     if since is not None and since > db.execute("SELECT datetime('now')").fetchone()[0]:
         raise ValueError("The time files fail from cannot be in the future.")
+    user = db.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
     # never before the certificate's own start, which is what all_files means
     cur = db.execute(
         "UPDATE certificates SET revoked_at = datetime('now'),"
         " invalid_from = CASE WHEN ? THEN not_before"
         "  ELSE max(not_before, COALESCE(?, datetime('now'))) END"
-        " WHERE revoked_at IS NULL AND user_id = (SELECT id FROM users WHERE username = ?)",
-        (int(all_files), since, username),
+        " WHERE revoked_at IS NULL AND user_id = ?",
+        (int(all_files), since, user["id"] if user else None),
     )
     if cur.rowcount == 0:
         raise ValueError(f"{username} has no certificate to revoke.")
     db.commit()
+    detail = "every file it signed" if all_files else f"files from {since}" if since else None
+    audit("certificate", "revoked", detail=detail, user_id=user["id"])
     try:
         return write_crl()
     except OSError as e:

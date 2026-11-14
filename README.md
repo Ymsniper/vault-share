@@ -210,17 +210,19 @@ level, for another account's duress logins and for its own account's logins
 at a level below its own; at the duress level itself it is a plain login. A
 duress admin session thus shows the alarms a real one would, other people's
 included: hiding them would give it away to anyone who set a duress password
-on an account of their own. An admin's session at level 1 sees the log
-without the rows its account wrote at level 0 or that others wrote about its
-level 0 files, and the invites page lists and counts only the codes made at
-its level or below. With the wipe option, the duress password destroys the
-files and key copies of the level that set it, at once, and nothing else:
-the keys stay, so the levels below keep working. Files shared with it leave
-its list as after a dismiss, so their senders see nothing change, and when a
-duress session armed the wipe, the review can put them back. With two-factor
-login on, the wipe waits for the code, like the login itself, so a leaked
-duress password alone destroys nothing; the alarm is written as soon as the
-password is typed. A new duress password starts to work 48 hours after it is
+on an account of their own. The web log shows security events only, with no
+file activity and no invite code numbers (see Admin below), so a cover file
+cannot lack its upload row there. An admin's session at level 1 sees it
+without the rows its account wrote at level 0, and the invites page lists
+and counts only the codes made at its level or below. With the wipe option,
+the duress password destroys the files and key copies of the level that set
+it, at once, and nothing else: the keys stay, so the levels below keep
+working. Files shared with it leave its list as after a dismiss, so their
+senders see nothing change, and when a duress session armed the wipe, the
+review can put them back. With two-factor login on, the wipe waits for the
+code, like the login itself, so a leaked duress password alone destroys
+nothing; the alarm is written as soon as the password is typed. A new
+duress password starts to work 48 hours after it is
 saved, at every level alike, so whoever watches one being set cannot try it
 on the spot. The one it replaces keeps working until then, so its holder
 notices nothing before: each duress level has two credential rows, the
@@ -271,9 +273,8 @@ What the levels cannot hide:
   so that admins can act in that time.
 - A coercer who knows this design: they know any account may have a higher
   level, and can never prove it has none.
-- An admin coercer reading the log: a file moved down to a cover level
-  keeps the history of the level it came from, so the lower level's log
-  shows no upload for it.
+- An admin's earlier logins: a duress admin session's log shows none of
+  its account's logins from before it, a soft tell for admin accounts only.
 - A used duress password: it keeps working, and every later login with it
   opens a new window, so files shared with the account from then on reach
   whoever holds it. Ending it on its own would give the owner away, so it
@@ -572,10 +573,16 @@ To make a user an admin, who can read the audit log and make invite codes:
 
 The audit log shows 200 events at a time, with a link to older ones, and
 can show only the problems: failures, refusals, locks and the duress alarm.
-The console's Audit log tab has the same filter and shows 200 more rows at a
-time. So a user who fills the log cannot push an entry out of reach, and an
-owner's own visits to their file pages are not logged at all. A lock is
-written once, when it starts, not for every request it refuses.
+The web page shows the security events only: logins and their failures,
+locks, registrations, invite and two-factor events, refused access (without
+the file), bans, admin rights, certificate revocations, unlocks and settings.
+File activity (uploads, downloads, shares and the rest) and the numbers of
+invite codes, which would let an admin count a user's files or the codes
+made, are for the console's Audit log tab, which lists everything, with the
+same filter, 200 more rows at a time. So a user who fills the log cannot
+push an entry out of reach, and an owner's own visits to their file pages
+are not logged at all. A lock is written once, when it starts, not for every
+request it refuses.
 
 ![The audit log](docs/screenshots/web-audit-log.png)
 

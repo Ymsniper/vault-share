@@ -83,4 +83,3 @@ def test_one_run_is_nine_passes_at_64_mib(monkeypatch):
     passwords.derive_master("password", bytes(16))
     assert (seen["time_cost"], seen["memory_cost"], seen["parallelism"]) == (9, 64 * 1024, 4)
     assert seen["hash_len"] == 32 and seen["type"].name == "ID"
-

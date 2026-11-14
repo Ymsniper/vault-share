@@ -3,10 +3,11 @@ import io
 import re
 
 from app import create_app
+from app.admin import log_entries
 from app.audit import network_of
 from app.db import get_db
 
-from .test_files import delete, download, share
+from .test_files import delete, download, file_id, new_file, share
 
 
 def log_rows(app):
@@ -87,7 +88,7 @@ def older_link(page):
 
 def test_older_entries_stay_reachable(app, alice):
     app.test_cli_runner().invoke(args=["admin", "grant", alice.handle])
-    add_entries(app, 250)
+    add_entries(app, 250, action="logout")
     page = alice.get("/admin/log").data
     assert b"entry 249" in page and b"entry 010" not in page
     page = alice.get(older_link(page)).data
@@ -96,11 +97,49 @@ def test_older_entries_stay_reachable(app, alice):
 
 def test_problems_only(app, alice):
     app.test_cli_runner().invoke(args=["admin", "grant", alice.handle])
-    add_entries(app, 3)
-    add_entries(app, 2, action="upload", outcome="refused")
+    add_entries(app, 3, action="logout")
+    add_entries(app, 2, action="login", outcome="failed")
     page = alice.get("/admin/log?problems=1").data
-    assert b'<td class="vs-mono">upload</td>' in page
-    assert b'<td class="vs-mono">test</td>' not in page
+    assert b'<td class="vs-mono">login</td>' in page
+    assert b'<td class="vs-mono">logout</td>' not in page
+
+
+FILE_ACTIONS = {b"upload", b"verify", b"share", b"revoke", b"download", b"delete",
+                b"check_copy", b"download_proof", b"renew_certificate"}
+
+
+def actions_on(page):
+    return set(re.findall(rb'<td class="vs-mono">([a-z_]+)</td>', page))
+
+
+def test_the_web_log_shows_security_events_only(app, alice, bob):
+    """Design revision 2, B3: the page shows what an admin needs to guard the
+    server. File activity, the file of a refused access and the numbers of
+    invite codes are for the console, which lists everything."""
+    app.test_cli_runner().invoke(args=["admin", "grant", alice.handle])
+    url = new_file(alice)
+    share(alice, url, bob.handle)
+    bob.get(url)
+    download(bob, url)
+    download(alice, url, "a wrong guess")
+    private = new_file(alice, name="private.txt")
+    assert bob.get(private).status_code == 403
+    delete(alice, url)
+    app.test_cli_runner().invoke(args=["admin", "revoke", alice.handle])
+
+    for path in ("/admin/log", "/admin/log?problems=1"):
+        page = alice.get(path).data
+        assert not actions_on(page) & FILE_ACTIONS
+        assert file_id(url).encode() not in page and file_id(private).encode() not in page
+        assert not re.search(rb"code \d", page)
+    page = alice.get("/admin/log").data
+    assert {b"register", b"login", b"invite", b"access", b"certificate"} <= actions_on(page)
+    assert b"an invite code" in page
+    with app.app_context():
+        entries = log_entries(limit=1000)
+    assert {"upload", "verify", "share", "download", "delete"} <= {e["action"] for e in entries}
+    assert file_id(private) in {e["file_id"] for e in entries if e["action"] == "access"}
+    assert any(re.fullmatch(r"invite code \d+", e["detail"] or "") for e in entries)
 
 
 def test_grant_rejects_unknown_user(app):

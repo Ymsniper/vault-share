@@ -10,9 +10,10 @@ import pytest
 from cryptography.exceptions import InvalidTag
 from sqlcipher3 import dbapi2 as sqlcipher
 
-from app import levels
+from app import create_app, levels
+from app.admin import log_entries
 from app.auth import show_handle
-from app.db import get_db
+from app.db import get_db, init_db
 from app.invites import create_admin_invite
 from security.hybrid import public_bytes, unwrap_file_key
 from security.keychain import follow_link, lock_secret, unlock_key, verifier
@@ -231,7 +232,10 @@ def test_every_admin_session_sees_another_account_s_alarm(app, alice, bob):
     assert [a - b for a, b in zip(alarms(), before)] == [1, 1, 1, 1]
 
 
-def test_a_level_one_admin_sees_no_level_zero_rows(app, alice, bob, monkeypatch):
+def test_a_duress_admin_log_holds_no_file_row_and_no_code_number(app, alice, bob, monkeypatch):
+    """Design revision 2, B3: with file activity and invite code numbers left
+    to the console, a duress admin session's log has no row a cover file
+    could miss, and no numbers that count the codes made above it."""
     make_admin(app, alice)
     secret = turn_on(alice)
     real = new_file(alice)
@@ -239,9 +243,6 @@ def test_a_level_one_admin_sees_no_level_zero_rows(app, alice, bob, monkeypatch)
     download(bob, real)
     tick(monkeypatch, 30)
     alice.post("/admin/invites/new", data={"password": PASSWORD, "code": code(secret)})
-    with app.app_context():
-        number = get_db().execute("SELECT MAX(id) FROM invites").fetchone()[0]
-    her_code = f"code {number}, ".encode()
 
     set_duress(alice)
     tick(monkeypatch, 60)
@@ -249,22 +250,57 @@ def test_a_level_one_admin_sees_no_level_zero_rows(app, alice, bob, monkeypatch)
     forced.post("/auth/login/code", data={"code": code(secret)})
     menu = new_file(forced, MENU, "menu.txt")
     share(forced, menu, bob.handle)
-    # written at bob's level 0, about a file alice holds at level 1: bob
-    # could check that it shows
     download(bob, menu)
+    tick(monkeypatch, 60)
+    forced.post("/admin/invites/new", data={"password": DURESS, "code": code(secret)})
 
-    for page in (
-        forced.get("/admin/log").data,
-        forced.get("/admin/log?problems=1").data,
-    ):
-        assert file_id(real).encode() not in page and her_code not in page
-    assert file_id(menu).encode() in forced.get("/admin/log").data
-    codes = forced.get("/admin/invites").data
-    assert b'Your codes <span class="vs-count">0</span>' in codes
-    assert b"Your codes may create 5 more accounts" in codes
-    # the real account sees all of it
-    page = alice.get("/admin/log").data
-    assert file_id(real).encode() in page and file_id(menu).encode() in page and her_code in page
+    for viewer in (forced, alice):
+        for url in ("/admin/log", "/admin/log?problems=1"):
+            page = viewer.get(url).data
+            assert file_id(real).encode() not in page and file_id(menu).encode() not in page
+            assert not re.search(rb'<td class="vs-mono">(upload|download|share|verify)</td>', page)
+            assert not re.search(rb"code \d", page)
+    assert b'Your codes <span class="vs-count">1</span>' in forced.get("/admin/invites").data
+    # the console has it all
+    with app.app_context():
+        entries = log_entries(limit=1000)
+    assert {file_id(real), file_id(menu)} <= {e["file_id"] for e in entries}
+    assert sum(bool(re.search(r"code \d", e["detail"] or "")) for e in entries) >= 4
+
+
+def another_server(app, tmp_path):
+    """A second, empty server with the first one's settings and CA."""
+    folder = tmp_path / "another-server"
+    other = create_app({
+        **{k: v for k, v in app.config.items() if k.isupper()},
+        "DATABASE": str(folder / "db.sqlite3"), "STORAGE_FOLDER": str(folder / "storage"),
+        "SECRETS_DIR": str(folder / "secrets"), "SETTINGS_FILE": str(folder / "server.toml"),
+        "CA_CRL": str(folder / "crl.pem"),
+    })
+    with other.app_context():
+        init_db()
+    return other
+
+
+def test_a_duress_admin_log_reads_as_a_real_admin_log(app, tmp_path):
+    """Design revision 2, B3: the log a duress admin session sees is the one
+    a real admin sees on a server where the same visible things happened,
+    though its cover file was uploaded at level 0 and moved down."""
+    alice = logged_in(app, "alice")
+    make_admin(app, alice)
+    move(alice, [new_file(alice, MENU, "menu.txt")], "down")
+    forced = at_level_one(app, alice)
+    new_file(forced, b"Notes from the meeting.\n", "notes.txt")
+
+    other = another_server(app, tmp_path)
+    plain = logged_in(other, "alice")
+    make_admin(other, plain)
+    for name, data in (("menu.txt", MENU), ("notes.txt", b"Notes from the meeting.\n")):
+        new_file(plain, data, name)
+
+    for url in ("/admin/log", "/admin/log?problems=1"):
+        assert normalized(forced.get(url).data, alice.handle) == \
+            normalized(plain.get(url).data, plain.handle), url
 
 
 def test_older_pages_keep_the_level_rule(app, alice):
@@ -274,12 +310,14 @@ def test_older_pages_keep_the_level_rule(app, alice):
     with app.app_context():
         db = get_db()
         for _ in range(250):
-            db.execute("INSERT INTO audit_log (action, outcome) VALUES ('test', 'ok')")
+            db.execute("INSERT INTO audit_log (action, outcome) VALUES ('logout', 'ok')")
         db.commit()
     first = forced.get("/admin/log").data
     older = re.search(rb'href="([^"]*before=[^"]*)"', first).group(1).decode()
     page = forced.get(older.replace("&amp;", "&")).data
     assert b'<td class="vs-mono">register</td>' in page
+    # the level 1 login, and not the one at level 0 before it
+    assert page.count(b'<td class="vs-mono">login</td>') == 1
     assert file_id(real).encode() not in page
 
 
