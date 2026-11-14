@@ -849,29 +849,43 @@ def _unused_row():
     return (os.urandom(32), unused_lock())
 
 
-def _clear(policy, level, contents):
-    """Empty both of a level's rows, the password in use and the next one,
-    with contents, two from _unused_row()."""
+def _clear(policy, first, user_id):
+    """Empty both rows of every level from first down, the password in use
+    and the next one: a random verifier and an unused lock each. The same
+    statements for every level, those for the levels above first changing
+    nothing, so the work does not tell how many levels were cleared."""
     db = get_db()
-    for row, content in zip((policy.rows[level], policy.next_rows[level]), contents):
-        db.execute("UPDATE credentials SET verifier = ?, lock = ? WHERE id = ?", (*content, row))
-    policy.modes[level] = policy.next_modes[level] = COVER
-    policy.active_from[level] = policy.next_from[level] = 0
+    for level in range(1, KEY_LEVELS):
+        really = level >= first
+        for row in (policy.rows[level], policy.next_rows[level]):
+            db.execute(
+                "UPDATE credentials SET verifier = ?, lock = ? WHERE id = ? AND user_id = ? AND ?",
+                (*_unused_row(), row, user_id, really),
+            )
+        if really:
+            policy.modes[level] = policy.next_modes[level] = COVER
+            policy.active_from[level] = policy.next_from[level] = 0
 
 
-def _fresh_start(user_id, policy, lower_levels):
-    """Levels whose password was replaced or cleared start as new ones: their
-    two-factor login inherited from above again, with no codes of their own,
-    and no review owed, so nothing the old holder set up reaches the new
-    one."""
+def _fresh_start(user_id, policy, first):
+    """The levels from first down, whose password was replaced or cleared,
+    start as new ones: their two-factor login inherited from above again,
+    with no codes of their own, and no review owed, so nothing the old
+    holder set up reaches the new one. The same statements for every level,
+    as in _clear."""
     db = get_db()
-    for level in lower_levels:
+    for level in range(1, LEVELS):
+        really = level >= first
         db.execute(
-            "UPDATE two_factor SET sealed = ? WHERE user_id = ? AND level = ?",
-            (_seal_factor(user_id, level, INHERIT), user_id, level),
+            "UPDATE two_factor SET sealed = ? WHERE user_id = ? AND level = ? AND ?",
+            (_seal_factor(user_id, level, INHERIT), user_id, level, really),
         )
-        db.execute("DELETE FROM totp_recovery WHERE user_id = ? AND level = ?", (user_id, level))
-        policy.unreviewed_since[level] = 0
+        db.execute(
+            "DELETE FROM totp_recovery WHERE user_id = ? AND level = ? AND ?",
+            (user_id, level, really),
+        )
+        if really:
+            policy.unreviewed_since[level] = 0
 
 
 def _due(policy, now):
@@ -897,9 +911,8 @@ def _switch(policy, user_id, now):
     policy.active_from[level], policy.next_from[level] = policy.next_from[level], 0
     db = get_db()
     db.execute("UPDATE credentials SET verifier = ?, lock = ? WHERE id = ?", (*_unused_row(), old))
-    for below in range(level + 1, KEY_LEVELS):
-        _clear(policy, below, (_unused_row(), _unused_row()))
-    _fresh_start(user_id, policy, range(level, LEVELS))
+    _clear(policy, level + 1, user_id)
+    _fresh_start(user_id, policy, level)
     db.execute("DELETE FROM sessions WHERE user_id = ? AND level >= ?", (user_id, level))
     return level
 
@@ -924,17 +937,17 @@ def set_duress(keys, password, mode):
     the chain below start anew (_switch), so a password a coercer set there
     does not outlive this one. A second save before then replaces the
     first. mode is "cover" or "wipe". The password saved at the last level
-    opens nothing: it locks no key, and only its verifier counts, for the
-    Password page, so the page answers as at the levels above. One Argon2
-    run over the new password, and the same writes, at every level and
-    whatever the level held, so the time taken says nothing either."""
+    opens nothing: it locks the spare key, and only its verifier counts,
+    for the Password page, so the page answers as at the levels above. One
+    Argon2 run over the new password, and the same key operations and
+    writes, at every level and whatever the level held, so the time taken
+    says nothing either."""
     user, lower = g.user, g.level + 1
     master = _master(password, user["kdf_salt"])
-    if lower < LEVELS:
-        lock = lock_key(keys.private[lower], lock_secret(master, user["id"], lower),
-                        lock_aad(user["id"], lower))
-    else:
-        lock = unused_lock()
+    # below the last level the lock holds the spare key, which opens
+    # nothing, with the work of a real one
+    key = keys.private[lower] if lower < LEVELS else _SPARE_UPPER
+    lock = lock_key(key, lock_secret(master, user["id"], lower), lock_aad(user["id"], lower))
 
     def change(policy):
         row = policy.next_rows[lower]
@@ -961,14 +974,13 @@ def remove_duress():
     """Take the passwords of every level below the session's away, the one in
     use and the next one, and the one saved at the last level: each row
     holds a random verifier and an unused lock again, at once. Their keys
-    and files stay, under the levels above. The same work at every level."""
+    and files stay, under the levels above. The same statements at every
+    level (_clear, _fresh_start)."""
     user = g.user
-    spares = [(_unused_row(), _unused_row()) for _ in range(KEY_LEVELS - 1)]
 
     def change(policy):
-        for below, contents in zip(range(g.level + 1, KEY_LEVELS), spares):
-            _clear(policy, below, contents)
-        _fresh_start(user["id"], policy, range(g.level + 1, LEVELS))
+        _clear(policy, g.level + 1, user["id"])
+        _fresh_start(user["id"], policy, g.level + 1)
         _end_sessions_below(user["id"])
 
     update_policy(user["id"], change)

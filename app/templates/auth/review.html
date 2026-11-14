@@ -106,7 +106,7 @@
 <section class="vs-panel">
   <h2 class="vs-panel-title">Your duress password</h2>
   <p class="vs-note">Whoever holds it can log in with it again, and will see what is shared with you from then on. It never stops on its own: a duress password that stopped working would give you away.</p>
-  <p class="vs-note">To keep it, do nothing. To replace it, save a new one here: it starts to work in {{ delay }}, and the one you have now keeps working until then. To end it without a new one, remove it on the <a href="{{ url_for('settings.duress') }}">Duress page</a>.</p>
+  <p class="vs-note">To keep it, do nothing. To replace it, save a new one here: it starts to work in {{ delay }}, and the one you have now keeps working until then. After that the old one opens nothing, which whoever holds it will notice. To end it at once, remove it on the <a href="{{ url_for('settings.duress') }}">Duress page</a>.</p>
   <form method="post" action="{{ url_for('settings.duress') }}" autocomplete="off">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="mb-3">

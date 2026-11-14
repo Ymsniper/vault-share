@@ -278,7 +278,7 @@ What the levels cannot hide:
   opens a new window, so files shared with the account from then on reach
   whoever holds it. Ending it on its own would give the owner away, so it
   ends only when the owner replaces it, 48 hours after the new one is
-  saved, or removes it.
+  saved, or removes it, and whoever holds it then notices.
 - The first 48 hours: a first duress password does not work yet, so a
   login forced in that time has only the real password to give.
 - The invite allowance: each level counts only the codes made at its own

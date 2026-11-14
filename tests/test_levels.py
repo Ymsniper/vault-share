@@ -14,7 +14,7 @@ from app import levels
 from app.auth import show_handle
 from app.db import get_db
 from app.invites import create_admin_invite
-from security.hybrid import unwrap_file_key
+from security.hybrid import public_bytes, unwrap_file_key
 from security.keychain import follow_link, lock_secret, unlock_key, verifier
 from security import passwords
 from security.passwords import derive_master
@@ -521,7 +521,7 @@ def test_a_duress_password_set_at_the_last_level_opens_nothing(app, alice):
     r = set_duress(deeper, duress="harbor-lantern-quiet-41")
     assert b"Duress password saved." in r.data
     # the end of the chain: once its delay is over, it still opens nothing,
-    # and no lock of the account opens with it
+    # and no key of the account opens with it: its lock holds a spare key
     _, r = log_in(app, alice, "harbor-lantern-quiet-41")
     assert b"Incorrect username or password." in r.data
     uid = alice_id(app, alice)
@@ -529,12 +529,18 @@ def test_a_duress_password_set_at_the_last_level_opens_nothing(app, alice):
         db = get_db()
         salt = db.execute("SELECT kdf_salt FROM users WHERE id = ?", (uid,)).fetchone()[0]
         locks = [r[0] for r in db.execute("SELECT lock FROM credentials WHERE user_id = ?", (uid,))]
+        mine = {r[0] for r in db.execute("SELECT public_key FROM level_keys WHERE user_id = ?",
+                                         (uid,))}
     master = derive_master("harbor-lantern-quiet-41", salt)
+    opened = []
     for level in range(levels.KEY_LEVELS):
         secret = lock_secret(master, uid, level)
         for lock in locks:
-            with pytest.raises(InvalidTag):
-                unlock_key(lock, secret, f"lock|{uid}|{level}".encode())
+            try:
+                opened.append(unlock_key(lock, secret, f"lock|{uid}|{level}".encode()))
+            except InvalidTag:
+                pass
+    assert len(opened) == 1 and public_bytes(opened[0]) not in mine
 
 
 def settings_in_use(client, saved):
@@ -1317,32 +1323,44 @@ def counted(monkeypatch):
 
 
 def test_requests_do_the_same_work_at_every_level(app, monkeypatch):
-    """Section 13: upload, list and download at level 0 and level 1 must not
-    be told apart by their timing. Deterministic stand-ins: the same number
-    of Argon2 calls, which are what take time, and of SQL statements."""
-    a, b = logged_in(app, "alice"), logged_in(app, "alice")
-    forced = at_level_one(app, a)
+    """Section 13 and design revision 2, B2: requests at level 0 and at the
+    last level must not be told apart by their timing. Deterministic
+    stand-ins: the same number of Argon2 calls, which are what take time,
+    of key operations, and of SQL statements."""
+    a, b, carol = logged_in(app, "alice"), logged_in(app, "alice"), logged_in(app, "carol")
+    last = descend(app, a, levels.LEVELS - 1)
     argon2, statements = counted(monkeypatch)
+    keys = []
+    for name in ("follow_link", "wrap_file_key", "unwrap_file_key", "lock_key", "unlock_key"):
+        def counting(*args, real=getattr(levels, name), **kwargs):
+            keys.append(1)
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(levels, name, counting)
 
     def work(action):
         argon2.clear()
+        keys.clear()
         statements.clear()
         action()
-        return len(argon2), len(statements)
+        return len(argon2), len(keys), len(statements)
 
     url_a, url_b = [], []
-    for one, two in (
-        (lambda: url_a.append(new_file(forced, MENU, "menu.txt")),
-         lambda: url_b.append(new_file(b, MENU, "menu.txt"))),
-        (lambda: forced.get("/"), lambda: b.get("/")),
-        (lambda: download(forced, url_a[0]), lambda: download(b, url_b[0])),
+    for one, two, uses_keys in (
+        (lambda: url_a.append(new_file(last, MENU, "menu.txt")),
+         lambda: url_b.append(new_file(b, MENU, "menu.txt")), True),
+        (lambda: last.get("/"), lambda: b.get("/"), False),
+        (lambda: download(last, url_a[0]), lambda: download(b, url_b[0]), True),
+        (lambda: share(last, url_a[0], carol.handle), lambda: share(b, url_b[0], carol.handle),
+         True),
     ):
         first, second = work(one), work(two)
-        assert first == second and first[1] > 0
+        assert first == second and first[2] > 0 and (first[1] > 0) == uses_keys
     # an upload and a download each take one Argon2 call, at either level
-    assert work(lambda: download(forced, url_a[0]))[0] == 1
-    # and so does every page that asks for the password; a test of the new
-    # password against duress passwords costs the same at each level too
+    assert work(lambda: download(last, url_a[0]))[0] == 1
+    # and so does every page that asks for the password, with the same key
+    # operations and statements: a test of the new password against duress
+    # passwords, saving one, and removing them
     new = "orchard-window-copper-58"
     answers = []
 
@@ -1350,17 +1368,17 @@ def test_requests_do_the_same_work_at_every_level(app, monkeypatch):
         answers.append(r.data)
 
     for one, two in (
-        (lambda: done(change_password(forced, new, password=DURESS)),
+        (lambda: done(change_password(last, new, password=last.password)),
          lambda: done(change_password(b, new))),
-        (lambda: done(set_duress(forced, password=new, duress=DEEPER)),
+        (lambda: done(set_duress(last, password=new, duress=DEEPER)),
          lambda: done(set_duress(b, password=new, duress=DEEPER))),
-        (lambda: done(forced.post("/auth/duress/remove", data={"password": new},
-                                  follow_redirects=True)),
+        (lambda: done(last.post("/auth/duress/remove", data={"password": new},
+                                follow_redirects=True)),
          lambda: done(b.post("/auth/duress/remove", data={"password": new},
                              follow_redirects=True))),
     ):
         first, second = work(one), work(two)
-        assert first[0] == second[0] and first[0] > 0
+        assert first == second and first[0] > 0
     for page, shown in zip(answers[::2], (b"Password changed.", b"Duress password saved.",
                                           b"Duress password removed")):
         assert shown in page
