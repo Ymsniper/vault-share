@@ -72,8 +72,8 @@
   </main>
   <footer class="vs-footer">
     <div class="container vs-footer-inner">
-      <span class="vs-footer-brand">{% include "partials/emblem.svg" %}Vault-Share</span>
-      <span>AES-256-GCM · HPKE X25519 · ECDSA P-256 · Argon2id</span>
+      <a href="https://github.com/Ymsniper" rel="noreferrer">github.com/Ymsniper</a>
+      <a href="{{ url_for('pages.security') }}" {% if here == 'pages.security' %}aria-current="page"{% endif %}>Security and privacy</a>
     </div>
   </footer>
 </body>

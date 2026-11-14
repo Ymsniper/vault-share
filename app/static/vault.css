@@ -1741,14 +1741,98 @@ code {
   display: block;
 }
 
+/* ---- a page to read: a numbered contents list beside sections kept to a
+   reading width (the security page) */
+
+.vs-doc {
+  display: grid;
+  grid-template-columns: 13rem minmax(0, 48rem);
+  align-items: start;
+  gap: 2.4rem 3.5rem;
+}
+
+.vs-doc-toc {
+  position: sticky;
+  top: 1.5rem;
+}
+
+.vs-doc-toc ol {
+  counter-reset: vs-toc;
+  margin: 0;
+  padding: 0;
+  border-left: 1px solid var(--vs-line-2);
+  list-style: none;
+}
+
+.vs-doc-toc li {
+  counter-increment: vs-toc;
+}
+
+.vs-doc-toc a {
+  display: block;
+  padding: 0.42rem 0 0.42rem 1rem;
+  color: var(--vs-mute);
+  font-size: 0.8rem;
+  text-decoration: none;
+}
+
+.vs-doc-toc a::before {
+  content: counter(vs-toc, decimal-leading-zero) "  ";
+  content: counter(vs-toc, decimal-leading-zero) "  " / "";
+  white-space: pre;
+}
+
+.vs-doc-body {
+  counter-reset: vs-section;
+}
+
+.vs-doc-body .vs-panel {
+  scroll-margin-top: 1.5rem;
+}
+
+.vs-doc-body .vs-panel-title::before {
+  counter-increment: vs-section;
+  content: counter(vs-section, decimal-leading-zero);
+  content: counter(vs-section, decimal-leading-zero) / "";
+  color: var(--vs-mute);
+  font-weight: 400;
+}
+
+.vs-doc-body .vs-note {
+  color: var(--vs-soft);
+  font-size: 0.92rem;
+  line-height: 1.75;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .vs-doc-toc a:hover {
+    color: var(--vs-hi);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+@media (max-width: 860px) {
+  .vs-doc {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .vs-doc-toc {
+    position: static;
+  }
+}
+
 /* ---- footer */
 
 .vs-footer {
   border-top: 1px solid var(--vs-line);
   color: var(--vs-mute);
-  font-size: 0.72rem;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
 }
 
 .vs-footer-inner {
@@ -1761,17 +1845,23 @@ code {
   padding-bottom: 1.6rem;
 }
 
-.vs-footer-brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.75rem;
-  color: var(--vs-fg);
-  font-weight: 700;
+/* the author's profile on the left, the security page on the right */
+.vs-footer a {
+  color: var(--vs-soft);
+  text-decoration: none;
+  border-bottom: 1px solid var(--vs-line-2);
 }
 
-.vs-footer-brand .vs-logo {
-  width: 46px;
-  height: 19px;
+.vs-footer a[aria-current="page"] {
+  color: var(--vs-hi);
+  border-bottom-color: var(--vs-hi);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .vs-footer a:hover {
+    color: var(--vs-hi);
+    border-bottom-color: var(--vs-hi);
+  }
 }
 
 /* ---- small screens */

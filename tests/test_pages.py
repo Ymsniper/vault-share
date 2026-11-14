@@ -18,7 +18,10 @@ FORBIDDEN = {
     "inline script": r"<script(?![^>]*\bsrc=)[^>]*>",
     "event handler": r"<[^>]+\son[a-z]+\s*=",
     "javascript: URL": r"javascript:",
-    "outside URL": r"""(?:src|href|action)\s*=\s*["']?(?:https?:)?//""",
+    # the one outside link is the author's profile in the footer; any other
+    # outside link, and every outside resource, still counts
+    "outside URL": r"""(?:src|action)\s*=\s*["']?(?:https?:)?//"""
+    r"""|href\s*=\s*["']?(?:https?:)?//(?!github\.com/Ymsniper["'])""",
     "data: URL": r"""(?:src|href)\s*=\s*["']?data:""",
 }
 
@@ -97,6 +100,10 @@ def test_the_check_catches_what_it_looks_for():
     assert problems(b'<script src="/static/app.js"></script>') == []
     assert problems(b'<img src="x" onerror="alert(1)">') == ["event handler"]
     assert problems(b'<a href="https://example.com">') == ["outside URL"]
+    assert problems(b'<a href="https://github.com/Ymsniper">') == []
+    assert problems(b'<a href="https://github.com/Ymsniper/other">') == ["outside URL"]
+    assert problems(b'<a href="https://github.com/Ymsniper.example.com">') == ["outside URL"]
+    assert problems(b'<img src="https://github.com/Ymsniper">') == ["outside URL"]
     assert problems(b'<img src="data:image/png;base64,AAAA">') == ["data: URL"]
 
 

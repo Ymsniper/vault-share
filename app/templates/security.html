@@ -9,56 +9,72 @@
   </div>
 </div>
 
-<section class="vs-panel">
-  <h2 class="vs-panel-title">Your files</h2>
-  <p class="vs-note">Every file is encrypted with a key of its own (AES-256-GCM). That key is stored only as copies encrypted with HPKE (X25519), one for you and one for each person you share the file with, and each copy opens only with its reader's private key, which is locked under a key derived from their password. So the server cannot open a stored file on its own: not its operator, and not someone who copies the whole server, keys included, without the password of a person the file is shared with.</p>
-  <p class="vs-note">The server does see a file while it is uploaded or downloaded: it checks the type of what you upload, and decrypts what you download for you. This is not end-to-end encryption.</p>
-  <p class="vs-note">File names, descriptions and sizes, and who shares what with whom, are not encrypted with your password. They are kept in the database, which is encrypted as a whole with the server's master key (SQLCipher), so the operator who holds that key can read them. Every file record carries an HMAC, so a change made to it in the database is detected.</p>
-</section>
+<div class="vs-doc">
+  <nav class="vs-doc-toc" aria-label="On this page">
+    <ol>
+      <li><a href="#files">Your files</a></li>
+      <li><a href="#account">Your account</a></li>
+      <li><a href="#recorded">What is recorded</a></li>
+      <li><a href="#cookies">Cookies</a></li>
+      <li><a href="#signatures">Signatures</a></li>
+      <li><a href="#duress">The duress password</a></li>
+      <li><a href="#server">This server</a></li>
+      <li><a href="#reporting">Reporting a problem</a></li>
+    </ol>
+  </nav>
+  <div class="vs-doc-body">
+    <section class="vs-panel" id="files">
+      <h2 class="vs-panel-title">Your files</h2>
+      <p class="vs-note">Every file is encrypted with a key of its own (AES-256-GCM). That key is stored only as copies encrypted with HPKE (X25519), one for you and one for each person you share the file with, and each copy opens only with its reader's private key, which is locked under a key derived from their password. So the server cannot open a stored file on its own: not its operator, and not someone who copies the whole server, keys included, without the password of a person the file is shared with.</p>
+      <p class="vs-note">The server does see a file while it is uploaded or downloaded: it checks the type of what you upload, and decrypts what you download for you. This is not end-to-end encryption.</p>
+      <p class="vs-note">File names, descriptions and sizes, and who shares what with whom, are not encrypted with your password. They are kept in the database, which is encrypted as a whole with the server's master key (SQLCipher), so the operator who holds that key can read them. Every file record carries an HMAC, so a change made to it in the database is detected.</p>
+    </section>
 
-<section class="vs-panel">
-  <h2 class="vs-panel-title">Your account</h2>
-  <p class="vs-note">Registering needs an invite code, and every username gets a random tag, like bob#516850, so knowing a name is not enough to aim at an account.</p>
-  <p class="vs-note">Your password is never stored. Argon2id, 9 passes over 64 MiB with a salt of your account's own, turns it into a key; the server keeps an HMAC made with that key, and your private keys locked under keys derived from it. Wrong passwords are limited per account and per address.</p>
-  <p class="vs-note">A forgotten password cannot be reset: it is the only way to your keys. You can change it on the Password page while you know it.</p>
-  <p class="vs-note mb-0">Two-factor login is optional, with an authenticator app and ten recovery codes for a lost phone. Its secret is kept encrypted, and the recovery codes only as hashes.</p>
-</section>
+    <section class="vs-panel" id="account">
+      <h2 class="vs-panel-title">Your account</h2>
+      <p class="vs-note">Registering needs an invite code, and every username gets a random tag, like bob#516850, so knowing a name is not enough to aim at an account.</p>
+      <p class="vs-note">Your password is never stored. Argon2id, 9 passes over 64 MiB with a salt of your account's own, turns it into a key; the server keeps an HMAC made with that key, and your private keys locked under keys derived from it. Wrong passwords are limited per account and per address.</p>
+      <p class="vs-note">A forgotten password cannot be reset: it is the only way to your keys. You can change it on the Password page while you know it.</p>
+      <p class="vs-note mb-0">Two-factor login is optional, with an authenticator app and ten recovery codes for a lost phone. Its secret is kept encrypted, and the recovery codes only as hashes.</p>
+    </section>
 
-<section class="vs-panel">
-  <h2 class="vs-panel-title">What is recorded</h2>
-  <p class="vs-note">An audit log records security events: logins and failed logins, locks, registrations, invite codes, two-factor changes, refused access, bans, admin rights, certificate revocations and changes to the server's settings. It also records file activity: uploads, downloads, shares, revoked shares and deletions. Your own visits to your file pages are not recorded.</p>
-  <p class="vs-note">It never records passwords, keys or what files contain. Addresses are cut to their network part, the first three numbers of an IPv4 address and the first 48 bits of an IPv6 one, and entries are deleted after {{ log_days }} days.</p>
-  <p class="vs-note mb-0">Administrators see the security events on their audit page. File activity is shown only to the operator, at the server.</p>
-</section>
+    <section class="vs-panel" id="recorded">
+      <h2 class="vs-panel-title">What is recorded</h2>
+      <p class="vs-note">An audit log records security events: logins and failed logins, locks, registrations, invite codes, two-factor changes, refused access, bans, admin rights, certificate revocations and changes to the server's settings. It also records file activity: uploads, downloads, shares, revoked shares and deletions. Your own visits to your file pages are not recorded.</p>
+      <p class="vs-note">It never records passwords, keys or what files contain. Addresses are cut to their network part, the first three numbers of an IPv4 address and the first 48 bits of an IPv6 one, and entries are deleted after {{ log_days }} days.</p>
+      <p class="vs-note mb-0">Administrators see the security events on their audit page. File activity is shown only to the operator, at the server.</p>
+    </section>
 
-<section class="vs-panel">
-  <h2 class="vs-panel-title">Cookies</h2>
-  <p class="vs-note"><code>sid</code>: your session, a random token; the session itself is kept at the server. It ends when you log out, 8 hours after you logged in, or after 30 minutes without a request.</p>
-  <p class="vs-note"><code>session</code>: a signed cookie for the forms, holding their CSRF token and where you are in a registration or in a login waiting for its two-factor code. Nothing secret is kept in it.</p>
-  <p class="vs-note"><code>device</code>: after a login, which accounts logged in from this browser, as keyed digests rather than names, kept a year, so that guesses from other browsers cannot lock you out.</p>
-  <p class="vs-note mb-0">Nothing else: no tracking, no analytics, no advertising, and nothing from other sites. Every script, style, font and image comes from this server.</p>
-</section>
+    <section class="vs-panel" id="cookies">
+      <h2 class="vs-panel-title">Cookies</h2>
+      <p class="vs-note"><code>sid</code>: your session, a random token; the session itself is kept at the server. It ends when you log out, 8 hours after you logged in, or after 30 minutes without a request.</p>
+      <p class="vs-note"><code>session</code>: a signed cookie for the forms, holding their CSRF token and where you are in a registration or in a login waiting for its two-factor code. Nothing secret is kept in it.</p>
+      <p class="vs-note"><code>device</code>: after a login, which accounts logged in from this browser, as keyed digests rather than names, kept a year, so that guesses from other browsers cannot lock you out.</p>
+      <p class="vs-note mb-0">Nothing else: no tracking, no analytics, no advertising, and nothing from other sites. Every script, style, font and image comes from this server.</p>
+    </section>
 
-<section class="vs-panel">
-  <h2 class="vs-panel-title">Signatures</h2>
-  <p class="vs-note">Every upload is signed with your ECDSA P-256 key, certified by this server's own certificate authority. A signature counts only with a certificate that was valid, and not revoked, when the file was uploaded, and each file page offers a proof anyone can check offline with OpenSSL.</p>
-  <p class="vs-note mb-0">If your key may have leaked, the operator can revoke your certificate from a given time: files signed before it stay valid, those signed after it fail.</p>
-</section>
+    <section class="vs-panel" id="signatures">
+      <h2 class="vs-panel-title">Signatures</h2>
+      <p class="vs-note">Every upload is signed with your ECDSA P-256 key, certified by this server's own certificate authority. A signature counts only with a certificate that was valid, and not revoked, when the file was uploaded, and each file page offers a proof anyone can check offline with OpenSSL.</p>
+      <p class="vs-note mb-0">If your key may have leaked, the operator can revoke your certificate from a given time: files signed before it stay valid, those signed after it fail.</p>
+    </section>
 
-<section class="vs-panel">
-  <h2 class="vs-panel-title">The duress password</h2>
-  <p class="vs-note">If someone forces you to log in, you can give them a duress password instead of your real one. It opens a cover vault, a real one where uploads, downloads and sharing work, kept apart from your other files by encryption keys rather than hidden buttons, and it quietly warns the administrators.</p>
-  <p class="vs-note mb-0">A new duress password starts to work {{ delay }} after it is saved, and the pages look the same whichever password opened them. The next login with your real password shows what happened meanwhile, and the quiet ways to deal with it are the defaults. What a duress password cannot hide is listed in Vault-Share's documentation.</p>
-</section>
+    <section class="vs-panel" id="duress">
+      <h2 class="vs-panel-title">The duress password</h2>
+      <p class="vs-note">If someone forces you to log in, you can give them a duress password instead of your real one. It opens a cover vault, a real one where uploads, downloads and sharing work, kept apart from your other files by encryption keys rather than hidden buttons, and it quietly warns the administrators.</p>
+      <p class="vs-note mb-0">A new duress password starts to work {{ delay }} after it is saved, and the pages look the same whichever password opened them. The next login with your real password shows what happened meanwhile, and the quiet ways to deal with it are the defaults. What a duress password cannot hide is listed in Vault-Share's documentation.</p>
+    </section>
 
-<section class="vs-panel">
-  <h2 class="vs-panel-title">This server</h2>
-  <p class="vs-note">The operator holds the master key, which can also require a USB drive and a passphrase, along with the database, the stored files and the logs. They can read what the master key opens, accounts, file names, shares and the logs among it, but cannot open your files without your password.</p>
-  <p class="vs-note mb-0">The operator decides who gets invite codes, can ban accounts, revoke certificates and turn two-factor login off for someone who lost both their phone and their codes, and is responsible for backups, updates and HTTPS. This server's certificates come from its own authority, so a browser warns until it trusts it.</p>
-</section>
+    <section class="vs-panel" id="server">
+      <h2 class="vs-panel-title">This server</h2>
+      <p class="vs-note">The operator holds the master key, which can also require a USB drive and a passphrase, along with the database, the stored files and the logs. They can read what the master key opens, accounts, file names, shares and the logs among it, but cannot open your files without your password.</p>
+      <p class="vs-note mb-0">The operator decides who gets invite codes, can ban accounts, revoke certificates and turn two-factor login off for someone who lost both their phone and their codes, and is responsible for backups, updates and HTTPS. This server's certificates come from its own authority, so a browser warns until it trusts it.</p>
+    </section>
 
-<section class="vs-panel">
-  <h2 class="vs-panel-title">Reporting a problem</h2>
-  <p class="vs-note mb-0">For a problem with your account or with this server, contact its operator. For a security flaw in Vault-Share itself, tell its author privately, through the GitHub profile linked at the bottom of every page, rather than in public.</p>
-</section>
+    <section class="vs-panel" id="reporting">
+      <h2 class="vs-panel-title">Reporting a problem</h2>
+      <p class="vs-note mb-0">For a problem with your account or with this server, contact its operator. For a security flaw in Vault-Share itself, tell its author privately, through the GitHub profile linked at the bottom of every page, rather than in public.</p>
+    </section>
+  </div>
+</div>
 {% endblock %}
