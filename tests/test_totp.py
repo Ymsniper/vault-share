@@ -4,6 +4,7 @@ from urllib.parse import urlparse
 
 import pyotp
 
+from app import levels
 from app import totp as totp_view
 from app.db import get_db
 from security.totp import new_secret, provisioning_uri
@@ -41,7 +42,7 @@ def test_setup_shows_a_qr_code_and_stores_the_secret_encrypted(app, alice):
     with app.app_context():
         stored = [r[0] for r in get_db().execute("SELECT sealed FROM two_factor")]
     # a sealed record for each level, all of one length
-    assert len(stored) == 3 and len({len(blob) for blob in stored}) == 1
+    assert len(stored) == levels.LEVELS and len({len(blob) for blob in stored}) == 1
     assert not any(secret.encode() in blob for blob in stored)
     assert alice.get("/auth/totp/qr.svg").status_code == 404
 

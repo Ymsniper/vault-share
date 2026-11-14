@@ -43,6 +43,25 @@ from .test_totp import RECOVERY_SHAPE, code, secret_on_page, turn_on
 # a duress password set from a level 1 session, for level 2
 DEEPER = "lantern-quiet-harbor-29"
 MENU = b"Lunch on Friday: soup, bread, apples.\n"
+# a password for every level, the real one first
+PASSWORDS = [PASSWORD, DURESS, DEEPER] + [f"copper-lantern-orchard-{n}" for n in range(3, 8)]
+
+
+def descend(app, client, to):
+    """A session at level `to` of client's account: each level, from the real
+    password down, sets the duress password of the next one and is left by a
+    login with it, as a coercer who knows the design would go."""
+    session = client
+    for level in range(1, to + 1):
+        set_duress(session, duress=PASSWORDS[level])
+        session, r = log_in(app, client, PASSWORDS[level])
+        assert r.headers["Location"] == "/", (level, r.headers.get("Location"))
+    return session
+
+
+def opened(*open_levels):
+    """windows() of an account whose open windows are these levels."""
+    return [level in open_levels for level in range(levels.LEVELS)]
 
 
 def at_level_one(app, client, mode="cover"):
@@ -321,10 +340,8 @@ def test_setting_a_duress_password_answers_the_same_at_levels_0_and_1(app, alice
     assert download(deeper, notes).data == b"Notes from the meeting.\n"
 
 
-def test_a_duress_password_set_at_level_two_opens_nothing(app, alice):
-    forced = at_level_one(app, alice)
-    set_duress(forced, duress=DEEPER)
-    deeper, _ = log_in(app, alice, DEEPER)
+def test_a_duress_password_set_at_the_last_level_opens_nothing(app, alice):
+    deeper = descend(app, alice, levels.LEVELS - 1)
     with app.app_context():
         before = get_db().execute("SELECT * FROM credentials ORDER BY id").fetchall()
     r = set_duress(deeper, duress="harbor-lantern-quiet-41")
@@ -352,16 +369,14 @@ def settings_in_use(client, saved):
     ]
 
 
-def test_level_two_settings_answer_like_level_one(app, alice, bob, monkeypatch):
-    """The Duress and Password pages answer at level 2 as at another
+def test_the_last_level_settings_answer_like_level_one(app, alice, bob, monkeypatch):
+    """The Duress and Password pages answer at the last level as at another
     account's level 1, form after form, with the same Argon2 work. A duress
-    password saved at level 2 opens nothing, but the Password page there
-    refuses it as a new password, as the levels above refuse theirs, until
-    it is removed."""
+    password saved at the last level opens nothing, but the Password page
+    there refuses it as a new password, as the levels above refuse theirs,
+    until it is removed."""
     one = at_level_one(app, bob)
-    forced = at_level_one(app, alice)
-    set_duress(forced, duress=DEEPER)
-    two, _ = log_in(app, alice, DEEPER)
+    two = descend(app, alice, levels.LEVELS - 1)
     argon2, _ = counted(monkeypatch)
     answers, costs = [], []
     for client in (two, one):
@@ -464,15 +479,13 @@ def test_the_page_says_when_the_cover_vault_last_changed(app, alice):
     assert re.search(rb"Cover files last changed: \d{4}-\d{2}-\d{2} \d{2}:\d{2}", page)
 
 
-def test_level_two_moves_files_like_level_one(app, alice, bob):
-    """Level 2, the last a password opens, has cover files too, under one
-    more key that no password opens: its Duress page and its moves answer as
-    a level 1 session's do, so the end of the chain shows only when a duress
+def test_the_last_level_moves_files_like_level_one(app, alice, bob):
+    """The last level a password opens has cover files too, under one more
+    key that no password opens: its Duress page and its moves answer as a
+    level 1 session's do, so the end of the chain shows only when a duress
     password set there never opens anything."""
     one = at_level_one(app, bob)
-    forced = at_level_one(app, alice)
-    set_duress(forced, duress=DEEPER)
-    two, _ = log_in(app, alice, DEEPER)
+    two = descend(app, alice, levels.LEVELS - 1)
     answers = []
     for client in (two, one):
         notes = new_file(client, b"Notes from the meeting.\n", "notes.txt")
@@ -489,9 +502,9 @@ def test_level_two_moves_files_like_level_one(app, alice, bob):
         answers[-1].append(normalized(back.data, client.handle))
         assert b"notes.txt" in my_files(client)
     assert answers[0] == answers[1]
-    # the levels above see level 2's cover files among theirs
+    # the levels above see the last level's cover files among theirs
     move(two, [notes := new_file(two, b"Minutes.\n", "minutes.txt")], "down")
-    assert b"minutes.txt" in cover_files(forced) and b"minutes.txt" in cover_files(alice)
+    assert b"minutes.txt" in cover_files(alice)
     assert download(alice, notes).data == b"Minutes.\n"
 
 
@@ -520,14 +533,14 @@ def test_a_share_arrives_where_the_duress_session_is(app, alice, bob):
 
 def test_logins_at_one_two_then_one_close_only_the_higher_window(app, alice):
     forced = at_level_one(app, alice)
-    assert windows(app, alice) == [False, True, False]
+    assert windows(app, alice) == opened(1)
     set_duress(forced, duress=DEEPER)
     log_in(app, alice, DEEPER)
-    assert windows(app, alice) == [False, True, True]
+    assert windows(app, alice) == opened(1, 2)
     log_in(app, alice, DURESS)
-    assert windows(app, alice) == [False, True, False]
+    assert windows(app, alice) == opened(1)
     log_in(app, alice, PASSWORD)
-    assert windows(app, alice) == [False, False, False]
+    assert windows(app, alice) == opened()
 
 
 def test_a_share_arrives_at_the_highest_open_window(app, alice, bob):
@@ -851,7 +864,7 @@ def test_with_two_factor_the_review_follows_the_code(app, alice, bob, monkeypatc
     tick(monkeypatch, 60)
     real, r = log_in(app, alice, PASSWORD)
     # the password alone closes no window
-    assert windows(app, alice) == [False, True, False]
+    assert windows(app, alice) == opened(1)
     r = real.post("/auth/login/code", data={"code": code(secret)})
     assert r.headers["Location"] == "/auth/review"
 
@@ -995,11 +1008,12 @@ def test_every_account_has_three_levels_of_one_shape(app, alice, bob):
         ).fetchall()
         policies = {len(r[0]) for r in db.execute("SELECT duress_policy FROM users")}
     # a verifier and a lock per row, all of one length, and a salt per account
-    assert len(creds) == 6 and {(r["verifier"], r["lock"]) for r in creds} == {(32, 60)}
+    assert len(creds) == 2 * levels.LEVELS
+    assert {(r["verifier"], r["lock"]) for r in creds} == {(32, 60)}
     assert salts == {16}
     # and four key pairs each: one per level, and one below level 2 for its
     # cover files, every one but level 0's linked from the one above
-    pairs = [(level, 32, level == 0) for level in range(4) for _ in range(2)]
+    pairs = [(level, 32, level == 0) for level in range(levels.KEY_LEVELS) for _ in range(2)]
     assert sorted(tuple(k) for k in keys) == pairs
     assert len(policies) == 1
 
@@ -1010,6 +1024,30 @@ def runs_of(monkeypatch):
     real = levels.derive_master
     monkeypatch.setattr(levels, "derive_master", lambda p, s: calls.append(s) or real(p, s))
     return calls
+
+
+def test_requests_make_the_same_key_operations_at_every_level(app, monkeypatch):
+    """Design revision 2, B2: unlocking always makes as many link operations,
+    the real ones down from the session's level and the rest on a spare pair,
+    so a request at level 0 and one at the last level do the same work."""
+    a, b = logged_in(app, "alice"), logged_in(app, "alice")
+    last = descend(app, a, levels.LEVELS - 1)
+    calls = []
+    real = levels.follow_link
+    monkeypatch.setattr(levels, "follow_link", lambda *args: calls.append(1) or real(*args))
+    counts = []
+    for client in (last, b):
+        url = new_file(client, MENU, "menu.txt")
+        before = len(calls)
+        download(client, url)
+        counts.append(len(calls) - before)
+    assert counts[0] == counts[1] == levels.KEY_LEVELS - 1
+
+
+def test_the_schema_holds_every_level():
+    schema = (Path(__file__).parent.parent / "app" / "schema.sql").read_text()
+    bounds = {int(n) for n in re.findall(r"CHECK \(level BETWEEN 0 AND (\d+)\)", schema)}
+    assert bounds == {levels.LEVELS - 1, levels.KEY_LEVELS - 1}
 
 
 def test_login_costs_the_same_at_every_level(app, alice, monkeypatch):
@@ -1347,7 +1385,7 @@ def test_the_duress_password_reaches_no_level_zero_key(app, alice, bob):
                 except InvalidTag:
                     pass
     # ...and whatever its keys open in turn
-    for _ in range(3):
+    for _ in range(levels.KEY_LEVELS):
         for key in list(opened):
             for level, link in links.items():
                 if link is None:
@@ -1359,13 +1397,14 @@ def test_the_duress_password_reaches_no_level_zero_key(app, alice, bob):
                 if all(found.public_key().public_bytes_raw() != k.public_key().public_bytes_raw()
                        for k in opened):
                     opened.append(found)
-    assert len(opened) == 3  # levels 1 and 2, and the key of level 2's cover files
+    # levels 1 to 7, and the key of the last level's cover files
+    assert len(opened) == levels.KEY_LEVELS - 1
 
     level_zero = [c for c in copies if c["level"] == 0]
     assert {c["file_id"] for c in level_zero} == {file_id(real), file_id(theirs)}
     for key in opened:
         for c in level_zero:
-            for level in range(4):
+            for level in range(levels.KEY_LEVELS):
                 with pytest.raises(InvalidTag):
                     unwrap_file_key(key, c["wrapped_key"], c["file_id"], uid, level)
         # nor the lock of level 0, nor the link from 0 down to 1

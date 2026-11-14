@@ -63,7 +63,7 @@ def start_session(user_id, level):
 def finish_login(user, level):
     """Start a fresh server-side session for user at the level the password
     opened, and send its cookie. The login row is the only trace of the
-    level: at level 1 or 2 it is the silent alarm."""
+    level: at any level but 0 it is the silent alarm."""
     # a token the browser already had, maybe planted by someone else, is
     # never reused: every login gets a fresh one
     old_token = request.cookies.get(SESSION_COOKIE)

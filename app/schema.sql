@@ -42,7 +42,7 @@ CREATE TABLE users (
 -- account has a row for each level from the start
 CREATE TABLE two_factor (
     user_id INTEGER NOT NULL REFERENCES users (id),
-    level INTEGER NOT NULL CHECK (level BETWEEN 0 AND 2),
+    level INTEGER NOT NULL CHECK (level BETWEEN 0 AND 7),
     sealed BLOB NOT NULL,
     PRIMARY KEY (user_id, level)
 );
@@ -53,7 +53,7 @@ CREATE TABLE two_factor (
 -- on, or asked for codes of its own, has a set
 CREATE TABLE totp_recovery (
     user_id INTEGER NOT NULL REFERENCES users (id),
-    level INTEGER NOT NULL CHECK (level BETWEEN 0 AND 2),
+    level INTEGER NOT NULL CHECK (level BETWEEN 0 AND 7),
     code_hash TEXT NOT NULL,
     used_at TEXT,
     PRIMARY KEY (user_id, level, code_hash)
@@ -74,7 +74,7 @@ CREATE TABLE invites (
     cancelled_at TEXT,
     -- the level of the session that made it; a session sees the codes made
     -- at its own level and the ones below it (a higher number)
-    level INTEGER NOT NULL DEFAULT 0 CHECK (level BETWEEN 0 AND 2)
+    level INTEGER NOT NULL DEFAULT 0 CHECK (level BETWEEN 0 AND 7)
 );
 
 -- what a new code gets unless the server asks for other values; changed
@@ -98,9 +98,9 @@ CREATE TABLE sessions (
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     last_seen TEXT NOT NULL DEFAULT (datetime('now')),
     expires_at TEXT NOT NULL,
-    -- the level the session was opened at: 0 with the real password, 1 and
-    -- 2 with a duress password (app/levels.py)
-    level INTEGER NOT NULL CHECK (level BETWEEN 0 AND 2),
+    -- the level the session was opened at: 0 with the real password, 1 to
+    -- 7 with a duress password (app/levels.py)
+    level INTEGER NOT NULL CHECK (level BETWEEN 0 AND 7),
     -- a two-factor secret this session is enrolling, sealed; it belongs to
     -- the session, so no other session of the account can read it
     totp_pending BLOB
@@ -120,19 +120,19 @@ CREATE TABLE credentials (
     lock BLOB NOT NULL
 );
 
--- each level's X25519 key pair (security/keychain.py), and at 3 the one
--- that keeps level 2's cover files, which no password opens; link is the
+-- each level's X25519 key pair (security/keychain.py), and at 8 the one
+-- that keeps level 7's cover files, which no password opens; link is the
 -- level's private key encrypted under the one above it, so a level's
 -- password opens the levels below it and never the one above
 CREATE TABLE level_keys (
     user_id INTEGER NOT NULL REFERENCES users (id),
-    level INTEGER NOT NULL CHECK (level BETWEEN 0 AND 3),
+    level INTEGER NOT NULL CHECK (level BETWEEN 0 AND 8),
     public_key BLOB NOT NULL,
     link BLOB,
     PRIMARY KEY (user_id, level)
 );
 
--- the ECDSA private key, encrypted under level 2's private key, which
+-- the ECDSA private key, encrypted under level 7's private key, which
 -- every level's password reaches: all of them sign with one certificate
 CREATE TABLE signing_keys (
     user_id INTEGER PRIMARY KEY REFERENCES users (id),
@@ -202,7 +202,7 @@ CREATE TABLE file_keys (
     wrapped_key BLOB NOT NULL,
     -- the level whose public key the copy is encrypted to: a session sees
     -- and opens the copies at its own level and the ones below it
-    level INTEGER NOT NULL CHECK (level BETWEEN 0 AND 3),
+    level INTEGER NOT NULL CHECK (level BETWEEN 0 AND 8),
     -- when the copy was made or moved to its level
     since TEXT NOT NULL DEFAULT (datetime('now')),
     -- set when a duress session dismissed the file: the copy is kept, so the
@@ -223,8 +223,8 @@ CREATE TABLE audit_log (
     detail TEXT,
     ip TEXT,
     -- the level of the session that wrote it, NULL when no session did
-    -- (registering, the server's commands); a login row at level 1 or 2 is
-    -- the silent alarm
+    -- (registering, the server's commands); a login row at levels 1 to 7
+    -- is the silent alarm
     level INTEGER,
     -- for a file, its owner and the level of the owner's copy then: the
     -- level log rule judges by them once the file is gone (app/levels.py)

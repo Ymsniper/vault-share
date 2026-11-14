@@ -146,24 +146,28 @@ A duress password, set from the "Duress" page, is the one to give if someone
 forces you to log in. It opens your cover files: a second vault that is
 real, where uploads, downloads, sharing and the settings all work, rather
 than an empty account that refuses things. What keeps your other files from
-it is keys, not hidden buttons. Every account has three levels, each with
+it is keys, not hidden buttons. Every account has eight levels, each with
 its own X25519 key pair: the real password opens level 0, the duress
-password level 1, and a duress password set from a level 1 session opens
-level 2. A level's private key is locked under its password and also linked
-down from the level above, so a password opens its own level and the ones
-below it, never the one above. Each password typed costs one Argon2id run (9
+password level 1, and each level after it, down to level 7, opens with the
+duress password set from a session at the level above. A level's private
+key is locked under its password and also linked down from the level
+above, so a password opens its own level and the ones below it, never the
+one above. Each password typed costs one Argon2id run (9
 passes over 64 MiB) with the account's salt, and every check and key of it
 comes from that run: a credential row keeps an HMAC of it, and the level's
 lock is made with a key derived from it. A login costs one run whatever it
 opens and however many levels there are. The account's passwords share the
 salt, so one offline guess tests them all at once; the run, three times as
 strong as each of the three checks it replaced, pays for that. One more key
-pair, linked down from level 2's and opened by no password, keeps level 2's
-cover files. Every session believes it is the top: it sees its own files,
-and the levels below it as its cover files, and every page looks the same at
+pair, linked down from level 7's and opened by no password, keeps level 7's
+cover files. Opening a session's keys always takes as many steps: after the
+real links down from its level, the rest go through a spare pair made at
+start-up, so a request at level 0 does the same work as one at level 7.
+Every session believes it is the top: it sees its own files, and the
+levels below it as its cover files, and every page looks the same at
 each level. A password asked inside a session is checked against that
 session's level only, so no form there can test another password. The
-signing key hangs off level 2, which every password reaches, so files
+signing key hangs off level 7, which every password reaches, so files
 uploaded at any level carry the same certificate. The Duress page moves
 files between your own vault and the cover files, yours or shared with you:
 each move encrypts the key copy again to the other level's public key, so it
@@ -194,8 +198,8 @@ since whoever held the duress password could sign in the user's name. What
 it does shows in the duress vault, and the page says so. Deleted and removed
 files are kept 30 days from when the review first shows them, so an owner
 who never logs in loses nothing; "Done" restores what is left or lets it go.
-A level 1 session that closes a level 2 window gets the same review: every
-level looks like the top.
+A duress session that closes the window of a level below its own gets the
+same review: every level looks like the top.
 
 A duress login is the silent alarm: its login row is written at its level,
 and the console shows it as `duress`. So does every admin session, at any
@@ -218,7 +222,7 @@ saved, at every level alike, so whoever watches one being set cannot try it
 on the spot, and saving a new one stops the old one at once. Setting or
 removing a duress password also clears any set further down, so a password a
 coercer set from a duress session does not outlive it. Every account has all
-three levels from the start, a level without a password looks like one with
+eight levels from the start, a level without a password looks like one with
 a password in the database, the record of which is which is sealed under the
 master key, and setting or removing a duress password is not logged. The
 "Password" page changes the password a session logged in with, at its own
@@ -248,10 +252,10 @@ What the levels cannot hide:
   with people you do not fully trust among the cover files.
 - An unconvincing cover vault: empty or stale cover files give it away,
   which is why the Duress page shows when they last changed.
-- The bottom: no password opens anything below level 2, so a duress
-  password set from a level 2 session opens nothing, though the pages
-  there answer as at the levels above. Finding that out takes two 48-hour
-  delays and three logins.
+- The bottom: no password opens anything below level 7, so a duress
+  password set from a level 7 session opens nothing, though the pages
+  there answer as at the levels above. Getting there takes seven 48-hour
+  delays and eight logins, 14 days at the least.
 - Honest senders: a file shared with the account while a duress window is
   open is readable by whoever holds the duress session. The alarm is there
   so that admins can act in that time.
@@ -260,8 +264,6 @@ What the levels cannot hide:
 - An admin coercer reading the log: a file moved down to a cover level
   keeps the history of the level it came from, so the lower level's log
   shows no upload for it.
-- Time: a request at level 0 follows one more link between keys than at
-  level 1, microseconds next to the Argon2 check every password costs.
 - A used duress password: it keeps working, and every later login with it
   opens a new window, so files shared with the account from then on reach
   whoever holds it. Ending it on its own would give the owner away; replace
@@ -379,13 +381,13 @@ real person gets a new account.
 The master key does not open files. Each file's key is stored only as
 copies encrypted with HPKE (RFC 9180: X25519, HKDF-SHA256, AES-256-GCM), one
 for each person who may open the file: its owner and every recipient of an
-active share. Every user has an X25519 key pair for each of their three
-levels, and one for level 2's cover files (see the duress password above),
+active share. Every user has an X25519 key pair for each of their eight
+levels, and one for level 7's cover files (see the duress password above),
 separate from their signing key, and each level's private key is locked
-under a key derived from that level's password through its Argon2id run. A copy is
-bound to one file, one reader and one level. So even someone holding the
-whole server, keys included, opens no file without the password of a
-person it was shared with.
+under a key derived from that level's password through its Argon2id run. A
+copy is bound to one file, one reader and one level. So even someone
+holding the whole server, keys included, opens no file without the
+password of a person it was shared with.
 
 That is why download and share ask for your password, like upload: it
 unlocks your key for that one request, so a stolen session cookie alone

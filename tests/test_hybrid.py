@@ -1,6 +1,7 @@
 import pytest
 from cryptography.exceptions import InvalidTag
 
+from app import levels
 from app.db import get_db
 from security.crypto import new_key
 from security.hybrid import generate_encryption_key, public_bytes, unwrap_file_key, wrap_file_key
@@ -59,8 +60,8 @@ def test_every_user_gets_four_key_pairs_apart_from_the_signing_key(app, alice):
             )
         ]
         signing = db.execute("SELECT enc_private_key FROM signing_keys").fetchone()[0]
-    # one per level, and one below level 2 for its cover files
-    assert len(publics) == 4 and len(set(publics)) == 4
+    # one per level, and one below the last for its cover files
+    assert len(publics) == len(set(publics)) == levels.KEY_LEVELS
     assert all(len(p) == 32 for p in publics) and signing not in publics
     # her password opens the first one, and it is the pair of its public key
     with pytest.raises(InvalidTag):

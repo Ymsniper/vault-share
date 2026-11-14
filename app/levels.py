@@ -2,13 +2,15 @@
 real, kept from the first by keys.
 
 Level 0 opens with the real password, level 1 with the duress password,
-and level 2 with the duress password set from a level 1 session. Each level
-has its own X25519 key pair: a password opens its level's private key, and
-that key opens the ones below it (a higher number), never the one above.
-Every session works at one level and believes it is the top: it sees and
-opens the copies of file keys at its own level and below. One more key
-pair, linked down from level 2's and opened by no password, keeps level 2's
-cover files, so moving files to cover works there as it does above.
+and each level after it, down to the last, level 7, with the duress
+password set from a session at the level above. Each level has its own
+X25519 key pair: a password opens its level's private key, and that key
+opens the ones below it (a higher number), never the one above. Every
+session works at one level and believes it is the top: it sees and opens
+the copies of file keys at its own level and below. One more key pair,
+linked down from the last level's and opened by no password, keeps that
+level's cover files, so moving files to cover works there as it does
+above.
 
 This module reads the session's level; so do auth.py, which loads it,
 audit.py, which writes it into the log, and invites.py, which sorts codes
@@ -46,8 +48,8 @@ from .db import get_db
 from .keyring import master_key
 from .storage import storage_path
 
-LEVELS = 3
-# key pairs: one per level, and the one under level 2 for its cover files
+LEVELS = 8
+# key pairs: one per level, and the one under the last for its cover files
 KEY_LEVELS = LEVELS + 1
 COVER, WIPE = b"C", b"W"
 MODES = {"cover": COVER, "wipe": WIPE}
@@ -127,12 +129,12 @@ def link_aad(user_id, level):
 
 
 def new_account(user_id, username, password):
-    """Three levels for a new account. Each has a real key pair from the
+    """Every level of a new account. Each has a real key pair from the
     start, linked down from the one above, so a duress password can be set
-    later; the password opens level 0, and levels 1 and 2 hold the hash of
-    a random verifier and an unused lock. The key pair for level 2's cover
-    files hangs below them, with no password of its own. Returns level 2's
-    private key, for the signing key; the caller commits."""
+    later; the password opens level 0, and the levels below hold a random
+    verifier and an unused lock. The key pair for the last level's cover
+    files hangs below them, with no password of its own. Returns the last
+    level's private key, for the signing key; the caller commits."""
     db = get_db()
     salt = os.urandom(16)
     db.execute("UPDATE users SET kdf_salt = ? WHERE id = ?", (salt, user_id))
@@ -564,7 +566,7 @@ class Keys:
 
     @property
     def bottom(self):
-        """Level 2's private key, the last a password opens, which the
+        """The private key of the last level a password opens, which the
         signing key hangs off."""
         return self.private[LEVELS - 1]
 
@@ -573,11 +575,21 @@ def signing_aad(user_id):
     return f"signing|{user_id}".encode()
 
 
+# A throwaway key pair and a link to another, made at start-up: unlock
+# follows it once for each link it does not need, so every level makes as
+# many link operations.
+_SPARE_AAD = link_aad(0, KEY_LEVELS - 1)
+_SPARE_UPPER = generate_encryption_key()
+_SPARE_LINK = link_key(_SPARE_UPPER, generate_encryption_key(), _SPARE_AAD)
+
+
 def unlock(password):
     """The keys the password opens in the current session, or None when it
     is not this session's password. Every password asked inside a session
     is checked here, against its own level's lock only, so no form at one
-    level can test the password of another."""
+    level can test the password of another. The real links down from the
+    session's level, then the spare one for the rest: a request makes as
+    many link operations at level 0 as at the last level."""
     user, level = g.user, g.level
     db = get_db()
     row = db.execute(
@@ -595,6 +607,8 @@ def unlock(password):
     for lower in range(level + 1, KEY_LEVELS):
         key = follow_link(key, links[lower], link_aad(user["id"], lower))
         private[lower] = key
+    for _ in range(level):
+        follow_link(_SPARE_UPPER, _SPARE_LINK, _SPARE_AAD)
     return Keys(user["id"], private)
 
 
@@ -759,9 +773,9 @@ def move_files(keys, file_ids, down):
     session's level to the next one down, or back up. Each copy is opened
     and encrypted again to the other level's public key, so it takes the
     keys the password opened, and only copies at the level they move from
-    are touched. Level 2's go to the key pair below it, which no password
-    opens, so it moves files like the levels above. Returns how many
-    moved."""
+    are touched. The last level's go to the key pair below it, which no
+    password opens, so it moves files like the levels above. Returns how
+    many moved."""
     level, uid, db = g.level, g.user["id"], get_db()
     source, target = (level, level + 1) if down else (level + 1, level)
     moved = 0
@@ -811,8 +825,8 @@ def _fresh_start(user_id, policy, lower_levels):
 
 
 def set_duress(keys, password, mode):
-    """Give the level below the session's (from level 0, level 1; from
-    level 1, level 2) the duress password, locking that level's own key,
+    """Give the next level down from the session's (from level 0, level 1;
+    from level 1, level 2; and so on) the duress password, locking its key,
     which keys reach, and clear any password further down: the chain below
     starts anew, so a password a coercer set there does not outlive this
     one. mode is "cover" or "wipe". At the last level a password opens,
@@ -876,12 +890,12 @@ def remove_duress():
 
 def opens_below(password):
     """Whether password is the duress password of a level below the
-    session's (a higher number), the one saved at level 2 included: a new
-    password must not be one, or the duress password would open this level,
-    and the last level refuses the one saved there as the levels above
-    refuse theirs. The levels above are never tried, so no form can test
-    their passwords. One Argon2 run over the new password, at every level,
-    which change_password then reuses."""
+    session's (a higher number), the one saved at the last level included:
+    a new password must not be one, or the duress password would open this
+    level, and the last level refuses the one saved there as the levels
+    above refuse theirs. The levels above are never tried, so no form can
+    test their passwords. One Argon2 run over the new password, at every
+    level, which change_password then reuses."""
     policy, uid = open_policy(g.user), g.user["id"]
     master = _master(password, g.user["kdf_salt"])
     stored = dict(get_db().execute(

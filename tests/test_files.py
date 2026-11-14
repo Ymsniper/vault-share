@@ -13,7 +13,7 @@ from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from sqlcipher3 import dbapi2 as sqlcipher
 
-from app import create_app
+from app import create_app, levels
 from app.db import get_db
 from app.files import mac_key
 from security.crypto import decrypt
@@ -714,7 +714,7 @@ def signing_key(app, username, password=PASSWORD):
         blob = db.execute(
             "SELECT enc_private_key FROM signing_keys WHERE user_id = ?", (uid,)
         ).fetchone()[0]
-    for level in (1, 2):
+    for level in range(1, levels.LEVELS):
         key = follow_link(key, links[level], f"link|{uid}|{level}".encode())
     return unlock_signing_key(key, blob, f"signing|{uid}".encode())
 
