@@ -26,14 +26,14 @@ def test_parallel_wrong_passwords_stay_under_the_limit(app, monkeypatch):
     handle = register(app.test_client())
     release = threading.Event()
     reached = set()
-    real_check = levels.check_password
+    real_derive = levels.derive_master
 
-    def slow_check(stored_hash, password):
+    def slow_derive(password, salt):
         reached.add(threading.get_ident())
         release.wait(10)
-        return real_check(stored_hash, password)
+        return real_derive(password, salt)
 
-    monkeypatch.setattr(levels, "check_password", slow_check)
+    monkeypatch.setattr(levels, "derive_master", slow_derive)
     answers = []
 
     def guess():
@@ -126,24 +126,23 @@ def test_at_most_four_argon2_calls_run_at_once(monkeypatch):
     running = peak = 0
     lock = threading.Lock()
 
-    class SlowHasher:
-        def verify(self, stored_hash, password):
-            nonlocal running, peak
-            with lock:
-                running += 1
-                peak = max(peak, running)
-            time.sleep(0.2)
-            with lock:
-                running -= 1
-            return True
+    def slow_argon2(*args, **kwargs):
+        nonlocal running, peak
+        with lock:
+            running += 1
+            peak = max(peak, running)
+        time.sleep(0.2)
+        with lock:
+            running -= 1
+        return bytes(32)
 
-    monkeypatch.setattr(passwords, "_hasher", SlowHasher())
+    monkeypatch.setattr(passwords, "hash_secret_raw", slow_argon2)
     threads = [
-        threading.Thread(target=passwords.check_password, args=("hash", "password"))
+        threading.Thread(target=passwords.derive_master, args=("password", bytes(16)))
         for _ in range(10)
     ]
     for t in threads:
         t.start()
     for t in threads:
         t.join()
-    assert peak <= 4
+    assert peak == 4

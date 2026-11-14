@@ -1,52 +1,35 @@
 import threading
 
-from argon2 import PasswordHasher
-from argon2.exceptions import InvalidHashError, VerificationError
 from argon2.low_level import Type, hash_secret_raw
 from zxcvbn import zxcvbn
-
-# argon2-cffi defaults to Argon2id with 64 MiB of memory, 3 passes, 4 lanes
-# and a random 16-byte salt per hash (the RFC 9106 low-memory profile). The
-# salt and the parameters are stored inside the hash string itself.
-_hasher = PasswordHasher()
-_DUMMY_HASH = _hasher.hash("not a real account")
 
 # every Argon2id call holds 64 MiB: four at most run at once, whatever the
 # number of requests, so a burst of logins cannot use up the memory
 _slots = threading.BoundedSemaphore(4)
 
+# One run per password typed (app/levels.py): every check and key of an
+# account's passwords comes from it. 9 passes over 64 MiB with 4 lanes,
+# three times the passes of argon2-cffi's default profile (RFC 9106's
+# low-memory one), which each of the three checks it replaced used.
+MASTER_PARAMS = {"time_cost": 9, "memory_cost": 64 * 1024, "parallelism": 4}
 
-def hash_password(password):
+# the master key's passphrase (app/keyring.py): that default profile, as
+# before, so a passphrase set earlier still opens
+PASSPHRASE_PARAMS = {"time_cost": 3, "memory_cost": 64 * 1024, "parallelism": 4}
+
+
+def derive_master(password, salt):
+    """The 256-bit value every check and key of this password comes from."""
     with _slots:
-        return _hasher.hash(password)
-
-
-def check_password(stored_hash, password):
-    try:
-        with _slots:
-            return _hasher.verify(stored_hash, password)
-    except (VerificationError, InvalidHashError):
-        return False
+        return hash_secret_raw(password.encode(), salt, hash_len=32, type=Type.ID, **MASTER_PARAMS)
 
 
 def derive_key(password, salt):
-    """A 256-bit key from the password, at the same Argon2id cost as the hashes."""
+    """A 256-bit key from a passphrase, for the master key."""
     with _slots:
         return hash_secret_raw(
-            password.encode(),
-            salt,
-            time_cost=_hasher.time_cost,
-            memory_cost=_hasher.memory_cost,
-            parallelism=_hasher.parallelism,
-            hash_len=32,
-            type=Type.ID,
+            password.encode(), salt, hash_len=32, type=Type.ID, **PASSPHRASE_PARAMS
         )
-
-
-def check_password_of_unknown_user(password):
-    """Spend as long as a real check, so timing does not show which usernames exist."""
-    check_password(_DUMMY_HASH, password)
-    return False
 
 
 def password_problem(username, password):

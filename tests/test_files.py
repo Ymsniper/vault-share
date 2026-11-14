@@ -18,7 +18,8 @@ from app.db import get_db
 from app.files import mac_key
 from security.crypto import decrypt
 from security.hybrid import unwrap_file_key
-from security.keychain import follow_link, unlock_key, unlock_signing_key
+from security.keychain import follow_link, lock_secret, unlock_key, unlock_signing_key
+from security.passwords import derive_master
 from security.integrity import record_mac
 from security.pki import load_certificate
 
@@ -682,13 +683,18 @@ def test_duress_field_is_not_a_password_field(alice):
 
 def private_key(app, username, password=PASSWORD, level=0):
     """A user's private key of a level, opened by hand from the tables with
-    that level's password. Raises InvalidTag for a wrong password."""
+    that level's password: one Argon2 run with the account's salt, then each
+    row's lock tried with the secret it gives. Raises InvalidTag for a wrong
+    password."""
     uid = user_id(app, username)
     with app.app_context():
-        creds = get_db().execute("SELECT * FROM credentials WHERE user_id = ?", (uid,)).fetchall()
+        db = get_db()
+        salt = db.execute("SELECT kdf_salt FROM users WHERE id = ?", (uid,)).fetchone()[0]
+        creds = db.execute("SELECT * FROM credentials WHERE user_id = ?", (uid,)).fetchall()
+    secret = lock_secret(derive_master(password, salt), uid, level)
     for cred in creds:
         try:
-            return unlock_key(cred["lock"], password, cred["kdf_salt"], f"lock|{uid}|{level}".encode())
+            return unlock_key(cred["lock"], secret, f"lock|{uid}|{level}".encode())
         except InvalidTag:
             pass
     raise InvalidTag

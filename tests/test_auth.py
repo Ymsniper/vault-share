@@ -134,14 +134,18 @@ def test_register_validates_password(client):
     assert pick_password(client, "amber-lantern-quarry-58").headers["Location"] == "/auth/login"
 
 
-def test_passwords_are_salted_argon2id_hashes(app, client):
+def test_passwords_are_kept_as_salted_verifiers(app, client):
     register(client, "alice")
     register(client, "bob")
     with app.app_context():
-        hashes = [r[0] for r in get_db().execute("SELECT password_hash FROM credentials")]
-    assert all(h.startswith("$argon2id$v=19$m=65536,t=3,p=4$") for h in hashes)
-    # same password, different salts, different hashes
-    assert len(set(hashes)) == len(hashes) == 6
+        db = get_db()
+        salts = [r[0] for r in db.execute("SELECT kdf_salt FROM users")]
+        verifiers = [r[0] for r in db.execute("SELECT verifier FROM credentials")]
+    # a salt of its own for each account, and nothing of the password but a
+    # 32-byte verifier per row: the same password gives different ones
+    assert len(set(salts)) == 2 and {len(s) for s in salts} == {16}
+    assert {len(v) for v in verifiers} == {32}
+    assert len(set(verifiers)) == len(verifiers) == 6
 
 
 def test_login_rejects_wrong_password(client):
@@ -298,8 +302,7 @@ def test_unknown_usernames_lock_the_same_way(client):
 
 def test_overlong_login_fields_are_refused_before_any_check(client, monkeypatch):
     checks = []
-    monkeypatch.setattr(levels, "check_password", lambda *a: checks.append(a) or False)
-    monkeypatch.setattr(levels, "check_password_of_unknown_user", lambda *a: checks.append(a))
+    monkeypatch.setattr(levels, "derive_master", lambda *a: checks.append(a) or bytes(32))
     for username, password in (("a" * 41, PASSWORD), ("alice#000000", "p" * 129)):
         r = login(client, username, password)
         assert b"Incorrect username or password." in r.data

@@ -6,6 +6,7 @@ import pytest
 
 from app import auth, create_app, limiter, public_link
 from app.db import init_db
+from security import passwords
 from app.invites import create_invite
 
 CA_SCRIPT = Path(__file__).parent.parent / "pki" / "create_ca.sh"
@@ -60,6 +61,16 @@ def test_certs(ca_dir, ca_passphrase, tmp_path):
         capture_output=True,
     )
     return out
+
+
+@pytest.fixture(autouse=True)
+def cheap_password_runs(request, monkeypatch):
+    """The one Argon2 run per password at a fraction of its cost: tests count
+    the runs, they do not time them. A test marked real_argon2 keeps it."""
+    if "real_argon2" not in request.keywords:
+        monkeypatch.setattr(
+            passwords, "MASTER_PARAMS", {"time_cost": 1, "memory_cost": 8 * 1024, "parallelism": 1}
+        )
 
 
 @pytest.fixture

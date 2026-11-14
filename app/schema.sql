@@ -14,12 +14,15 @@ DROP TABLE IF EXISTS invites;
 DROP TABLE IF EXISTS invite_defaults;
 
 -- the version of this layout, which the code checks (app/db.py)
-PRAGMA user_version = 2;
+PRAGMA user_version = 3;
 
 CREATE TABLE users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT NOT NULL UNIQUE,
     is_admin INTEGER NOT NULL DEFAULT 0,
+    -- the salt of the one Argon2 run over each password typed for the
+    -- account (app/levels.py); every check and key comes from that run
+    kdf_salt BLOB NOT NULL DEFAULT (randomblob(16)),
     -- sealed under the master key, always the same length (app/levels.py):
     -- which of the account's credentials is which level, and what each
     -- duress level does, so the database does not show who set one
@@ -103,16 +106,17 @@ CREATE TABLE sessions (
     totp_pending BLOB
 );
 
--- the password of each of an account's three levels, in random order; the
--- sealed users.duress_policy says which row is which level. lock is the
--- level's X25519 private key, encrypted under Argon2id(password, kdf_salt).
--- A level without a password holds the hash of a random secret and random
--- bytes the length of a lock, so in here it looks like one with a password
+-- the password of each of an account's levels, in random order; the
+-- sealed users.duress_policy says which row is which level. One Argon2 run
+-- over a password with users.kdf_salt gives both: verifier, an HMAC of it
+-- bound to the account and the row, and the key lock is made with, the
+-- level's X25519 private key encrypted (security/keychain.py). A level
+-- without a password holds random bytes of the same lengths, so in here it
+-- looks like one with a password
 CREATE TABLE credentials (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL REFERENCES users (id),
-    password_hash TEXT NOT NULL,
-    kdf_salt BLOB NOT NULL,
+    verifier BLOB NOT NULL,
     lock BLOB NOT NULL
 );
 

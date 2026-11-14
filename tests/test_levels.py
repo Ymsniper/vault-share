@@ -15,9 +15,9 @@ from app.auth import show_handle
 from app.db import get_db
 from app.invites import create_admin_invite
 from security.hybrid import unwrap_file_key
-from security.keychain import follow_link, unlock_key
+from security.keychain import follow_link, lock_secret, unlock_key, verifier
 from security import passwords
-from security.passwords import check_password
+from security.passwords import derive_master
 
 from .conftest import PASSWORD, logged_in
 from .test_duress import DURESS, alice_id, log_in, set_duress
@@ -987,15 +987,16 @@ def test_every_account_has_three_levels_of_one_shape(app, alice, bob):
     with app.app_context():
         db = get_db()
         creds = db.execute(
-            "SELECT user_id, password_hash, length(kdf_salt) AS salt, length(lock) AS lock"
-            " FROM credentials"
+            "SELECT user_id, length(verifier) AS verifier, length(lock) AS lock FROM credentials"
         ).fetchall()
+        salts = {r[0] for r in db.execute("SELECT length(kdf_salt) FROM users")}
         keys = db.execute(
             "SELECT level, length(public_key) AS public, link IS NULL AS top FROM level_keys"
         ).fetchall()
         policies = {len(r[0]) for r in db.execute("SELECT duress_policy FROM users")}
-    assert len(creds) == 6 and all(r["password_hash"].startswith("$argon2id$") for r in creds)
-    assert {(r["salt"], r["lock"]) for r in creds} == {(16, 60)}
+    # a verifier and a lock per row, all of one length, and a salt per account
+    assert len(creds) == 6 and {(r["verifier"], r["lock"]) for r in creds} == {(32, 60)}
+    assert salts == {16}
     # and four key pairs each: one per level, and one below level 2 for its
     # cover files, every one but level 0's linked from the one above
     pairs = [(level, 32, level == 0) for level in range(4) for _ in range(2)]
@@ -1003,11 +1004,18 @@ def test_every_account_has_three_levels_of_one_shape(app, alice, bob):
     assert len(policies) == 1
 
 
-def test_login_costs_the_same_at_every_level(app, alice, monkeypatch):
+def runs_of(monkeypatch):
+    """The Argon2 runs over each password typed, from now on."""
     calls = []
-    real_check = levels.check_password
-    monkeypatch.setattr(levels, "check_password", lambda h, p: calls.append(h) or real_check(h, p))
-    monkeypatch.setattr(levels, "check_password_of_unknown_user", lambda p: calls.append(None))
+    real = levels.derive_master
+    monkeypatch.setattr(levels, "derive_master", lambda p, s: calls.append(s) or real(p, s))
+    return calls
+
+
+def test_login_costs_the_same_at_every_level(app, alice, monkeypatch):
+    """Design revision 2, B1: one Argon2 run per login, whatever the password
+    opens, at any number of levels, and for a username that does not exist."""
+    calls = runs_of(monkeypatch)
     set_duress(alice)
     for username, password in (
         (alice.handle, PASSWORD),
@@ -1017,21 +1025,40 @@ def test_login_costs_the_same_at_every_level(app, alice, monkeypatch):
     ):
         before, written = len(calls), len(rows(app))
         app.test_client().post("/auth/login", data={"username": username, "password": password})
-        assert len(calls) - before == 3
+        assert len(calls) - before == 1
         assert len(rows(app)) - written == 1
 
 
+def test_each_password_typed_costs_one_argon2_run(app, alice, bob, monkeypatch):
+    """Design revision 2, B1: every key and check of a password comes from
+    one Argon2 run over it, so an action costs one run for each password
+    typed in its form."""
+    url = new_file(alice)
+    calls = runs_of(monkeypatch)
+
+    def runs(action):
+        before = len(calls)
+        action()
+        return len(calls) - before
+
+    assert runs(lambda: new_file(alice, MENU, "menu.txt")) == 1
+    assert runs(lambda: download(alice, url)) == 1
+    assert runs(lambda: share(alice, url, bob.handle)) == 1
+    # a new password as well as one's own: two
+    assert runs(lambda: set_duress(alice)) == 2
+    assert runs(lambda: change_password(alice, "orchard-window-copper-58")) == 2
+    assert runs(lambda: delete(alice, url, password="orchard-window-copper-58")) == 1
+
+
 def test_login_rows_are_the_same_with_two_factor_at_every_level(app, alice, monkeypatch):
-    calls = []
-    real_check = levels.check_password
-    monkeypatch.setattr(levels, "check_password", lambda h, p: calls.append(h) or real_check(h, p))
+    calls = runs_of(monkeypatch)
     turn_on(alice)
     set_duress(alice)
     for password in (PASSWORD, DURESS):
         before, written = len(calls), len(rows(app))
         r = app.test_client().post("/auth/login", data={"username": alice.handle, "password": password})
         assert r.headers["Location"] == "/auth/login/code"
-        assert len(calls) - before == 3
+        assert len(calls) - before == 1
         assert [row[:2] for row in rows(app)[written:]] == [("login", "code asked")]
 
 
@@ -1302,6 +1329,7 @@ def test_the_duress_password_reaches_no_level_zero_key(app, alice, bob):
     with app.app_context():
         db = get_db()
         creds = db.execute("SELECT * FROM credentials WHERE user_id = ?", (uid,)).fetchall()
+        salt = db.execute("SELECT kdf_salt FROM users WHERE id = ?", (uid,)).fetchone()[0]
         links = {r["level"]: r["link"] for r in db.execute(
             "SELECT level, link FROM level_keys WHERE user_id = ?", (uid,))}
         copies = db.execute(
@@ -1309,13 +1337,13 @@ def test_the_duress_password_reaches_no_level_zero_key(app, alice, bob):
         ).fetchall()
 
     # everything the duress password opens: the one credential it matches...
-    opened = []
+    master, opened = derive_master(DURESS, salt), []
     for cred in creds:
-        if check_password(cred["password_hash"], DURESS):
-            for level in range(3):
+        if verifier(master, uid, cred["id"]) == cred["verifier"]:
+            for level in range(levels.LEVELS):
                 try:
                     opened.append(unlock_key(
-                        cred["lock"], DURESS, cred["kdf_salt"], f"lock|{uid}|{level}".encode()))
+                        cred["lock"], lock_secret(master, uid, level), f"lock|{uid}|{level}".encode()))
                 except InvalidTag:
                     pass
     # ...and whatever its keys open in turn
@@ -1343,9 +1371,10 @@ def test_the_duress_password_reaches_no_level_zero_key(app, alice, bob):
         # nor the lock of level 0, nor the link from 0 down to 1
         with pytest.raises(InvalidTag):
             follow_link(key, links[1], f"link|{uid}|1".encode())
-    zero = [c for c in creds if check_password(c["password_hash"], PASSWORD)][0]
+    real_master = derive_master(PASSWORD, salt)
+    zero = [c for c in creds if verifier(real_master, uid, c["id"]) == c["verifier"]][0]
     with pytest.raises(InvalidTag):
-        unlock_key(zero["lock"], DURESS, zero["kdf_salt"], f"lock|{uid}|0".encode())
+        unlock_key(zero["lock"], lock_secret(master, uid, 0), f"lock|{uid}|0".encode())
 
 
 # where a session's level may be read (section 11): the levels themselves,

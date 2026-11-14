@@ -15,6 +15,7 @@ audit.py, which writes it into the log, and invites.py, which sorts codes
 by it. No view asks whether a session is a duress one.
 """
 import datetime
+import hmac
 import os
 import secrets
 import struct
@@ -31,17 +32,14 @@ from security.keychain import (
     follow_link,
     link_key,
     lock_key,
+    lock_secret,
     unlock_key,
     unlock_signing_key,
     unused_lock,
+    verifier,
 )
 from security.keys import subkey
-from security.passwords import (
-    check_password,
-    check_password_of_unknown_user,
-    derive_key,
-    hash_password,
-)
+from security.passwords import derive_master
 
 from .audit import audit
 from .db import get_db
@@ -58,10 +56,9 @@ MODES = {"cover": COVER, "wipe": WIPE}
 # credential row is each level's, then for every level its mode, when its
 # password starts to work, since when its window is open, and since when it
 # owes a review of the windows below it that its logins closed (epoch
-# seconds, 0 for never), and the hash of the duress password saved at the
-# last level, padded. Level 0's mode and times are never used.
-_HASH_SPACE = 128
-_FORMAT = f"<{LEVELS}q{LEVELS}c{LEVELS}q{LEVELS}q{LEVELS}q{_HASH_SPACE}s"
+# seconds, 0 for never), and the verifier of the duress password saved at
+# the last level, zeros for none. Level 0's mode and times are never used.
+_FORMAT = f"<{LEVELS}q{LEVELS}c{LEVELS}q{LEVELS}q{LEVELS}q32s"
 
 
 @dataclass
@@ -71,10 +68,10 @@ class Policy:
     active_from: list
     window_since: list
     unreviewed_since: list
-    # the duress password saved at level 2, the last a password opens, or
-    # "": it opens nothing, and the Password page alone reads it, to refuse
-    # it as a new password there as the levels above refuse theirs
-    beneath: str
+    # the verifier of the duress password saved at the last level a password
+    # opens, or b"": it opens nothing, and the Password page alone reads it,
+    # to refuse it as a new password there as the levels above refuse theirs
+    beneath: bytes
 
 
 def _aad(username):
@@ -83,13 +80,9 @@ def _aad(username):
 
 
 def seal_policy(username, policy):
-    beneath = policy.beneath.encode()
-    if len(beneath) > _HASH_SPACE:
-        # struct would cut it short without a word
-        raise ValueError("the password hash does not fit the policy")
     data = struct.pack(
         _FORMAT, *policy.rows, *policy.modes, *policy.active_from, *policy.window_since,
-        *policy.unreviewed_since, beneath,
+        *policy.unreviewed_since, policy.beneath,
     )
     return encrypt(subkey(master_key(), "duress-policy"), data, _aad(username))
 
@@ -98,7 +91,8 @@ def open_policy(user):
     data = decrypt(subkey(master_key(), "duress-policy"), user["duress_policy"], _aad(user["username"]))
     values = struct.unpack(_FORMAT, data)
     parts = [list(values[i * LEVELS:(i + 1) * LEVELS]) for i in range(5)]
-    return Policy(*parts, values[5 * LEVELS].rstrip(b"\0").decode())
+    beneath = values[5 * LEVELS]
+    return Policy(*parts, beneath if any(beneath) else b"")
 
 
 def update_policy(user_id, change):
@@ -136,32 +130,35 @@ def new_account(user_id, username, password):
     """Three levels for a new account. Each has a real key pair from the
     start, linked down from the one above, so a duress password can be set
     later; the password opens level 0, and levels 1 and 2 hold the hash of
-    a random secret and an unused lock. The key pair for level 2's cover
+    a random verifier and an unused lock. The key pair for level 2's cover
     files hangs below them, with no password of its own. Returns level 2's
     private key, for the signing key; the caller commits."""
     db = get_db()
+    salt = os.urandom(16)
+    db.execute("UPDATE users SET kdf_salt = ? WHERE id = ?", (salt, user_id))
+    master = _master(password, salt)
     keys = [generate_encryption_key() for _ in range(KEY_LEVELS)]
     rows = [0] * LEVELS
     # the rows go in in random order: their ids say nothing about levels
     order = list(range(LEVELS))
     secrets.SystemRandom().shuffle(order)
     for level in order:
-        salt = os.urandom(16)
-        if level == 0:
-            row = (hash_password(password), salt, lock_key(keys[0], password, salt, lock_aad(user_id, 0)))
-        else:
-            row = (hash_password(secrets.token_urlsafe(32)), salt, unused_lock())
         rows[level] = db.execute(
-            "INSERT INTO credentials (user_id, password_hash, kdf_salt, lock) VALUES (?, ?, ?, ?)",
-            (user_id, *row),
+            "INSERT INTO credentials (user_id, verifier, lock) VALUES (?, ?, ?)",
+            (user_id, *_unused_row()),
         ).lastrowid
+    db.execute(
+        "UPDATE credentials SET verifier = ?, lock = ? WHERE id = ?",
+        (verifier(master, user_id, rows[0]),
+         lock_key(keys[0], lock_secret(master, user_id, 0), lock_aad(user_id, 0)), rows[0]),
+    )
     for level, key in enumerate(keys):
         link = link_key(keys[level - 1], key, link_aad(user_id, level)) if level else None
         db.execute(
             "INSERT INTO level_keys (user_id, level, public_key, link) VALUES (?, ?, ?, ?)",
             (user_id, level, public_bytes(key), link),
         )
-    policy = Policy(rows, [COVER] * LEVELS, [0] * LEVELS, [0] * LEVELS, [0] * LEVELS, "")
+    policy = Policy(rows, [COVER] * LEVELS, [0] * LEVELS, [0] * LEVELS, [0] * LEVELS, b"")
     db.execute(
         "UPDATE users SET duress_policy = ? WHERE id = ?", (seal_policy(username, policy), user_id)
     )
@@ -174,16 +171,36 @@ def new_account(user_id, username, password):
     return keys[LEVELS - 1]
 
 
-def login_level(user, password):
-    """The level password opens for user, or None. All three passwords are
-    checked every time, for unknown usernames too, so neither the time a
-    login takes nor its work shows which one matched."""
+def _master(password, salt):
+    """The one Argon2 run over a password typed, made once a request however
+    many of its checks and keys are needed."""
+    runs = g.setdefault("password_runs", {})
+    if (salt, password) not in runs:
+        runs[(salt, password)] = derive_master(password, salt)
+    return runs[(salt, password)]
+
+
+def _unknown_salt(username):
+    """The salt a username that does not exist is tried with: fixed for the
+    name, so its one run costs what a real account's does."""
+    key = subkey(master_key(), "unknown-salt")
+    return hmac.new(key, username.encode(), "sha256").digest()[:16]
+
+
+def login_level(user, password, username):
+    """The level password opens for user, or None. One Argon2 run, then
+    every credential row of the account compared, in constant time and with
+    no early exit, for unknown usernames too: neither the time a login
+    takes nor its work shows which row matched."""
+    salt = _unknown_salt(username) if user is None else user["kdf_salt"]
+    master = _master(password, salt)
     rows = [] if user is None else get_db().execute(
-        "SELECT id, password_hash FROM credentials WHERE user_id = ? ORDER BY id", (user["id"],)
+        "SELECT id, verifier FROM credentials WHERE user_id = ? ORDER BY id", (user["id"],)
     ).fetchall()
-    matched = {r["id"] for r in rows if check_password(r["password_hash"], password)}
-    for _ in range(LEVELS - len(rows)):
-        check_password_of_unknown_user(password)
+    matched = set()
+    for r in rows:
+        if hmac.compare_digest(verifier(master, user["id"], r["id"]), r["verifier"]):
+            matched.add(r["id"])
     if not matched:
         return None
     policy, now = open_policy(user), time.time()
@@ -564,10 +581,11 @@ def unlock(password):
     user, level = g.user, g.level
     db = get_db()
     row = db.execute(
-        "SELECT kdf_salt, lock FROM credentials WHERE id = ?", (open_policy(user).rows[level],)
+        "SELECT lock FROM credentials WHERE id = ?", (open_policy(user).rows[level],)
     ).fetchone()
+    secret = lock_secret(_master(password, user["kdf_salt"]), user["id"], level)
     try:
-        key = unlock_key(row["lock"], password, row["kdf_salt"], lock_aad(user["id"], level))
+        key = unlock_key(row["lock"], secret, lock_aad(user["id"], level))
     except InvalidTag:
         return None
     links = dict(db.execute(
@@ -764,15 +782,14 @@ def move_files(keys, file_ids, down):
 
 
 def _unused_row():
-    """What a level without a password holds: the hash of a random secret,
-    a salt, and random bytes the length of a lock."""
-    return (hash_password(secrets.token_urlsafe(32)), os.urandom(16), unused_lock())
+    """What a level without a password holds: a random verifier and random
+    bytes the length of a lock, the same lengths as a real row's."""
+    return (os.urandom(32), unused_lock())
 
 
 def _clear(policy, level, row):
     get_db().execute(
-        "UPDATE credentials SET password_hash = ?, kdf_salt = ?, lock = ? WHERE id = ?",
-        (*row, policy.rows[level]),
+        "UPDATE credentials SET verifier = ?, lock = ? WHERE id = ?", (*row, policy.rows[level])
     )
     policy.modes[level] = COVER
     policy.active_from[level] = 0
@@ -798,28 +815,26 @@ def set_duress(keys, password, mode):
     level 1, level 2) the duress password, locking that level's own key,
     which keys reach, and clear any password further down: the chain below
     starts anew, so a password a coercer set there does not outlive this
-    one. mode is "cover" or "wipe". At level 2, the last a password opens,
-    the password opens nothing: only its hash is kept, for the Password
-    page, and the page answers the same. Every level does the same Argon2
-    work, so the time taken says nothing either."""
+    one. mode is "cover" or "wipe". At the last level a password opens,
+    the password opens nothing: only its verifier is kept, for the Password
+    page, and the page answers the same. One Argon2 run over the new
+    password at every level, so the time taken says nothing either."""
     user, lower = g.user, g.level + 1
-    salt = os.urandom(16)
-    password_hash = hash_password(password)
-    if lower < LEVELS:
-        lock = lock_key(keys.private[lower], password, salt, lock_aad(user["id"], lower))
-    else:
-        derive_key(password, salt)
+    master = _master(password, user["kdf_salt"])
     spares = [_unused_row() for _ in range(LEVELS - 2)]
 
     def change(policy):
         _end_sessions_below(user["id"])
         if lower >= LEVELS:
-            policy.beneath = password_hash
+            policy.beneath = verifier(master, user["id"], "beneath")
             return
-        policy.beneath = ""
+        policy.beneath = b""
+        row = policy.rows[lower]
+        lock = lock_key(keys.private[lower], lock_secret(master, user["id"], lower),
+                        lock_aad(user["id"], lower))
         get_db().execute(
-            "UPDATE credentials SET password_hash = ?, kdf_salt = ?, lock = ? WHERE id = ?",
-            (password_hash, salt, lock, policy.rows[lower]),
+            "UPDATE credentials SET verifier = ?, lock = ? WHERE id = ?",
+            (verifier(master, user["id"], row), lock, row),
         )
         policy.modes[lower] = MODES[mode]
         # it starts to work later, at every level alike, so nobody can test
@@ -843,8 +858,8 @@ def _end_sessions_below(user_id):
 
 def remove_duress():
     """Take the password of every level below the session's away: each holds
-    the hash of a random secret and an unused lock again, and the one saved
-    at level 2 goes. Their keys and files stay, under the levels above. The
+    a random verifier and an unused lock again, and the one saved at the
+    last level goes. Their keys and files stay, under the levels above. The
     same work at every level."""
     user = g.user
     spares = [_unused_row() for _ in range(LEVELS - 1)]
@@ -853,7 +868,7 @@ def remove_duress():
         for below, row in zip(range(g.level + 1, LEVELS), spares):
             _clear(policy, below, row)
         _fresh_start(user["id"], policy, range(g.level + 1, LEVELS))
-        policy.beneath = ""
+        policy.beneath = b""
         _end_sessions_below(user["id"])
 
     update_policy(user["id"], change)
@@ -863,21 +878,22 @@ def opens_below(password):
     """Whether password is the duress password of a level below the
     session's (a higher number), the one saved at level 2 included: a new
     password must not be one, or the duress password would open this level,
-    and level 2 refuses the one saved there as the levels above refuse
-    theirs. The levels above are never tried, so no form can test their
-    passwords."""
-    policy = open_policy(g.user)
-    hashes = dict(get_db().execute(
-        "SELECT id, password_hash FROM credentials WHERE user_id = ?", (g.user["id"],)
+    and the last level refuses the one saved there as the levels above
+    refuse theirs. The levels above are never tried, so no form can test
+    their passwords. One Argon2 run over the new password, at every level,
+    which change_password then reuses."""
+    policy, uid = open_policy(g.user), g.user["id"]
+    master = _master(password, g.user["kdf_salt"])
+    stored = dict(get_db().execute(
+        "SELECT id, verifier FROM credentials WHERE user_id = ?", (uid,)
     ).fetchall())
-    below = [hashes[policy.rows[lvl]] for lvl in range(g.level + 1, LEVELS)]
+    found = False
+    for lvl in range(g.level + 1, LEVELS):
+        row = policy.rows[lvl]
+        found |= hmac.compare_digest(verifier(master, uid, row), stored[row])
     if policy.beneath:
-        below.append(policy.beneath)
-    found = [check_password(stored, password) for stored in below]
-    # the same number of checks at every level, so the time says nothing
-    for _ in range(LEVELS - len(found)):
-        check_password_of_unknown_user(password)
-    return any(found)
+        found |= hmac.compare_digest(verifier(master, uid, "beneath"), policy.beneath)
+    return found
 
 
 def change_password(keys, password):
@@ -886,13 +902,13 @@ def change_password(keys, password):
     sessions at this level and below it end, those opened with the old
     password among them; the levels above are not touched."""
     user, level = g.user, g.level
-    salt = os.urandom(16)
-    row = (hash_password(password), salt,
-           lock_key(keys.private[level], password, salt, lock_aad(user["id"], level)))
+    master, row = _master(password, user["kdf_salt"]), open_policy(user).rows[level]
+    lock = lock_key(keys.private[level], lock_secret(master, user["id"], level),
+                    lock_aad(user["id"], level))
     db = get_db()
     db.execute(
-        "UPDATE credentials SET password_hash = ?, kdf_salt = ?, lock = ? WHERE id = ?",
-        (*row, open_policy(user).rows[level]),
+        "UPDATE credentials SET verifier = ?, lock = ? WHERE id = ?",
+        (verifier(master, user["id"], row), lock, row),
     )
     db.execute(
         "DELETE FROM sessions WHERE user_id = ? AND level >= ? AND token_hash != ?",

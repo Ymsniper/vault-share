@@ -458,7 +458,7 @@ def login():
         username = form.username.data
         password = form.password.data
         user = get_db().execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
-        level = levels.login_level(user, password)
+        level = levels.login_level(user, password, username)
 
         if level is None:
             g.wrong_password = True

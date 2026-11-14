@@ -1,8 +1,8 @@
 """The keys of an account's levels.
 
 Each level has an X25519 key pair (security/hybrid.py). A level's private
-key is locked under that level's password, and also linked from the level
-above it: encrypted under a key derived from the upper level's private
+key is locked under a secret its password gives, and also linked from the
+level above it: encrypted under a key derived from the upper level's private
 key. So a password opens its own level and every level below it, and
 nothing leads back up. The signing key hangs off the lowest level, which
 every password reaches.
@@ -10,6 +10,7 @@ every password reaches.
 The aad given to each function ties a lock or a link to one account and
 one level: copied onto another row, it no longer opens.
 """
+import hmac
 import os
 
 from cryptography.hazmat.primitives import hashes, serialization
@@ -17,7 +18,6 @@ from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from .crypto import NONCE_SIZE, decrypt, encrypt
-from .passwords import derive_key
 
 # a nonce, a 32-byte X25519 private key and the GCM tag
 LOCK_SIZE = NONCE_SIZE + 32 + 16
@@ -34,15 +34,29 @@ def _key_from(upper, aad):
     return HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=aad).derive(_raw(upper))
 
 
-def lock_key(key, password, salt, aad):
-    """The private key encrypted under Argon2id(password, salt)."""
-    return encrypt(derive_key(password, salt), _raw(key), aad)
+def verifier(master, user_id, row_id):
+    """What a credential row keeps of its password: a keyed hash of the one
+    Argon2 run over it (security/passwords.derive_master), bound to the
+    account and the row. 32 bytes, like the random ones of an unused row."""
+    return hmac.new(master, f"verify|{user_id}|{row_id}".encode(), "sha256").digest()
 
 
-def unlock_key(lock, password, salt, aad):
-    """Raises cryptography.exceptions.InvalidTag when the password is not
-    this lock's."""
-    return X25519PrivateKey.from_private_bytes(decrypt(derive_key(password, salt), lock, aad))
+def lock_secret(master, user_id, level):
+    """The key a password locks its level's private key with, from the same
+    run: a password's checks and keys never need a second one."""
+    info = f"lock|{user_id}|{level}".encode()
+    return HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=info).derive(master)
+
+
+def lock_key(key, secret, aad):
+    """The private key encrypted under a password's lock secret."""
+    return encrypt(secret, _raw(key), aad)
+
+
+def unlock_key(lock, secret, aad):
+    """Raises cryptography.exceptions.InvalidTag when the secret is not this
+    lock's, that is, the password is not."""
+    return X25519PrivateKey.from_private_bytes(decrypt(secret, lock, aad))
 
 
 def unused_lock():
