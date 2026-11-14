@@ -277,8 +277,14 @@ def finish_pending_login(user, sealed, recovery=False):
     duress password in wipe mode asked for. A recovery code used instead
     of the phone is logged at that level too."""
     level = levels.pending_level(user["id"], sealed)
+    if not levels.pending_current(user["id"], sealed):
+        # its password stopped opening the level while the code was asked
+        session.clear()
+        flash("Log in again.")
+        return redirect(url_for("auth.login"))
     if recovery:
         audit("totp", "recovery code used", user_id=user["id"], level=level)
+    user = get_db().execute("SELECT * FROM users WHERE id = ?", (user["id"],)).fetchone()
     return finish_login(user, level)
 
 
@@ -459,6 +465,10 @@ def login():
         password = form.password.data
         user = get_db().execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
         level = levels.login_level(user, password, username)
+        if level is not None:
+            # as the login left it: it may have made a duress password's
+            # replacement, which changes the level's mode and two-factor
+            user = get_db().execute("SELECT * FROM users WHERE id = ?", (user["id"],)).fetchone()
 
         if level is None:
             g.wrong_password = True
@@ -479,7 +489,7 @@ def login():
                 session.clear()
                 session["totp_user_id"] = user["id"]
                 session["totp_started"] = time.time()
-                session["totp_mode"] = levels.seal_pending(user["id"], level)
+                session["totp_mode"] = levels.seal_pending(user, level)
                 return redirect(url_for("totp.login_code"))
             return finish_login(user, level)
     elif form.is_submitted():
@@ -529,6 +539,10 @@ def _find_user():
         " AND s.last_seen > datetime('now', '-30 minutes')",
         (token_hash(token),),
     ).fetchone()
+    if g.user is not None and levels.switch_due(g.user):
+        # a new duress password started to work: the sessions its old one
+        # opened are over, maybe this one
+        return _find_user()
     if g.user is not None:
         g.level = g.user["session_level"]
         g.session_hash = token_hash(token)

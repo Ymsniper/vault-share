@@ -51,16 +51,32 @@ from .storage import storage_path
 LEVELS = 8
 # key pairs: one per level, and the one under the last for its cover files
 KEY_LEVELS = LEVELS + 1
+# credential rows: level 0's, then for every level below it two, the
+# password in use and the next one, kept the same way for the password
+# saved at the last level, which opens nothing (at KEY_LEVELS - 1)
+ROWS = 1 + 2 * (KEY_LEVELS - 1)
 COVER, WIPE = b"C", b"W"
 MODES = {"cover": COVER, "wipe": WIPE}
 
-# The sealed record of an account's levels, always the same length: which
-# credential row is each level's, then for every level its mode, when its
-# password starts to work, since when its window is open, and since when it
-# owes a review of the windows below it that its logins closed (epoch
-# seconds, 0 for never), and the verifier of the duress password saved at
-# the last level, zeros for none. Level 0's mode and times are never used.
-_FORMAT = f"<{LEVELS}q{LEVELS}c{LEVELS}q{LEVELS}q{LEVELS}q32s"
+# The sealed record of an account's levels, always the same length (epoch
+# seconds, 0 for never): for every level the credential row of its
+# password, the password's mode and since when it works; since when the
+# level's window is open, and since when it owes a review of the windows
+# below it that its logins closed; then the row, mode and start of the next
+# password, saved and not working yet. The rows and passwords go one level
+# further, for the one saved at the last level. Level 0's modes and times
+# are never used, nor its next row, which it has none of.
+_FIELDS = (
+    ("rows", "q", KEY_LEVELS),
+    ("modes", "c", KEY_LEVELS),
+    ("active_from", "q", KEY_LEVELS),
+    ("window_since", "q", LEVELS),
+    ("unreviewed_since", "q", LEVELS),
+    ("next_rows", "q", KEY_LEVELS),
+    ("next_modes", "c", KEY_LEVELS),
+    ("next_from", "q", KEY_LEVELS),
+)
+_FORMAT = "<" + "".join(f"{count}{code}" for _, code, count in _FIELDS)
 
 
 @dataclass
@@ -70,10 +86,9 @@ class Policy:
     active_from: list
     window_since: list
     unreviewed_since: list
-    # the verifier of the duress password saved at the last level a password
-    # opens, or b"": it opens nothing, and the Password page alone reads it,
-    # to refuse it as a new password there as the levels above refuse theirs
-    beneath: bytes
+    next_rows: list
+    next_modes: list
+    next_from: list
 
 
 def _aad(username):
@@ -82,32 +97,30 @@ def _aad(username):
 
 
 def seal_policy(username, policy):
-    data = struct.pack(
-        _FORMAT, *policy.rows, *policy.modes, *policy.active_from, *policy.window_since,
-        *policy.unreviewed_since, policy.beneath,
-    )
+    values = [value for name, _, _ in _FIELDS for value in getattr(policy, name)]
+    data = struct.pack(_FORMAT, *values)
     return encrypt(subkey(master_key(), "duress-policy"), data, _aad(username))
 
 
 def open_policy(user):
     data = decrypt(subkey(master_key(), "duress-policy"), user["duress_policy"], _aad(user["username"]))
-    values = struct.unpack(_FORMAT, data)
-    parts = [list(values[i * LEVELS:(i + 1) * LEVELS]) for i in range(5)]
-    beneath = values[5 * LEVELS]
-    return Policy(*parts, beneath if any(beneath) else b"")
+    values = iter(struct.unpack(_FORMAT, data))
+    return Policy(**{name: [next(values) for _ in range(count)] for name, _, count in _FIELDS})
 
 
 def update_policy(user_id, change):
-    """Open the account's policy, let change() edit it, and write it back
-    unless another request wrote it in between; then start over, so no
-    change is lost. change() may write other rows: they are kept only with
-    the policy. Returns what change() returned."""
+    """Open the account's policy, make the replacement that is due if one is
+    (_switch), let change() edit it, and write it back unless another
+    request wrote it in between; then start over, so no change is lost.
+    change() may write other rows: they are kept only with the policy.
+    Returns what change() returned."""
     db = get_db()
     for _ in range(20):
         row = db.execute(
             "SELECT username, duress_policy FROM users WHERE id = ?", (user_id,)
         ).fetchone()
         policy = open_policy(row)
+        _switch(policy, user_id, time.time())
         result = change(policy)
         cur = db.execute(
             "UPDATE users SET duress_policy = ? WHERE id = ? AND duress_policy = ?",
@@ -131,21 +144,23 @@ def link_aad(user_id, level):
 def new_account(user_id, username, password):
     """Every level of a new account. Each has a real key pair from the
     start, linked down from the one above, so a duress password can be set
-    later; the password opens level 0, and the levels below hold a random
-    verifier and an unused lock. The key pair for the last level's cover
-    files hangs below them, with no password of its own. Returns the last
-    level's private key, for the signing key; the caller commits."""
+    later; the password opens level 0, and the two rows of every level
+    below hold a random verifier and an unused lock. The key pair for the
+    last level's cover files hangs below them, with no password of its own.
+    Returns the last level's private key, for the signing key; the caller
+    commits."""
     db = get_db()
     salt = os.urandom(16)
     db.execute("UPDATE users SET kdf_salt = ? WHERE id = ?", (salt, user_id))
     master = _master(password, salt)
     keys = [generate_encryption_key() for _ in range(KEY_LEVELS)]
-    rows = [0] * LEVELS
+    rows, next_rows = [0] * KEY_LEVELS, [0] * KEY_LEVELS
     # the rows go in in random order: their ids say nothing about levels
-    order = list(range(LEVELS))
-    secrets.SystemRandom().shuffle(order)
-    for level in order:
-        rows[level] = db.execute(
+    slots = [(rows, 0)] + [(kind, level) for level in range(1, KEY_LEVELS)
+                           for kind in (rows, next_rows)]
+    secrets.SystemRandom().shuffle(slots)
+    for kind, level in slots:
+        kind[level] = db.execute(
             "INSERT INTO credentials (user_id, verifier, lock) VALUES (?, ?, ?)",
             (user_id, *_unused_row()),
         ).lastrowid
@@ -160,7 +175,8 @@ def new_account(user_id, username, password):
             "INSERT INTO level_keys (user_id, level, public_key, link) VALUES (?, ?, ?, ?)",
             (user_id, level, public_bytes(key), link),
         )
-    policy = Policy(rows, [COVER] * LEVELS, [0] * LEVELS, [0] * LEVELS, [0] * LEVELS, b"")
+    policy = Policy(rows, [COVER] * KEY_LEVELS, [0] * KEY_LEVELS, [0] * LEVELS, [0] * LEVELS,
+                    next_rows, [COVER] * KEY_LEVELS, [0] * KEY_LEVELS)
     db.execute(
         "UPDATE users SET duress_policy = ? WHERE id = ?", (seal_policy(username, policy), user_id)
     )
@@ -193,7 +209,8 @@ def login_level(user, password, username):
     """The level password opens for user, or None. One Argon2 run, then
     every credential row of the account compared, in constant time and with
     no early exit, for unknown usernames too: neither the time a login
-    takes nor its work shows which row matched."""
+    takes nor its work shows which row matched. A password that matches a
+    row makes the replacement that is due first, if one is."""
     salt = _unknown_salt(username) if user is None else user["kdf_salt"]
     master = _master(password, salt)
     rows = [] if user is None else get_db().execute(
@@ -206,6 +223,11 @@ def login_level(user, password, username):
     if not matched:
         return None
     policy, now = open_policy(user), time.time()
+    if _due(policy, now):
+        # made before the level is decided, so a password the replacement
+        # ends opens nothing, not even at this login; the caller reads the
+        # account again
+        policy = update_policy(user["id"], lambda written: written)
     found = [
         level for level in range(LEVELS)
         if policy.rows[level] in matched and (level == 0 or 0 < policy.active_from[level] <= now)
@@ -541,14 +563,40 @@ def _keep_window_open():
     update_policy(g.user["id"], change)
 
 
-def seal_pending(user_id, level):
-    """The level of a login that still owes its two-factor code, sealed so
-    the cookie that carries it gives nothing away."""
-    return encrypt(subkey(master_key(), "login-mode"), bytes([level]), f"login:{user_id}".encode())
+_PENDING = struct.Struct("<Bqq")
+
+
+def seal_pending(user, level):
+    """The level of a login that still owes its two-factor code, with the row
+    and start of the password that opened it, sealed so the cookie that
+    carries it gives nothing away."""
+    policy = open_policy(user)
+    data = _PENDING.pack(level, policy.rows[level], policy.active_from[level])
+    return encrypt(subkey(master_key(), "login-mode"), data, f"login:{user['id']}".encode())
+
+
+def _pending(user_id, blob):
+    return _PENDING.unpack(decrypt(subkey(master_key(), "login-mode"), blob, f"login:{user_id}".encode()))
 
 
 def pending_level(user_id, blob):
-    return decrypt(subkey(master_key(), "login-mode"), blob, f"login:{user_id}".encode())[0]
+    return _pending(user_id, blob)[0]
+
+
+def pending_current(user_id, blob):
+    """Whether the password a login typed before its two-factor code still
+    opens its level: a replacement that started to work in between, made
+    now if nothing made it yet, or a remove, ends it as it ends a
+    session."""
+    def account():
+        return get_db().execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+
+    user = account()
+    if switch_due(user):
+        user = account()
+    level, row, since = _pending(user_id, blob)
+    policy = open_policy(user)
+    return policy.rows[level] == row and policy.active_from[level] == since
 
 
 @dataclass
@@ -801,12 +849,14 @@ def _unused_row():
     return (os.urandom(32), unused_lock())
 
 
-def _clear(policy, level, row):
-    get_db().execute(
-        "UPDATE credentials SET verifier = ?, lock = ? WHERE id = ?", (*row, policy.rows[level])
-    )
-    policy.modes[level] = COVER
-    policy.active_from[level] = 0
+def _clear(policy, level, contents):
+    """Empty both of a level's rows, the password in use and the next one,
+    with contents, two from _unused_row()."""
+    db = get_db()
+    for row, content in zip((policy.rows[level], policy.next_rows[level]), contents):
+        db.execute("UPDATE credentials SET verifier = ?, lock = ? WHERE id = ?", (*content, row))
+    policy.modes[level] = policy.next_modes[level] = COVER
+    policy.active_from[level] = policy.next_from[level] = 0
 
 
 def _fresh_start(user_id, policy, lower_levels):
@@ -824,39 +874,76 @@ def _fresh_start(user_id, policy, lower_levels):
         policy.unreviewed_since[level] = 0
 
 
+def _due(policy, now):
+    return any(0 < start <= now for start in policy.next_from)
+
+
+def _switch(policy, user_id, now):
+    """Make the replacement that is due, if one is: the first level whose
+    next password has started to work takes it as its own, the row of the
+    one it replaces is emptied, and the chain below starts anew, as a
+    remove leaves it: the levels below lose their passwords, every level
+    from this one down its two-factor login and owed review, and the
+    sessions of them all end, the ones the old password opened among them,
+    which must never be told their own password is wrong. A first password
+    goes through it too, with nothing below it to clear. Returns the level,
+    or None."""
+    level = next((lvl for lvl in range(1, KEY_LEVELS) if 0 < policy.next_from[lvl] <= now), None)
+    if level is None:
+        return None
+    old = policy.rows[level]
+    policy.rows[level], policy.next_rows[level] = policy.next_rows[level], old
+    policy.modes[level], policy.next_modes[level] = policy.next_modes[level], COVER
+    policy.active_from[level], policy.next_from[level] = policy.next_from[level], 0
+    db = get_db()
+    db.execute("UPDATE credentials SET verifier = ?, lock = ? WHERE id = ?", (*_unused_row(), old))
+    for below in range(level + 1, KEY_LEVELS):
+        _clear(policy, below, (_unused_row(), _unused_row()))
+    _fresh_start(user_id, policy, range(level, LEVELS))
+    db.execute("DELETE FROM sessions WHERE user_id = ? AND level >= ?", (user_id, level))
+    return level
+
+
+def switch_due(user):
+    """At every request of a session: make the replacement that started to
+    work since the account's policy was last written, if one did. Returns
+    whether one did; the sessions it ended may include the caller's."""
+    if not _due(open_policy(user), time.time()):
+        return False
+    update_policy(user["id"], lambda policy: None)
+    return True
+
+
 def set_duress(keys, password, mode):
-    """Give the next level down from the session's (from level 0, level 1;
-    from level 1, level 2; and so on) the duress password, locking its key,
-    which keys reach, and clear any password further down: the chain below
-    starts anew, so a password a coercer set there does not outlive this
-    one. mode is "cover" or "wipe". At the last level a password opens,
-    the password opens nothing: only its verifier is kept, for the Password
-    page, and the page answers the same. One Argon2 run over the new
-    password at every level, so the time taken says nothing either."""
+    """Save the duress password of the next level down from the session's
+    (from level 0, level 1; from level 1, level 2; and so on), locking that
+    level's key, which keys reach. It goes in the level's next row and
+    starts to work later, at every level alike, so nobody can test on the
+    spot what saving one did; until then the password it replaces, if there
+    is one, keeps working and its holder notices nothing, and only then does
+    the chain below start anew (_switch), so a password a coercer set there
+    does not outlive this one. A second save before then replaces the
+    first. mode is "cover" or "wipe". The password saved at the last level
+    opens nothing: it locks no key, and only its verifier counts, for the
+    Password page, so the page answers as at the levels above. One Argon2
+    run over the new password, and the same writes, at every level and
+    whatever the level held, so the time taken says nothing either."""
     user, lower = g.user, g.level + 1
     master = _master(password, user["kdf_salt"])
-    spares = [_unused_row() for _ in range(LEVELS - 2)]
-
-    def change(policy):
-        _end_sessions_below(user["id"])
-        if lower >= LEVELS:
-            policy.beneath = verifier(master, user["id"], "beneath")
-            return
-        policy.beneath = b""
-        row = policy.rows[lower]
+    if lower < LEVELS:
         lock = lock_key(keys.private[lower], lock_secret(master, user["id"], lower),
                         lock_aad(user["id"], lower))
+    else:
+        lock = unused_lock()
+
+    def change(policy):
+        row = policy.next_rows[lower]
         get_db().execute(
             "UPDATE credentials SET verifier = ?, lock = ? WHERE id = ?",
             (verifier(master, user["id"], row), lock, row),
         )
-        policy.modes[lower] = MODES[mode]
-        # it starts to work later, at every level alike, so nobody can test
-        # on the spot what setting one did
-        policy.active_from[lower] = int(time.time()) + current_app.config["DURESS_DELAY"]
-        for below, row in zip(range(lower + 1, LEVELS), spares):
-            _clear(policy, below, row)
-        _fresh_start(user["id"], policy, range(lower, LEVELS))
+        policy.next_modes[lower] = MODES[mode]
+        policy.next_from[lower] = int(time.time()) + current_app.config["DURESS_DELAY"]
 
     update_policy(user["id"], change)
 
@@ -871,42 +958,41 @@ def _end_sessions_below(user_id):
 
 
 def remove_duress():
-    """Take the password of every level below the session's away: each holds
-    a random verifier and an unused lock again, and the one saved at the
-    last level goes. Their keys and files stay, under the levels above. The
-    same work at every level."""
+    """Take the passwords of every level below the session's away, the one in
+    use and the next one, and the one saved at the last level: each row
+    holds a random verifier and an unused lock again, at once. Their keys
+    and files stay, under the levels above. The same work at every level."""
     user = g.user
-    spares = [_unused_row() for _ in range(LEVELS - 1)]
+    spares = [(_unused_row(), _unused_row()) for _ in range(KEY_LEVELS - 1)]
 
     def change(policy):
-        for below, row in zip(range(g.level + 1, LEVELS), spares):
-            _clear(policy, below, row)
+        for below, contents in zip(range(g.level + 1, KEY_LEVELS), spares):
+            _clear(policy, below, contents)
         _fresh_start(user["id"], policy, range(g.level + 1, LEVELS))
-        policy.beneath = b""
         _end_sessions_below(user["id"])
 
     update_policy(user["id"], change)
 
 
 def opens_below(password):
-    """Whether password is the duress password of a level below the
-    session's (a higher number), the one saved at the last level included:
-    a new password must not be one, or the duress password would open this
-    level, and the last level refuses the one saved there as the levels
-    above refuse theirs. The levels above are never tried, so no form can
-    test their passwords. One Argon2 run over the new password, at every
-    level, which change_password then reuses."""
+    """Whether password is a duress password of a level below the session's
+    (a higher number), in use or still to come, the one saved at the last
+    level included: a new password must not be one, or the duress password
+    would open this level, and the last level refuses the one saved there
+    as the levels above refuse theirs. The levels above are never tried, so
+    no form can test their passwords. One Argon2 run over the new password,
+    which change_password then reuses, and every row compared, at every
+    level."""
     policy, uid = open_policy(g.user), g.user["id"]
     master = _master(password, g.user["kdf_salt"])
     stored = dict(get_db().execute(
         "SELECT id, verifier FROM credentials WHERE user_id = ?", (uid,)
     ).fetchall())
     found = False
-    for lvl in range(g.level + 1, LEVELS):
-        row = policy.rows[lvl]
-        found |= hmac.compare_digest(verifier(master, uid, row), stored[row])
-    if policy.beneath:
-        found |= hmac.compare_digest(verifier(master, uid, "beneath"), policy.beneath)
+    for lvl in range(1, KEY_LEVELS):
+        for row in (policy.rows[lvl], policy.next_rows[lvl]):
+            same = hmac.compare_digest(verifier(master, uid, row), stored[row])
+            found |= same and lvl > g.level
     return found
 
 

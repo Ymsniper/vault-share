@@ -100,8 +100,38 @@
 <section class="vs-panel">
   <h2 class="vs-panel-title">Your certificate</h2>
   <p class="vs-note">Whoever held the duress password could sign files in your name. To make the files signed since then fail, ask the operator to revoke your certificate from that time:</p>
-  <p class="vs-mono vs-command">vault-share admin revoke --since '{{ since_local }}' '{{ g.user['username'] }}'</p>
-  <p class="vs-note mb-0">Then change your duress password, or remove it, on the <a href="{{ url_for('settings.duress') }}">Duress page</a>.</p>
+  <p class="vs-mono vs-command mb-0">vault-share admin revoke --since '{{ since_local }}' '{{ g.user['username'] }}'</p>
+</section>
+
+<section class="vs-panel">
+  <h2 class="vs-panel-title">Your duress password</h2>
+  <p class="vs-note">Whoever holds it can log in with it again, and will see what is shared with you from then on. It never stops on its own: a duress password that stopped working would give you away.</p>
+  <p class="vs-note">To keep it, do nothing. To replace it, save a new one here: it starts to work in {{ delay }}, and the one you have now keeps working until then. To end it without a new one, remove it on the <a href="{{ url_for('settings.duress') }}">Duress page</a>.</p>
+  <form method="post" action="{{ url_for('settings.duress') }}" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="mb-3">
+      <label for="replace-duress" class="form-label">New duress password</label>
+      <input type="text" name="duress_password" id="replace-duress" class="form-control masked"
+             autocomplete="off" spellcheck="false" autocapitalize="off"
+             data-lpignore="true" data-1p-ignore data-bwignore="true" required>
+    </div>
+    <div class="mb-3">
+      <div class="form-check">
+        <input class="form-check-input" type="radio" name="mode" id="replace-cover" value="cover" checked>
+        <label class="form-check-label" for="replace-cover">Open my cover files</label>
+      </div>
+      <div class="form-check">
+        <input class="form-check-input" type="radio" name="mode" id="replace-wipe" value="wipe">
+        <label class="form-check-label" for="replace-wipe">Open my cover files and destroy my other files</label>
+      </div>
+    </div>
+    <div class="form-check">
+      <input class="form-check-input" type="checkbox" name="confirm_wipe" id="replace-confirm" value="y">
+      <label class="form-check-label" for="replace-confirm">I understand that the wipe cannot be undone</label>
+    </div>
+    {{ password("replace") }}
+    <button type="submit" class="btn btn-outline-secondary">Replace</button>
+  </form>
 </section>
 
 <form method="post" action="{{ url_for('settings.review_action', action='done') }}" class="vs-panel">

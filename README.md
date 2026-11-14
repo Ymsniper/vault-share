@@ -194,10 +194,13 @@ the files deleted (which it can restore), taken off the list (which it can
 put back), uploaded (which it can delete) or shared with the account
 meanwhile (which it can bring back to its own files), and the command the
 operator runs to revoke the certificate from the time the window opened,
-since whoever held the duress password could sign in the user's name. What
-it does shows in the duress vault, and the page says so. Deleted and removed
-files are kept 30 days from when the review first shows them, so an owner
-who never logs in loses nothing; "Done" restores what is left or lets it go.
+since whoever held the duress password could sign in the user's name. It
+says plainly that whoever holds the duress password can log in with it
+again and will see what is shared from then on, and offers to keep it or
+to replace it there. What it does shows in the duress vault, and the page
+says so. Deleted and removed files are kept 30 days from when the review
+first shows them, so an owner who never logs in loses nothing; "Done"
+restores what is left or lets it go.
 A duress session that closes the window of a level below its own gets the
 same review: every level looks like the top.
 
@@ -219,18 +222,25 @@ login on, the wipe waits for the code, like the login itself, so a leaked
 duress password alone destroys nothing; the alarm is written as soon as the
 password is typed. A new duress password starts to work 48 hours after it is
 saved, at every level alike, so whoever watches one being set cannot try it
-on the spot, and saving a new one stops the old one at once. Setting or
-removing a duress password also clears any set further down, so a password a
-coercer set from a duress session does not outlive it. Every account has all
-eight levels from the start, a level without a password looks like one with
-a password in the database, the record of which is which is sealed under the
-master key, and setting or removing a duress password is not logged. The
-"Password" page changes the password a session logged in with, at its own
-level only: it locks that level's key again under the new password, so every
-file still opens and nothing needs encrypting again, and it ends the
-account's other sessions at that level and below. A new password may not be
-a duress password of a level below, which would then open the upper one. A
-forgotten password still cannot be reset: it is the only way to its keys.
+on the spot. The one it replaces keeps working until then, so its holder
+notices nothing before: each duress level has two credential rows, the
+password in use and the next one, and the next one takes over at the first
+request or login after its time. Only then are the passwords set further
+down cleared, as a removal clears them at once, so a password a coercer set
+from a duress session does not outlive it; the sessions the old password
+opened end, and two-factor login at that level and below starts afresh.
+Every account has all eight levels from the start, with 17 credential rows
+of the same lengths, two of them for the password saved at the last level,
+so a level without a password looks like one with a password in the
+database; the record of which is which is sealed under the master key, and
+setting or removing a duress password is not logged. The "Password" page
+changes the password a session logged in with, at its own level only: it
+locks that level's key again under the new password, so every file still
+opens and nothing needs encrypting again, and it ends the account's other
+sessions at that level and below. A new password may not be a duress
+password of a level below, in use or still to come, which would then open
+the upper one. A forgotten password still cannot be reset: it is the only
+way to its keys.
 
 Two-factor login is kept per level, as passwords are: each level has it on,
 off, or as the level above it does, which is where every duress level
@@ -266,9 +276,11 @@ What the levels cannot hide:
   shows no upload for it.
 - A used duress password: it keeps working, and every later login with it
   opens a new window, so files shared with the account from then on reach
-  whoever holds it. Ending it on its own would give the owner away; replace
-  or remove it once the danger has passed, knowing that a new one starts
-  to work 48 hours after it is saved and the old one stops at once.
+  whoever holds it. Ending it on its own would give the owner away, so it
+  ends only when the owner replaces it, 48 hours after the new one is
+  saved, or removes it.
+- The first 48 hours: a first duress password does not work yet, so a
+  login forced in that time has only the real password to give.
 - The invite allowance: each level counts only the codes made at its own
   level or below, since a shared count would show a duress session that
   codes exist above it. An admin who knows their own duress passwords can

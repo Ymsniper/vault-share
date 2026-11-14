@@ -145,7 +145,7 @@ def test_passwords_are_kept_as_salted_verifiers(app, client):
     # 32-byte verifier per row: the same password gives different ones
     assert len(set(salts)) == 2 and {len(s) for s in salts} == {16}
     assert {len(v) for v in verifiers} == {32}
-    assert len(set(verifiers)) == len(verifiers) == 2 * levels.LEVELS
+    assert len(set(verifiers)) == len(verifiers) == 2 * levels.ROWS
 
 
 def test_login_rejects_wrong_password(client):

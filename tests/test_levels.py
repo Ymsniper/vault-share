@@ -340,17 +340,201 @@ def test_setting_a_duress_password_answers_the_same_at_levels_0_and_1(app, alice
     assert download(deeper, notes).data == b"Notes from the meeting.\n"
 
 
+DELAY = 48 * 3600
+# a duress password saved where one is in use
+NEW = "willow-copper-signal-63"
+WRONG = b"Incorrect username or password."
+
+
+def in_use(app, alice, monkeypatch):
+    """A duress session whose password has started to work."""
+    app.config["DURESS_DELAY"] = DELAY
+    set_duress(alice)
+    tick(monkeypatch, DELAY + 1)
+    forced, r = log_in(app, alice, DURESS)
+    assert r.headers["Location"] == "/"
+    return forced
+
+
+def test_an_old_duress_password_works_until_the_new_one_does(app, alice, monkeypatch):
+    """Design revision 2, A6: a duress password replaced keeps working until
+    the new one starts to, so whoever holds it notices nothing before; from
+    then on only the new one opens the level."""
+    in_use(app, alice, monkeypatch)
+    set_duress(alice, duress=NEW)
+    again, r = log_in(app, alice, DURESS)
+    assert r.headers["Location"] == "/" and rows(app)[-1] == ("login", "ok", 1)
+    assert download(again, new_file(again, MENU, "menu.txt")).data == MENU
+    _, r = log_in(app, alice, NEW)
+    assert WRONG in r.data
+    tick(monkeypatch, DELAY + 1)
+    _, r = log_in(app, alice, DURESS)
+    assert WRONG in r.data
+    _, r = log_in(app, alice, NEW)
+    assert r.headers["Location"] == "/" and rows(app)[-1] == ("login", "ok", 1)
+
+
+def test_a_session_of_the_old_password_ends_when_the_new_one_starts(app, alice, monkeypatch):
+    """Ended, never told its own password is wrong."""
+    forced = in_use(app, alice, monkeypatch)
+    set_duress(alice, duress=NEW)
+    menu = new_file(forced, MENU, "menu.txt")
+    tick(monkeypatch, DELAY + 1)
+    assert forced.get("/").headers["Location"] == "/auth/login"
+    r = download(forced, menu, follow_redirects=True)
+    assert b"Wrong password." not in r.data and WRONG not in r.data
+    assert r.request.path == "/auth/login"
+
+
+def test_a_code_typed_after_the_switch_opens_nothing(app, alice, monkeypatch):
+    """A login that typed the old password before the switch and its
+    two-factor code after it gets no session either."""
+    forced = in_use(app, alice, monkeypatch)
+    theirs = secret_on_page(forced)
+    forced.post("/auth/totp", data={"password": DURESS, "code": code(theirs)})
+    set_duress(alice, duress=NEW)
+    tick(monkeypatch, DELAY - 60)
+    late, r = log_in(app, alice, DURESS)
+    assert r.headers["Location"] == "/auth/login/code"
+    tick(monkeypatch, 120)
+    r = late.post("/auth/login/code", data={"code": code(theirs)}, follow_redirects=True)
+    assert b"Log in again." in r.data
+    assert late.get("/").headers["Location"] == "/auth/login"
+
+
+def test_removing_ends_both_duress_passwords_at_once(app, alice, monkeypatch):
+    in_use(app, alice, monkeypatch)
+    set_duress(alice, duress=NEW)
+    alice.post("/auth/duress/remove", data={"password": PASSWORD})
+    _, r = log_in(app, alice, DURESS)
+    assert WRONG in r.data
+    tick(monkeypatch, DELAY + 1)
+    _, r = log_in(app, alice, NEW)
+    assert WRONG in r.data
+
+
+def test_what_the_old_holder_set_up_meanwhile_ends_with_the_switch(app, alice, monkeypatch):
+    """In the 48 hours the old holder can still set a deeper password and
+    turn two-factor login on; once the new password works, neither does,
+    not even at the first login after the switch."""
+    forced = in_use(app, alice, monkeypatch)
+    set_duress(alice, duress=NEW)
+    set_duress(forced, duress=DEEPER)
+    theirs = secret_on_page(forced)
+    r = forced.post("/auth/totp", data={"password": DURESS, "code": code(theirs)},
+                    follow_redirects=True)
+    assert b"Two-factor login is on." in r.data
+    tick(monkeypatch, DELAY + 1)
+    _, r = log_in(app, alice, DEEPER)
+    assert WRONG in r.data
+    _, r = log_in(app, alice, NEW)
+    assert r.headers["Location"] == "/"
+
+
+@pytest.mark.parametrize("old, new", [("wipe", "cover"), ("cover", "wipe")])
+def test_the_first_login_after_the_switch_follows_the_new_mode(app, alice, monkeypatch, old, new):
+    app.config["DURESS_DELAY"] = DELAY
+    url = new_file(alice)
+    set_duress(alice, old)
+    tick(monkeypatch, DELAY + 1)
+    set_duress(alice, new, duress=NEW)
+    tick(monkeypatch, DELAY + 1)
+    _, r = log_in(app, alice, NEW)
+    assert r.headers["Location"] == "/"
+    with app.app_context():
+        kept = get_db().execute("SELECT 1 FROM files WHERE id = ?", (file_id(url),)).fetchone()
+    assert (kept is None) == (new == "wipe")
+
+
+def test_a_session_older_than_the_switch_saves_after_the_new_password(app, alice, monkeypatch):
+    """A save made after the new password started to work, from a session
+    opened before, replaces the new one, never the old one again."""
+    in_use(app, alice, monkeypatch)
+    set_duress(alice, duress=NEW)
+    tick(monkeypatch, DELAY + 1)
+    set_duress(alice, duress=DEEPER)
+    _, r = log_in(app, alice, DURESS)
+    assert WRONG in r.data
+    _, r = log_in(app, alice, NEW)
+    assert r.headers["Location"] == "/"
+
+
+def test_replacing_answers_as_saving_the_first(app, alice, bob, monkeypatch):
+    """Saving where a duress password is in use answers as saving where none
+    is: at a duress level as at another account's real one."""
+    forced = in_use(app, alice, monkeypatch)
+    pages = []
+    for client in (forced, bob):
+        first = set_duress(client, duress=DEEPER)
+        tick(monkeypatch, DELAY + 1)
+        second = set_duress(client, duress=NEW)
+        pages.append([normalized(p.data, client.handle) for p in (first, second)])
+    assert b"It becomes active in 48 hours." in second.data
+    assert pages[0] == pages[1]
+
+
+def test_the_password_page_refuses_a_duress_password_still_to_come(app, alice, monkeypatch):
+    in_use(app, alice, monkeypatch)
+    set_duress(alice, duress=NEW)
+    for taken in (DURESS, NEW):
+        r = change_password(alice, taken)
+        assert b"Choose a password other than your duress password." in r.data
+
+
+def test_the_last_level_refuses_a_replaced_password_as_the_levels_above(app, alice, bob, monkeypatch):
+    """The password saved at the last level opens nothing, but it is kept and
+    replaced as the levels above keep and replace theirs, so the Password
+    page there answers the same through a replacement."""
+    one, last = at_level_one(app, bob), descend(app, alice, levels.LEVELS - 1)
+    app.config["DURESS_DELAY"] = DELAY
+    answers = []
+    for client in (one, last):
+        set_duress(client, duress="harbor-lantern-quiet-41")
+        tick(monkeypatch, DELAY + 1)
+        client.get("/")
+        set_duress(client, duress=NEW)
+        answers.append([normalized(change_password(client, taken, password=client.password).data,
+                                   client.handle)
+                        for taken in ("harbor-lantern-quiet-41", NEW)])
+    assert answers[0] == answers[1]
+    assert all("Choose a password other than your duress password." in a for a in answers[0])
+
+
+def test_the_review_offers_to_keep_or_replace_the_duress_password(app, alice):
+    at_level_one(app, alice)
+    real, r = log_in(app, alice, PASSWORD)
+    assert r.headers["Location"] == "/auth/review"
+    page = real.get("/auth/review").data.decode()
+    assert "Whoever holds it can log in with it again" in page
+    form = re.search(r'<form method="post" action="/auth/duress".*?</form>', page, re.S)
+    assert form is not None
+    for name in ("csrf_token", "duress_password", "mode", "password"):
+        assert f'name="{name}"' in form.group(0)
+    r = set_duress(real, duress=NEW)
+    assert b"Duress password saved." in r.data
+    _, r = log_in(app, alice, NEW)
+    assert r.headers["Location"] == "/"
+
+
 def test_a_duress_password_set_at_the_last_level_opens_nothing(app, alice):
     deeper = descend(app, alice, levels.LEVELS - 1)
-    with app.app_context():
-        before = get_db().execute("SELECT * FROM credentials ORDER BY id").fetchall()
     r = set_duress(deeper, duress="harbor-lantern-quiet-41")
     assert b"Duress password saved." in r.data
-    with app.app_context():
-        assert get_db().execute("SELECT * FROM credentials ORDER BY id").fetchall() == before
-    # the end of the chain: once its delay is over, it still opens nothing
+    # the end of the chain: once its delay is over, it still opens nothing,
+    # and no lock of the account opens with it
     _, r = log_in(app, alice, "harbor-lantern-quiet-41")
     assert b"Incorrect username or password." in r.data
+    uid = alice_id(app, alice)
+    with app.app_context():
+        db = get_db()
+        salt = db.execute("SELECT kdf_salt FROM users WHERE id = ?", (uid,)).fetchone()[0]
+        locks = [r[0] for r in db.execute("SELECT lock FROM credentials WHERE user_id = ?", (uid,))]
+    master = derive_master("harbor-lantern-quiet-41", salt)
+    for level in range(levels.KEY_LEVELS):
+        secret = lock_secret(master, uid, level)
+        for lock in locks:
+            with pytest.raises(InvalidTag):
+                unlock_key(lock, secret, f"lock|{uid}|{level}".encode())
 
 
 def settings_in_use(client, saved):
@@ -995,7 +1179,7 @@ def test_a_level_two_wipe_can_be_undone_from_the_review(app, alice):
     assert download(real, menu).data == MENU
 
 
-def test_every_account_has_three_levels_of_one_shape(app, alice, bob):
+def test_every_account_has_every_level_in_one_shape(app, alice, bob):
     set_duress(alice, "wipe")
     with app.app_context():
         db = get_db()
@@ -1007,12 +1191,16 @@ def test_every_account_has_three_levels_of_one_shape(app, alice, bob):
             "SELECT level, length(public_key) AS public, link IS NULL AS top FROM level_keys"
         ).fetchall()
         policies = {len(r[0]) for r in db.execute("SELECT duress_policy FROM users")}
-    # a verifier and a lock per row, all of one length, and a salt per account
-    assert len(creds) == 2 * levels.LEVELS
+    # a verifier and a lock per row, all of one length, and a salt per
+    # account: level 0's row, then two for every level below it, the
+    # password in use and the next one, and two for the one saved at the
+    # last level, which opens nothing
+    assert levels.ROWS == 1 + 2 * levels.LEVELS
+    assert len(creds) == 2 * levels.ROWS
     assert {(r["verifier"], r["lock"]) for r in creds} == {(32, 60)}
     assert salts == {16}
-    # and four key pairs each: one per level, and one below level 2 for its
-    # cover files, every one but level 0's linked from the one above
+    # and a key pair for each level, and one below the last for its cover
+    # files, every one but level 0's linked from the one above
     pairs = [(level, 32, level == 0) for level in range(levels.KEY_LEVELS) for _ in range(2)]
     assert sorted(tuple(k) for k in keys) == pairs
     assert len(policies) == 1

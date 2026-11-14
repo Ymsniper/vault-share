@@ -132,7 +132,9 @@ def review():
     data = levels.review()
     if data is None:
         return redirect(url_for("files.index"))
-    return render_template("auth/review.html", since_local=to_local(data["since"]), **data)
+    return render_template(
+        "auth/review.html", since_local=to_local(data["since"]), delay=delay(), **data
+    )
 
 
 @bp.route("/review/<action>", methods=("POST",))
