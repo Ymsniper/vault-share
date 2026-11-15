@@ -154,7 +154,7 @@ The video below walks through the duress password on a test server:
 setting one, moving files to the cover files, and logging in with each
 password.
 
-https://github.com/user-attachments/assets/ee6abf66-b29d-49f0-a230-64572e3edcc0
+https://github.com/user-attachments/assets/bb948d32-6be6-4303-8544-0bcb88327067
 
 A duress password, set from the "Duress" page, is the one to give if someone
 forces you to log in. It opens your cover files: a second vault that is
