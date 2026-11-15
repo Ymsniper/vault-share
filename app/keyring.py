@@ -125,8 +125,8 @@ class Keyring:
             return None
         for root in self.mount_roots:
             # /media/LABEL, or /run/media/USER/LABEL as udisks mounts sticks
-            for depth in ("*", os.path.join("*", "*")):
-                for path in glob.glob(os.path.join(root, depth, USB_KEY_FILE)):
+            for nesting in ("*", os.path.join("*", "*")):
+                for path in glob.glob(os.path.join(root, nesting, USB_KEY_FILE)):
                     try:
                         with open(path, "rb") as f:
                             share = f.read(64)

@@ -45,7 +45,22 @@ from .test_totp import RECOVERY_SHAPE, code, secret_on_page, turn_on
 DEEPER = "lantern-quiet-harbor-29"
 MENU = b"Lunch on Friday: soup, bread, apples.\n"
 # a password for every level, the real one first
-PASSWORDS = [PASSWORD, DURESS, DEEPER] + [f"copper-lantern-orchard-{n}" for n in range(3, 8)]
+PASSWORDS = [PASSWORD, DURESS, DEEPER] + [
+    f"copper-lantern-orchard-{n}" for n in range(3, levels.LEVELS)]
+
+
+def depth_of(app, client):
+    """The number of levels the server drew for client's account."""
+    with app.app_context():
+        user = get_db().execute(
+            "SELECT * FROM users WHERE username = ?", (client.handle,)
+        ).fetchone()
+        return levels.open_policy(user).depth[0]
+
+
+def last_level(app, client):
+    """The last level a password opens on client's account."""
+    return depth_of(app, client) - 1
 
 
 def descend(app, client, to):
@@ -523,7 +538,7 @@ def test_the_last_level_refuses_a_replaced_password_as_the_levels_above(app, ali
     """The password saved at the last level opens nothing, but it is kept and
     replaced as the levels above keep and replace theirs, so the Password
     page there answers the same through a replacement."""
-    one, last = at_level_one(app, bob), descend(app, alice, levels.LEVELS - 1)
+    one, last = at_level_one(app, bob), descend(app, alice, last_level(app, alice))
     app.config["DURESS_DELAY"] = DELAY
     answers = []
     for client in (one, last):
@@ -555,7 +570,7 @@ def test_the_review_offers_to_keep_or_replace_the_duress_password(app, alice):
 
 
 def test_a_duress_password_set_at_the_last_level_opens_nothing(app, alice):
-    deeper = descend(app, alice, levels.LEVELS - 1)
+    deeper = descend(app, alice, last_level(app, alice))
     r = set_duress(deeper, duress="harbor-lantern-quiet-41")
     assert b"Duress password saved." in r.data
     # the end of the chain: once its delay is over, it still opens nothing,
@@ -604,7 +619,7 @@ def test_the_last_level_settings_answer_like_level_one(app, alice, bob, monkeypa
     there refuses it as a new password, as the levels above refuse theirs,
     until it is removed."""
     one = at_level_one(app, bob)
-    two = descend(app, alice, levels.LEVELS - 1)
+    two = descend(app, alice, last_level(app, alice))
     argon2, _ = counted(monkeypatch)
     answers, costs = [], []
     for client in (two, one):
@@ -713,7 +728,7 @@ def test_the_last_level_moves_files_like_level_one(app, alice, bob):
     level 1 session's do, so the end of the chain shows only when a duress
     password set there never opens anything."""
     one = at_level_one(app, bob)
-    two = descend(app, alice, levels.LEVELS - 1)
+    two = descend(app, alice, last_level(app, alice))
     answers = []
     for client in (two, one):
         notes = new_file(client, b"Notes from the meeting.\n", "notes.txt")
@@ -1486,7 +1501,7 @@ def test_requests_make_the_same_key_operations_at_every_level(app, monkeypatch):
     the real ones down from the session's level and the rest on a spare pair,
     so a request at level 0 and one at the last level do the same work."""
     a, b = logged_in(app, "alice"), logged_in(app, "alice")
-    last = descend(app, a, levels.LEVELS - 1)
+    last = descend(app, a, last_level(app, a))
     calls = []
     real = levels.follow_link
     monkeypatch.setattr(levels, "follow_link", lambda *args: calls.append(1) or real(*args))
@@ -1589,7 +1604,7 @@ def test_requests_do_the_same_work_at_every_level(app, monkeypatch):
     stand-ins: the same number of Argon2 calls, which are what take time,
     of key operations, and of SQL statements."""
     a, b, carol = logged_in(app, "alice"), logged_in(app, "alice"), logged_in(app, "carol")
-    last = descend(app, a, levels.LEVELS - 1)
+    last = descend(app, a, last_level(app, a))
     argon2, statements = counted(monkeypatch)
     keys = []
     for name in ("follow_link", "wrap_file_key", "unwrap_file_key", "lock_key", "unlock_key"):
@@ -1881,6 +1896,17 @@ def test_the_duress_password_reaches_no_level_zero_key(app, alice, bob):
     zero = [c for c in creds if verifier(real_master, uid, c["id"]) == c["verifier"]][0]
     with pytest.raises(InvalidTag):
         unlock_key(zero["lock"], lock_secret(master, uid, 0), f"lock|{uid}|0".encode())
+
+
+def test_the_number_of_levels_is_read_in_levels_py_only():
+    """An account's number of levels is never shown: no other module, page
+    or console screen even names it."""
+    root = Path(__file__).parent.parent
+    places = [*(root / "app").glob("*.py"), *(root / "app" / "templates").rglob("*.html"),
+              *(root / "console").glob("*.py")]
+    for path in places:
+        if path.name != "levels.py":
+            assert not re.search(r"depth", path.read_text(), re.I), path.name
 
 
 # where a session's level may be read (section 11): the levels themselves,

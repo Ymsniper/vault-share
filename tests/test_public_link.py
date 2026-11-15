@@ -168,7 +168,7 @@ def change_port_in_the_console(app, then):
             await pilot.pause()
             await pilot.click("#server-settings")
             await pilot.pause()
-            await answer(pilot, console, "7000", "10")
+            await answer(pilot, console, "7000", "10", "16", "47")
             await console.workers.wait_for_complete()
             await pilot.pause()
             shown.append(console.screen)

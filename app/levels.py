@@ -2,8 +2,14 @@
 real, kept from the first by keys.
 
 Level 0 opens with the real password, level 1 with the duress password,
-and each level after it, down to the last, level 7, with the duress
-password set from a session at the level above. Each level has its own
+and each level after it, down to the last, with the duress password set
+from a session at the level above. How many levels an account has is a
+number the server draws for it at registration, evenly from its range,
+and keeps sealed in the policy (its depth): no page, log row or console
+screen shows it, and every account has rows and keys for the largest
+number and does the same work at every level, so the end of a chain is
+found only by reaching it, and counting nested duress passwords inside
+the range says nothing. Each level has its own
 X25519 key pair: a password opens its level's private key, and that key
 opens the ones below it (a higher number), never the one above. Every
 session works at one level and believes it is the top: it sees and opens
@@ -25,6 +31,7 @@ import struct
 import threading
 import time
 from dataclasses import dataclass
+from secrets import randbelow
 
 from cryptography.exceptions import InvalidTag
 from flask import current_app, g
@@ -49,7 +56,9 @@ from .db import get_db
 from .keyring import master_key
 from .storage import storage_path
 
-LEVELS = 8
+# the largest number of levels an account can be drawn; every account has
+# rows, key pairs and two-factor rows for all of them
+LEVELS = 47
 # key pairs: one per level, and the one under the last for its cover files
 KEY_LEVELS = LEVELS + 1
 # credential rows: level 0's, then for every level below it two, the
@@ -66,7 +75,10 @@ MODES = {"cover": COVER, "wipe": WIPE}
 # below it that its logins closed; then the row, mode and start of the next
 # password, saved and not working yet. The rows and passwords go one level
 # further, for the one saved at the last level. Level 0's modes and times
-# are never used, nor its next row, which it has none of.
+# are never used, nor its next row, which it has none of. Last, the
+# account's number of levels: levels 0 to depth - 1 open with a password,
+# and the rows at depth keep the one saved at the last of them, which opens
+# nothing.
 _FIELDS = (
     ("rows", "q", KEY_LEVELS),
     ("modes", "c", KEY_LEVELS),
@@ -76,6 +88,7 @@ _FIELDS = (
     ("next_rows", "q", KEY_LEVELS),
     ("next_modes", "c", KEY_LEVELS),
     ("next_from", "q", KEY_LEVELS),
+    ("depth", "q", 1),
 )
 _FORMAT = "<" + "".join(f"{count}{code}" for _, code, count in _FIELDS)
 
@@ -90,6 +103,7 @@ class Policy:
     next_rows: list
     next_modes: list
     next_from: list
+    depth: list
 
 
 def _aad(username):
@@ -142,6 +156,14 @@ def link_aad(user_id, level):
     return f"link|{user_id}|{level}".encode()
 
 
+def draw_depth():
+    """The number of levels of a new account, drawn evenly from the server's
+    range: any other shape would make some counts likelier from one level
+    than from the next. Nobody chooses it, and nothing ever shows it."""
+    low, high = current_app.config["LEVELS_RANGE"]
+    return low + randbelow(high - low + 1)
+
+
 def new_account(user_id, username, password):
     """Every level of a new account. Each has a real key pair from the
     start, linked down from the one above, so a duress password can be set
@@ -177,7 +199,7 @@ def new_account(user_id, username, password):
             (user_id, level, public_bytes(key), link),
         )
     policy = Policy(rows, [COVER] * KEY_LEVELS, [0] * KEY_LEVELS, [0] * LEVELS, [0] * LEVELS,
-                    next_rows, [COVER] * KEY_LEVELS, [0] * KEY_LEVELS)
+                    next_rows, [COVER] * KEY_LEVELS, [0] * KEY_LEVELS, [draw_depth()])
     db.execute(
         "UPDATE users SET duress_policy = ? WHERE id = ?", (seal_policy(username, policy), user_id)
     )
@@ -229,9 +251,13 @@ def login_level(user, password, username):
         # ends opens nothing, not even at this login; the caller reads the
         # account again
         policy = update_policy(user["id"], lambda written: written)
+    # every level the account could have is tried, and the ones past its
+    # depth masked: a loop as long as the depth would be the one difference
+    depth = policy.depth[0]
     found = [
         level for level in range(LEVELS)
         if policy.rows[level] in matched and (level == 0 or 0 < policy.active_from[level] <= now)
+        and level < depth
     ]
     return min(found, default=None)
 
@@ -993,9 +1019,9 @@ def set_duress(keys, password, mode):
     says nothing either."""
     user, lower = g.user, g.level + 1
     master = _master(password, user["kdf_salt"])
-    # below the last level the lock holds the spare key, which opens
-    # nothing, with the work of a real one
-    key = keys.private[lower] if lower < LEVELS else _SPARE_UPPER
+    # past the account's last level the lock holds the spare key, which
+    # opens nothing, with the work of a real one
+    key = keys.private[lower] if lower < open_policy(user).depth[0] else _SPARE_UPPER
     lock = lock_key(key, lock_secret(master, user["id"], lower), lock_aad(user["id"], lower))
 
     def change(policy):

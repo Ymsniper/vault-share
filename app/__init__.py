@@ -54,6 +54,8 @@ def create_app(test_config=None):
     settings, problem = server_settings.load(app.config["SETTINGS_FILE"])
     app.config.setdefault("PORT", settings["port"])
     app.config.setdefault("MAX_UPLOAD_MB", settings["max_upload_mb"])
+    # the range a new account's secret number of levels is drawn from
+    app.config.setdefault("LEVELS_RANGE", (settings["min_levels"], settings["max_levels"]))
     app.config["MAX_CONTENT_LENGTH"] = server_settings.upload_limit(app.config["MAX_UPLOAD_MB"])
     app.config["SETTINGS_PROBLEM"] = problem
     if problem:

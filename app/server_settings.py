@@ -1,4 +1,5 @@
-"""The server's own settings: its port and the largest upload.
+"""The server's own settings: its port, the largest upload, and the range
+new accounts draw their secret number of levels from (app/levels.py).
 
 They live in instance/server.toml rather than in the database, because the
 port is needed before the database can be unlocked (USB stick, passphrase).
@@ -17,12 +18,15 @@ from flask.cli import with_appcontext
 from . import public_link
 from .audit import audit
 from .keyring import Locked
+from .levels import LEVELS
 
-DEFAULTS = {"port": 5000, "max_upload_mb": 10}
+DEFAULTS = {"port": 5000, "max_upload_mb": 10, "min_levels": 16, "max_levels": LEVELS}
 # ports under 1024 need root; a file is held in memory while it is hashed,
 # encrypted and signed, and again while it is decrypted, so a higher upload
-# ceiling would let a few uploads use up the memory
-LIMITS = {"port": (1024, 65535), "max_upload_mb": (1, 100)}
+# ceiling would let a few uploads use up the memory. Every account has rows
+# for LEVELS levels, so no range goes past it.
+LIMITS = {"port": (1024, 65535), "max_upload_mb": (1, 100), "min_levels": (2, LEVELS),
+          "max_levels": (2, LEVELS)}
 # room for the form's other fields around the file
 FORM_MARGIN = 64 * 1024
 
@@ -38,6 +42,14 @@ def problem(key, value):
     if type(value) is not int or not low <= value <= high:
         unit = " MB" if key == "max_upload_mb" else ""
         return f"{key} must be a whole number from {low} to {high}{unit}"
+    return None
+
+
+def range_problem(settings):
+    """A range of one number would let anyone count the levels of every
+    account: the smallest must stay below the largest."""
+    if settings["min_levels"] >= settings["max_levels"]:
+        return "min_levels must be smaller than max_levels"
     return None
 
 
@@ -60,22 +72,29 @@ def load(path):
         wrong = problem(key, value)
         if wrong:
             return dict(DEFAULTS), f"{path}: {wrong}, so the defaults are used"
-    return {**DEFAULTS, **values}, None
+    settings = {**DEFAULTS, **values}
+    wrong = range_problem(settings)
+    if wrong:
+        return dict(DEFAULTS), f"{path}: {wrong}, so the defaults are used"
+    return settings, None
 
 
-def save(path, port=None, max_upload_mb=None):
-    """Check the new values, then write them: a new file, readable by its
-    owner only, moved into place in one step. Returns the settings. Raises
-    ValueError."""
+def save(path, **changes):
+    """Check the new values (keys of DEFAULTS; None keeps a value), then
+    write them all: a new file, readable by its owner only, moved into place
+    in one step. Returns the settings. Raises ValueError."""
     current, _ = load(path)
-    new = {
-        "port": current["port"] if port is None else port,
-        "max_upload_mb": current["max_upload_mb"] if max_upload_mb is None else max_upload_mb,
-    }
+    unknown = sorted(set(changes) - set(DEFAULTS))
+    if unknown:
+        raise ValueError(f"Unknown settings: {', '.join(unknown)}.")
+    new = {**current, **{key: value for key, value in changes.items() if value is not None}}
     for key, value in new.items():
         wrong = problem(key, value)
         if wrong:
             raise ValueError(wrong[0].upper() + wrong[1:] + ".")
+    wrong = range_problem(new)
+    if wrong:
+        raise ValueError(wrong[0].upper() + wrong[1:] + ".")
     # mkstemp creates the file with mode 0600
     fd, temp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".server.toml.")
     try:
@@ -94,14 +113,17 @@ def upload_limit(max_upload_mb):
 
 
 def describe(settings):
-    return f"port {settings['port']}, uploads up to {settings['max_upload_mb']} MB"
+    return (f"port {settings['port']}, uploads up to {settings['max_upload_mb']} MB,"
+            f" {settings['min_levels']} to {settings['max_levels']} levels per new account")
 
 
 def apply(app, settings):
-    """Use new settings at once where that is possible: the upload limit.
-    The port needs the server to start again."""
+    """Use new settings at once where that is possible: the upload limit,
+    and the range the next accounts are drawn from. The port needs the
+    server to start again."""
     app.config["MAX_UPLOAD_MB"] = settings["max_upload_mb"]
     app.config["MAX_CONTENT_LENGTH"] = upload_limit(settings["max_upload_mb"])
+    app.config["LEVELS_RANGE"] = (settings["min_levels"], settings["max_levels"])
 
 
 def log_change(old, new):
@@ -111,6 +133,10 @@ def log_change(old, new):
         changes.append(f"port {old['port']} to {new['port']}")
     if old["max_upload_mb"] != new["max_upload_mb"]:
         changes.append(f"upload limit {old['max_upload_mb']} MB to {new['max_upload_mb']} MB")
+    span = ("min_levels", "max_levels")
+    if any(old[key] != new[key] for key in span):
+        changes.append("levels per new account {} to {}, now {} to {}".format(
+            *(old[key] for key in span), *(new[key] for key in span)))
     if not changes:
         return True
     try:
@@ -138,11 +164,17 @@ def offer_link_move(old_port, new_port, https, yes):
 @click.command("server-settings")
 @click.option("--port", type=int, help="The port the server listens on, 1024 to 65535.")
 @click.option("--max-upload-mb", type=int, help="The largest upload, 1 to 100 MB.")
+@click.option("--min-levels", type=int,
+              help=f"The fewest levels a new account is drawn, 2 to {LEVELS}.")
+@click.option("--max-levels", type=int,
+              help=f"The most levels a new account is drawn, 2 to {LEVELS}.")
 @click.option("--yes", is_flag=True,
               help="Move a Tailscale link that pointed at the old port without asking.")
 @with_appcontext
-def settings_command(port, max_upload_mb, yes):
-    """Show the server's port and upload limit, or change them.
+def settings_command(port, max_upload_mb, min_levels, max_levels, yes):
+    """Show the server's settings, or change them: the port, the upload
+    limit, and the range each new account's secret number of levels is
+    drawn from, evenly (a wider range hides more).
 
     The server only ever listens on 127.0.0.1; reach it from elsewhere
     through a proxy such as Tailscale.
@@ -151,11 +183,12 @@ def settings_command(port, max_upload_mb, yes):
     old, trouble = load(path)
     if trouble:
         click.echo(trouble)
-    if port is None and max_upload_mb is None:
+    if port is None and max_upload_mb is None and min_levels is None and max_levels is None:
         click.echo(describe(old))
         return
     try:
-        new = save(path, port, max_upload_mb)
+        new = save(path, port=port, max_upload_mb=max_upload_mb, min_levels=min_levels,
+                   max_levels=max_levels)
     except ValueError as e:
         raise click.ClickException(str(e)) from None
     click.echo(f"Saved: {describe(new)}. Start the server again to use them.")

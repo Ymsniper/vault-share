@@ -499,7 +499,8 @@ class Console(App):
     def settings_text(self):
         cfg = self.flask_app.config
         return server_settings.describe(
-            {"port": cfg["PORT"], "max_upload_mb": cfg["MAX_UPLOAD_MB"]}
+            {"port": cfg["PORT"], "max_upload_mb": cfg["MAX_UPLOAD_MB"],
+             "min_levels": cfg["LEVELS_RANGE"][0], "max_levels": cfg["LEVELS_RANGE"][1]}
         )
 
     def setup_state(self):
@@ -1370,7 +1371,13 @@ class Console(App):
             Ask("Server settings", [
                 ("Port, 1024 to 65535", False, str(cfg["PORT"])),
                 ("Largest upload in MB, 1 to 100", False, str(cfg["MAX_UPLOAD_MB"])),
-            ], "The server always listens on 127.0.0.1; a proxy such as Tailscale reaches it."),
+                (f"Fewest levels for a new account, 2 to {levels.LEVELS}", False,
+                 str(cfg["LEVELS_RANGE"][0])),
+                (f"Most levels for a new account, 2 to {levels.LEVELS}", False,
+                 str(cfg["LEVELS_RANGE"][1])),
+            ], "The server always listens on 127.0.0.1; a proxy such as Tailscale reaches it. "
+               "Each new account draws a secret number of levels from the range: a wider one "
+               "hides more."),
             self.change_server_settings,
         )
 
@@ -1379,13 +1386,16 @@ class Console(App):
             return
         cfg = self.flask_app.config
         try:
-            port, max_upload_mb = int(values[0]), int(values[1])
-            new = server_settings.save(cfg["SETTINGS_FILE"], port, max_upload_mb)
+            port, max_upload_mb, min_levels, max_levels = (int(v) for v in values)
+            new = server_settings.save(cfg["SETTINGS_FILE"], port=port,
+                                       max_upload_mb=max_upload_mb, min_levels=min_levels,
+                                       max_levels=max_levels)
         except ValueError as e:
-            whole = "Type whole numbers for the port and the upload limit."
+            whole = "Type whole numbers in every field."
             self.notify(whole if "literal" in str(e) else str(e), severity="error")
             return
-        old = {"port": cfg["PORT"], "max_upload_mb": cfg["MAX_UPLOAD_MB"]}
+        old = {"port": cfg["PORT"], "max_upload_mb": cfg["MAX_UPLOAD_MB"],
+               "min_levels": cfg["LEVELS_RANGE"][0], "max_levels": cfg["LEVELS_RANGE"][1]}
         server_settings.apply(self.flask_app, new)
         cfg["SETTINGS_PROBLEM"] = None
         if new["port"] != old["port"]:

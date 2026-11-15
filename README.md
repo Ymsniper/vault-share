@@ -160,10 +160,19 @@ A duress password, set from the "Duress" page, is the one to give if someone
 forces you to log in. It opens your cover files: a second vault that is
 real, where uploads, downloads, sharing and the settings all work, rather
 than an empty account that refuses things. What keeps your other files from
-it is keys, not hidden buttons. Every account has eight levels, each with
-its own X25519 key pair: the real password opens level 0, the duress
-password level 1, and each level after it, down to level 7, opens with the
-duress password set from a session at the level above. A level's private
+it is keys, not hidden buttons. Every account has a number of levels, each
+with its own X25519 key pair: the real password opens level 0, the duress
+password level 1, and each level after it, down to the account's last,
+opens with the duress password set from a session at the level above. How
+many levels an account has is a secret: the server draws the number at
+registration, evenly from a range (16 to 47 by default, see "Server
+settings" below), seals it with the account's other levels, and shows it
+nowhere, on no page, log row or console screen. A duress password saved at
+the last level is kept like any other, answers "Saved" and does the same
+work, but opens nothing. So counting how many nested duress passwords work
+before one fails tells a coercer nothing for a count inside the range: 20
+can be the top of an account with 21 levels or level 1 of one with 22, and
+the even draw makes both alike. A level's private
 key is locked under its password and also linked down from the level
 above, so a password opens its own level and the ones below it, never the
 one above. Each password typed costs one Argon2id run (9
@@ -172,16 +181,18 @@ comes from that run: a credential row keeps an HMAC of it, and the level's
 lock is made with a key derived from it. A login costs one run whatever it
 opens and however many levels there are. The account's passwords share the
 salt, so one offline guess tests them all at once; the run, three times as
-strong as each of the three checks it replaced, pays for that. One more key
-pair, linked down from level 7's and opened by no password, keeps level 7's
-cover files. Opening a session's keys always takes as many steps: after the
-real links down from its level, the rest go through a spare pair made at
-start-up, so a request at level 0 does the same work as one at level 7.
+strong as each of the three checks it replaced, pays for that. Every account
+has rows and key pairs for the largest number of levels, 47, whatever its
+own: one more key pair, after the account's last level and opened by no
+password, keeps that level's cover files. Opening a session's keys always
+takes as many steps: after the real links down from its level, the rest go
+through a spare pair made at start-up, so a request at level 0 does the
+same work as one at the last level, on a short account as on a long one.
 Every session believes it is the top: it sees its own files, and the
 levels below it as its cover files, and every page looks the same at
 each level. A password asked inside a session is checked against that
 session's level only, so no form there can test another password. The
-signing key hangs off level 7, which every password reaches, so files
+signing key hangs off level 46, which every password reaches, so files
 uploaded at any level carry the same certificate. The Duress page moves
 files between your own vault and the cover files, yours or shared with you:
 each move encrypts the key copy again to the other level's public key, so it
@@ -264,10 +275,9 @@ request or login after its time. Only then are the passwords set further
 down cleared, as a removal clears them at once, so a password a coercer set
 from a duress session does not outlive it; the sessions the old password
 opened end, and two-factor login at that level and below starts afresh.
-Every account has all eight levels from the start, with 17 credential rows
-of the same lengths, two of them for the password saved at the last level,
-so a level without a password looks like one with a password in the
-database; the record of which is which is sealed under the master key, and
+Every account has all 47 levels' rows from the start, 95 credential rows of
+the same lengths, so a level without a password, or past the account's
+last, looks like one with a password in the database; the record of which is which is sealed under the master key, and
 setting or removing a duress password is not logged. The "Password" page
 changes the password a session logged in with, at its own level only: it
 locks that level's key again under the new password, so every file still
@@ -297,10 +307,13 @@ What the levels cannot hide:
   with people you do not fully trust among the cover files.
 - An unconvincing cover vault: empty or stale cover files give it away,
   which is why the Duress page shows when they last changed.
-- The bottom: no password opens anything below level 7, so a duress
-  password set from a level 7 session opens nothing, though the pages
-  there answer as at the levels above. Getting there takes seven 48-hour
-  delays and eight logins, 14 days at the least.
+- The low edge: an account drawn with the fewest levels is the one place
+  where counting tells. With the range 16 to 47, a top session always sees
+  at least 15 nested duress passwords work, so a count of 14 can only come
+  from level 1 of an account with 16: one account in 32 can be proven a
+  duress session that way, and only after 15 48-hour delays and 16 logins,
+  30 days at the least. A wider range lowers the chance, a higher minimum
+  lengthens the wait; a count of 46 only ever proves a real session.
 - Honest senders: a file shared with the account while a duress window is
   open is readable by whoever holds the duress session. The alarm is there
   so that admins can act in that time.
@@ -432,8 +445,9 @@ real person gets a new account.
 The master key does not open files. Each file's key is stored only as
 copies encrypted with HPKE (RFC 9180: X25519, HKDF-SHA256, AES-256-GCM), one
 for each person who may open the file: its owner and every recipient of an
-active share. Every user has an X25519 key pair for each of their eight
-levels, and one for level 7's cover files (see the duress password above),
+active share. Every user has an X25519 key pair for each of the 47 levels
+an account can have, and one more for the last level's cover files (see
+the duress password above),
 separate from their signing key, and each level's private key is locked
 under a key derived from that level's password through its Argon2id run. A
 copy is bound to one file, one reader and one level. So even someone
@@ -587,6 +601,7 @@ tab or the command line:
 
     vault-share server-settings                              # show them
     vault-share server-settings --port 5101 --max-upload-mb 50
+    vault-share server-settings --min-levels 16 --max-levels 47
 
 The port goes from 1024 to 65535 (5000 by default) and the upload limit
 from 1 to 100 MB (10 by default): a file is held in memory while it is
@@ -595,6 +610,14 @@ use up the memory. A file with wrong values is ignored, with a warning, and
 the defaults are used. The server always listens on 127.0.0.1, which is not
 a setting: from elsewhere it is reached through a proxy. The console uses a
 new port at once; `vault-share serve` when it starts again.
+
+The range each new account's secret number of levels is drawn from, evenly,
+goes from 2 to 47 (16 to 47 by default), and its smallest number must stay
+below its largest: one number for every account would let anyone count it on
+an account of their own. A wider range hides more; a higher minimum makes
+proving a duress session at the low edge take longer. A change applies to
+the accounts registered afterwards, and says nothing about any one account.
+No command or screen shows or sets an account's own number.
 
 When the port changes and a Tailscale link (Funnel or serve) still points at
 the old one, the console and `server-settings` ask whether to move it, and

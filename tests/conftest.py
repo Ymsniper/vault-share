@@ -97,6 +97,9 @@ def app(tmp_path, ca_dir):
             # a new duress password works at once here; test_levels.py has
             # the real delay
             "DURESS_DELAY": 0,
+            # every account drawn with 8 levels, the last one at 7, unless a
+            # test asks for others (test_depth.py)
+            "LEVELS_RANGE": (8, 8),
         }
     )
     with app.app_context():

@@ -314,8 +314,8 @@ def test_server_settings_from_the_setup_tab(app):
             await pilot.pause()
             await pilot.click("#server-settings")
             await pilot.pause()
-            assert [i.value for i in console.screen.query(Input)] == ["5000", "10"]
-            await answer(pilot, console, str(new_port), "3")
+            assert [i.value for i in console.screen.query(Input)] == ["5000", "10", "8", "8"]
+            await answer(pilot, console, str(new_port), "3", "16", "47")
             await pilot.pause()
             seen.append((console.server.running, console.server.port))
             with socket.create_connection(("127.0.0.1", new_port), timeout=2):
@@ -325,9 +325,11 @@ def test_server_settings_from_the_setup_tab(app):
     run(scenario)
     assert seen == [(True, new_port)]
     assert app.config["MAX_UPLOAD_MB"] == 3
+    # new accounts draw from the range at once
+    assert app.config["LEVELS_RANGE"] == (16, 47)
     assert app.config["MAX_CONTENT_LENGTH"] == 3 * 1024 * 1024 + 64 * 1024
     assert server_settings.load(app.config["SETTINGS_FILE"])[0] == {
-        "port": new_port, "max_upload_mb": 3
+        "port": new_port, "max_upload_mb": 3, "min_levels": 16, "max_levels": 47
     }
 
 
