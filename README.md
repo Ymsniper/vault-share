@@ -150,6 +150,16 @@ admin's new invite code is shown the same way, in the page that made it.
 
 ![Turning on two-factor login](docs/screenshots/web-two-factor.png)
 
+The video below walks through the duress password on a test server:
+setting one, moving files to the cover files, and logging in with each
+password.
+
+
+
+https://github.com/user-attachments/assets/ee6abf66-b29d-49f0-a230-64572e3edcc0
+
+
+
 A duress password, set from the "Duress" page, is the one to give if someone
 forces you to log in. It opens your cover files: a second vault that is
 real, where uploads, downloads, sharing and the settings all work, rather
